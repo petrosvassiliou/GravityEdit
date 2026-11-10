@@ -2554,7 +2554,7 @@ fun NewDocumentDialog(
 
             // 2. File Type & Extension Selector Grid
             Text(
-                text = stringResource(R.string.picker_language_title),
+                text = stringResource(R.string.status_language),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -2586,7 +2586,7 @@ fun NewDocumentDialog(
             ) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = stringResource(R.string.picker_encoding_title),
+                        text = stringResource(R.string.status_encoding),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -2606,7 +2606,7 @@ fun NewDocumentDialog(
 
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = stringResource(R.string.picker_line_ending_title),
+                        text = stringResource(R.string.status_line_ending),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary
                     )
