@@ -427,13 +427,13 @@ class GravityEditEnginesTest {
         assertEquals(listOf(1, 0, 0), AppUpdateManagerEngine.parseSemVerParts("v1.0.0"))
         assertEquals(listOf(1, 2, 10), AppUpdateManagerEngine.parseSemVerParts("v1.2.10-beta.1"))
 
-        assertTrue(AppUpdateManagerEngine.compareSemVer("v1.1.0", "1.0.0") > 0)
-        assertTrue(AppUpdateManagerEngine.compareSemVer("v1.0.0", "v1.0.0") == 0)
-        assertTrue(AppUpdateManagerEngine.compareSemVer("v1.0.0", "v2.0.0") < 0)
+        assertTrue(AppUpdateManagerEngine.compareSemVer(currentVersion = "1.0.0", remoteVersion = "v1.1.0") > 0)
+        assertTrue(AppUpdateManagerEngine.compareSemVer(currentVersion = "v1.0.0", remoteVersion = "v1.0.0") == 0)
+        assertTrue(AppUpdateManagerEngine.compareSemVer(currentVersion = "v2.0.0", remoteVersion = "v1.0.0") < 0)
 
-        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer(installedVersion = "1.0.0", remoteTagOrVersion = "v1.0.1"))
-        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer(installedVersion = "1.2.0", remoteTagOrVersion = "v1.2.0"))
-        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer(installedVersion = "1.2.0", remoteTagOrVersion = "v1.1.9"))
+        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer(currentVersion = "1.0.0", remoteVersion = "v1.0.1"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer(currentVersion = "1.2.0", remoteVersion = "v1.2.0"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer(currentVersion = "1.2.0", remoteVersion = "v1.1.9"))
 
         // Verify SHA-256 digest calculation and ZIP magic header check on a temporary file
         val tempApk = java.io.File.createTempFile("gravityedit_test_", ".apk")

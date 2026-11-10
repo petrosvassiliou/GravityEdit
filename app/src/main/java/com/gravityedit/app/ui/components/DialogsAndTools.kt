@@ -2820,7 +2820,7 @@ fun AppUpdateModal(
     distributionChannel: UpdateDistributionChannel,
     updateStatus: AppUpdateCheckStatus,
     latestRelease: AppReleaseInfo?,
-    downloadProgress: Float,
+    downloadProgress: Int,
     verifiedSha256: String?,
     errorMessage: String?,
     autoCheckOnStartup: Boolean,
@@ -2903,7 +2903,7 @@ fun AppUpdateModal(
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = distributionChannel.policySummary,
+                        text = distributionChannel.policyDescription,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2968,13 +2968,9 @@ fun AppUpdateModal(
                         AppUpdateCheckStatus.UPDATE_AVAILABLE ->
                             "⬆ New release ${latestRelease?.tagName ?: ""} is available for verification & installation."
                         AppUpdateCheckStatus.DOWNLOADING ->
-                            "Downloading APK over TLS 1.3 HTTPS (${(downloadProgress * 100).roundToInt()}%)…"
-                        AppUpdateCheckStatus.VERIFYING_INTEGRITY ->
-                            "Verifying APK ZIP structure & SHA-256 cryptographic digest…"
-                        AppUpdateCheckStatus.READY_FOR_SYSTEM_INSTALLER ->
+                            "Downloading APK over TLS 1.3 HTTPS ($downloadProgress%) & verifying SHA-256…"
+                        AppUpdateCheckStatus.READY_TO_INSTALL ->
                             "✓ SHA-256 & APK structure verified. Handed off to Android System PackageInstaller."
-                        AppUpdateCheckStatus.PLAY_STORE_MANAGED ->
-                            "Managed by Google Play Store In-App Updates."
                         AppUpdateCheckStatus.ERROR ->
                             errorMessage ?: "Unable to complete update check."
                     }
@@ -2989,13 +2985,11 @@ fun AppUpdateModal(
                         }
                     )
 
-                    if (updateStatus == AppUpdateCheckStatus.CHECKING ||
-                        updateStatus == AppUpdateCheckStatus.VERIFYING_INTEGRITY
-                    ) {
+                    if (updateStatus == AppUpdateCheckStatus.CHECKING) {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     } else if (updateStatus == AppUpdateCheckStatus.DOWNLOADING) {
                         LinearProgressIndicator(
-                            progress = { downloadProgress.coerceIn(0f, 1f) },
+                            progress = { (downloadProgress / 100f).coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -3074,8 +3068,7 @@ fun AppUpdateModal(
 
                     Button(
                         onClick = onDownloadAndInstall,
-                        enabled = updateStatus != AppUpdateCheckStatus.DOWNLOADING &&
-                            updateStatus != AppUpdateCheckStatus.VERIFYING_INTEGRITY
+                        enabled = updateStatus != AppUpdateCheckStatus.DOWNLOADING
                     ) {
                         Text(
                             when (distributionChannel) {

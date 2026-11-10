@@ -392,7 +392,7 @@ fun GravityEditScaffold(
                 includePreReleases = uiState.updateIncludePreReleases,
                 onAutoCheckChange = viewModel::setAutoCheckUpdatesOnStartup,
                 onIncludePreReleasesChange = viewModel::setUpdateIncludePreReleases,
-                onCheckNow = { viewModel.checkForAppUpdates(silentStartupCheck = false) },
+                onCheckNow = { viewModel.checkForAppUpdates(silentIfUpToDate = false) },
                 onDownloadAndInstall = viewModel::downloadAndInstallUpdate,
                 onOpenReleaseInBrowser = viewModel::openLatestReleaseInBrowser,
                 onDismiss = { viewModel.setUpdateModalVisible(false) }
