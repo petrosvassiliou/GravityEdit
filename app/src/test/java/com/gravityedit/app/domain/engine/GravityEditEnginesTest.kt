@@ -107,47 +107,47 @@ class GravityEditEnginesTest {
         // 1. Cmdlet & AST Function completion
         val cmdletLine = "    Get-Ch"
         val cmdletMatches = PowerShellEngine.computeCompletions(
-            lineText = cmdletLine,
+            line = cmdletLine,
             cursorColumn = cmdletLine.length,
-            fullDocumentContent = script,
+            documentContent = script,
             astSymbols = astSymbols
         )
         assertTrue(cmdletMatches.any { it.insertText == "Get-ChildItem" && it.kind == CompletionKind.CMDLET })
 
         val localFnLine = "    Invoke-Clu"
         val localFnMatches = PowerShellEngine.computeCompletions(
-            lineText = localFnLine,
+            line = localFnLine,
             cursorColumn = localFnLine.length,
-            fullDocumentContent = script,
+            documentContent = script,
             astSymbols = astSymbols
         )
-        assertTrue(localFnMatches.any { it.insertText == "Invoke-ClusterAudit" })
+        assertTrue(localFnMatches.any { it.insertText == "Invoke-ClusterAudit" && it.kind == CompletionKind.FUNCTION })
 
         // 2. Variable completion (both built-in automatic and live document-declared variables)
         val autoVarLine = "Write-Host ${'$'}PSVer"
         val autoVarMatches = PowerShellEngine.computeCompletions(
-            lineText = autoVarLine,
+            line = autoVarLine,
             cursorColumn = autoVarLine.length,
-            fullDocumentContent = script,
+            documentContent = script,
             astSymbols = astSymbols
         )
         assertTrue(autoVarMatches.any { it.insertText == "\$PSVersionTable" && it.kind == CompletionKind.VARIABLE })
 
         val userVarLine = "ForEach-Object -InputObject ${'$'}clusterT"
         val userVarMatches = PowerShellEngine.computeCompletions(
-            lineText = userVarLine,
+            line = userVarLine,
             cursorColumn = userVarLine.length,
-            fullDocumentContent = script,
+            documentContent = script,
             astSymbols = astSymbols
         )
-        assertTrue(userVarMatches.any { it.insertText == "\$clusterTargetNodes" && it.replaceStartCol == 28 })
+        assertTrue(userVarMatches.any { it.insertText == "\$clusterTargetNodes" && it.replaceStartInLine == 28 })
 
         // 3. Parameter completion
         val paramLine = "Get-ChildItem -Err"
         val paramMatches = PowerShellEngine.computeCompletions(
-            lineText = paramLine,
+            line = paramLine,
             cursorColumn = paramLine.length,
-            fullDocumentContent = script,
+            documentContent = script,
             astSymbols = astSymbols
         )
         assertTrue(paramMatches.any { it.insertText == "-ErrorAction" && it.kind == CompletionKind.PARAMETER })
@@ -155,9 +155,9 @@ class GravityEditEnginesTest {
         // 4. Type accelerator / attribute completion
         val typeLine = "[Cmdlet"
         val typeMatches = PowerShellEngine.computeCompletions(
-            lineText = typeLine,
+            line = typeLine,
             cursorColumn = typeLine.length,
-            fullDocumentContent = script,
+            documentContent = script,
             astSymbols = astSymbols
         )
         assertTrue(typeMatches.any { it.insertText == "[CmdletBinding()]" && it.kind == CompletionKind.TYPE_ACCELERATOR })
