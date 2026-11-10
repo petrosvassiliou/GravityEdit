@@ -87,6 +87,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.gravityedit.app.R
 import com.gravityedit.app.domain.engine.ClippingsManager
+import com.gravityedit.app.domain.engine.DiagnosticSeverity
+import com.gravityedit.app.domain.engine.PowerShellDiagnostic
+import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.CaseTransformMode
 import com.gravityedit.app.domain.model.CharDiffSpan
 import com.gravityedit.app.domain.model.Clipping
@@ -1880,3 +1883,568 @@ private fun SettingSwitchRow(
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
+
+// =========================================================================
+// 7. PSSCRIPTANALYZER-STYLE LIVE POWERSHELL LINTER & DIAGNOSTICS MODAL
+// =========================================================================
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PowerShellDiagnosticsModal(
+    isCompactMobile: Boolean,
+    diagnostics: List<PowerShellDiagnostic>,
+    onJumpToLine: (Int) -> Unit,
+    onApplyQuickFix: (PowerShellDiagnostic) -> Unit,
+    onApplyAllQuickFixes: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = GravityEditThemeDefaults.syntaxPalette
+    var selectedSeverityFilter by remember { mutableStateOf<DiagnosticSeverity?>(null) }
+
+    val filteredDiagnostics = remember(diagnostics, selectedSeverityFilter) {
+        if (selectedSeverityFilter == null) {
+            diagnostics
+        } else {
+            diagnostics.filter { it.severity == selectedSeverityFilter }
+        }
+    }
+
+    val errorCount = remember(diagnostics) { diagnostics.count { it.severity == DiagnosticSeverity.ERROR } }
+    val warnCount = remember(diagnostics) { diagnostics.count { it.severity == DiagnosticSeverity.WARNING } }
+    val infoCount = remember(diagnostics) { diagnostics.count { it.severity == DiagnosticSeverity.INFO } }
+    val fixableCount = remember(diagnostics) {
+        diagnostics.count { it.quickFixTarget != null && it.quickFixReplacement != null }
+    }
+
+    val content: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "PSScriptAnalyzer • Live PowerShell Diagnostics",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "$errorCount Errors • $warnCount Warnings • $infoCount Hints",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (fixableCount > 0) {
+                        Button(onClick = onApplyAllQuickFixes) {
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Fix All ($fixableCount)")
+                        }
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
+                    }
+                }
+            }
+
+            // Severity Filter Chips
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = selectedSeverityFilter == null,
+                    onClick = { selectedSeverityFilter = null },
+                    label = { Text("All (${diagnostics.size})") }
+                )
+                FilterChip(
+                    selected = selectedSeverityFilter == DiagnosticSeverity.ERROR,
+                    onClick = {
+                        selectedSeverityFilter = if (selectedSeverityFilter == DiagnosticSeverity.ERROR) null else DiagnosticSeverity.ERROR
+                    },
+                    label = { Text("Errors ($errorCount)") }
+                )
+                FilterChip(
+                    selected = selectedSeverityFilter == DiagnosticSeverity.WARNING,
+                    onClick = {
+                        selectedSeverityFilter = if (selectedSeverityFilter == DiagnosticSeverity.WARNING) null else DiagnosticSeverity.WARNING
+                    },
+                    label = { Text("Warnings ($warnCount)") }
+                )
+                FilterChip(
+                    selected = selectedSeverityFilter == DiagnosticSeverity.INFO,
+                    onClick = {
+                        selectedSeverityFilter = if (selectedSeverityFilter == DiagnosticSeverity.INFO) null else DiagnosticSeverity.INFO
+                    },
+                    label = { Text("Alias / Info ($infoCount)") }
+                )
+            }
+
+            HorizontalDivider()
+
+            if (filteredDiagnostics.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "✓ Zero PowerShell issues detected by PSScriptAnalyzer.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 200.dp, max = 440.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredDiagnostics, key = { it.id }) { diag ->
+                        val badgeColor = when (diag.severity) {
+                            DiagnosticSeverity.ERROR -> MaterialTheme.colorScheme.error
+                            DiagnosticSeverity.WARNING -> palette.operatorToken
+                            DiagnosticSeverity.INFO -> palette.cmdlet
+                        }
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onJumpToLine(diag.lineNumber)
+                                    onDismiss()
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = badgeColor.copy(alpha = 0.18f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, badgeColor.copy(alpha = 0.6f))
+                                ) {
+                                    Text(
+                                        text = diag.severity.badge,
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = badgeColor,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = diag.ruleId,
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = "Ln ${diag.lineNumber}, Col ${diag.column}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = diag.message,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                if (diag.quickFixLabel != null) {
+                                    OutlinedButton(
+                                        onClick = { onApplyQuickFix(diag) },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(diag.quickFixLabel, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (isCompactMobile) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+            content()
+        }
+    } else {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .width(760.dp)
+                    .padding(16.dp)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 8. KEYBOARD-DRIVEN COMMAND PALETTE (CTRL+SHIFT+P / CTRL+P)
+// =========================================================================
+
+private data class CommandPaletteEntry(
+    val id: String,
+    val categoryBadge: String,
+    val title: String,
+    val subtitle: String,
+    val shortcutHint: String? = null,
+    val action: () -> Unit
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CommandPaletteModal(
+    isCompactMobile: Boolean,
+    documents: List<EditorDocument>,
+    astSymbols: List<AstSymbol>,
+    clippings: List<Clipping>,
+    onSelectDocument: (String) -> Unit,
+    onJumpToSymbol: (AstSymbol) -> Unit,
+    onRunQuickTransform: (TextFactoryStep) -> Unit,
+    onInsertClipping: (Clipping) -> Unit,
+    onOpenToolModal: (String) -> Unit,
+    onSelectTheme: (GravityThemeMode) -> Unit,
+    onSelectLocale: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+
+    val allEntries = remember(documents, astSymbols, clippings) {
+        val list = ArrayList<CommandPaletteEntry>()
+
+        // 1. Open Documents
+        documents.forEach { doc ->
+            list.add(
+                CommandPaletteEntry(
+                    id = "doc_${doc.id}",
+                    categoryBadge = "FILE",
+                    title = "Switch to Tab: ${doc.title}",
+                    subtitle = "${doc.language.displayName} • ${doc.lineCount} lines • ${doc.encoding.displayName}",
+                    shortcutHint = "Ctrl+P",
+                    action = {
+                        onSelectDocument(doc.id)
+                        onDismiss()
+                    }
+                )
+            )
+        }
+
+        // 2. AST Symbols in Active Document
+        astSymbols.forEach { sym ->
+            list.add(
+                CommandPaletteEntry(
+                    id = "ast_${sym.name}_${sym.lineNumber}",
+                    categoryBadge = sym.kind.badge.uppercase(),
+                    title = "Jump to Symbol: ${sym.signature}",
+                    subtitle = "Line ${sym.lineNumber}",
+                    shortcutHint = "Ctrl+J",
+                    action = {
+                        onJumpToSymbol(sym)
+                        onDismiss()
+                    }
+                )
+            )
+        }
+
+        // 3. All 14 BBEdit Text Factory Quick Transforms
+        TextOperationType.entries.forEach { opType ->
+            list.add(
+                CommandPaletteEntry(
+                    id = "tx_${opType.name}",
+                    categoryBadge = "BBEDIT",
+                    title = "Text Transform: ${opType.defaultTitle}",
+                    subtitle = "Execute immediately on active document",
+                    action = {
+                        onRunQuickTransform(TextFactoryStep(operationType = opType, enabled = true))
+                    }
+                )
+            )
+        }
+
+        // 4. Workspace Modals & Tools
+        list.add(
+            CommandPaletteEntry(
+                id = "tool_diagnostics",
+                categoryBadge = "LINTER",
+                title = "Open PSScriptAnalyzer Live Diagnostics",
+                subtitle = "Inspect warnings, errors, and apply one-click Quick Fixes",
+                action = {
+                    onDismiss()
+                    onOpenToolModal("diagnostics")
+                }
+            )
+        )
+        list.add(
+            CommandPaletteEntry(
+                id = "tool_find",
+                categoryBadge = "SEARCH",
+                title = "Open PCRE Find, Replace & Pattern Playground",
+                subtitle = "Regex search, multi-file search, and capture group inspector",
+                shortcutHint = "Ctrl+F",
+                action = {
+                    onDismiss()
+                    onOpenToolModal("find")
+                }
+            )
+        )
+        list.add(
+            CommandPaletteEntry(
+                id = "tool_factory",
+                categoryBadge = "PIPELINE",
+                title = "Open BBEdit Text Factory Pipeline Builder",
+                subtitle = "Chain and reorder multi-step text transformations",
+                action = {
+                    onDismiss()
+                    onOpenToolModal("factory")
+                }
+            )
+        )
+        list.add(
+            CommandPaletteEntry(
+                id = "tool_diff",
+                categoryBadge = "DIFF",
+                title = "Open Side-by-Side Myers Diff & Merge Tool",
+                subtitle = "Compare two open documents with character-level highlights",
+                action = {
+                    onDismiss()
+                    onOpenToolModal("diff")
+                }
+            )
+        )
+
+        // 5. PowerShell Clippings
+        clippings.forEach { clip ->
+            list.add(
+                CommandPaletteEntry(
+                    id = "clip_${clip.id}",
+                    categoryBadge = "SNIPPET",
+                    title = "Insert Clipping: ${clip.name}",
+                    subtitle = "${clip.triggerPrefix} — ${clip.description}",
+                    action = {
+                        onInsertClipping(clip)
+                        onDismiss()
+                    }
+                )
+            )
+        }
+
+        // 6. Theme & Runtime 6-Language Localization
+        GravityThemeMode.entries.forEach { mode ->
+            list.add(
+                CommandPaletteEntry(
+                    id = "theme_${mode.name}",
+                    categoryBadge = "THEME",
+                    title = "Switch Editor Theme: ${mode.name}",
+                    subtitle = "Material 3 Adaptive Developer Color Scheme",
+                    action = {
+                        onSelectTheme(mode)
+                        onDismiss()
+                    }
+                )
+            )
+        }
+
+        listOf(
+            "en" to "English (EN)",
+            "de" to "Deutsch (DE)",
+            "it" to "Italiano (IT)",
+            "es" to "Español (ES)",
+            "fr" to "Français (FR)",
+            "el" to "Ελληνικά (EL)"
+        ).forEach { (tag, label) ->
+            list.add(
+                CommandPaletteEntry(
+                    id = "lang_$tag",
+                    categoryBadge = "I18N",
+                    title = "Switch UI Language: $label",
+                    subtitle = "Instant runtime locale switch via AppCompatDelegate",
+                    action = {
+                        onSelectLocale(tag)
+                        onDismiss()
+                    }
+                )
+            )
+        }
+
+        list
+    }
+
+    val filteredEntries = remember(allEntries, query) {
+        if (query.isBlank()) {
+            allEntries
+        } else {
+            val terms = query.trim().lowercase().split(Regex("""\s+"""))
+            allEntries.filter { entry ->
+                val haystack = "${entry.categoryBadge} ${entry.title} ${entry.subtitle}".lowercase()
+                terms.all { haystack.contains(it) }
+            }
+        }
+    }
+
+    val content: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Command Palette & Quick Switcher (Ctrl+Shift+P)",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
+                }
+            }
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = {
+                    Text("Type a command, file name, AST function, BBEdit transform, clipping, or language...")
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        filteredEntries.firstOrNull()?.action?.invoke()
+                    }
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 220.dp, max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(filteredEntries, key = { it.id }) { item ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { item.action() }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = item.categoryBadge,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = item.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = item.subtitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            if (item.shortcutHint != null) {
+                                Text(
+                                    text = item.shortcutHint,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (isCompactMobile) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+            content()
+        }
+    } else {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .width(720.dp)
+                    .padding(16.dp)
+            ) {
+                content()
+            }
+        }
+    }
+}
+

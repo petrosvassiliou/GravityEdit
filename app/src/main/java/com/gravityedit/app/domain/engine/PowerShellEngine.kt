@@ -1721,6 +1721,354 @@ object PowerShellEngine {
             )
             .take(maxResults)
     }
+
+    // =========================================================================
+    // PSSCRIPTANALYZER-STYLE LIVE POWERSHELL LINTER & DIAGNOSTICS ENGINE
+    // =========================================================================
+
+    private val ALIAS_TO_CANONICAL_CMDLET: Map<String, String> = mapOf(
+        "gci" to "Get-ChildItem",
+        "dir" to "Get-ChildItem",
+        "ls" to "Get-ChildItem",
+        "gc" to "Get-Content",
+        "cat" to "Get-Content",
+        "sc" to "Set-Content",
+        "ac" to "Add-Content",
+        "gi" to "Get-Item",
+        "ni" to "New-Item",
+        "ri" to "Remove-Item",
+        "rm" to "Remove-Item",
+        "del" to "Remove-Item",
+        "cpi" to "Copy-Item",
+        "cp" to "Copy-Item",
+        "mi" to "Move-Item",
+        "mv" to "Move-Item",
+        "gps" to "Get-Process",
+        "ps" to "Get-Process",
+        "saps" to "Start-Process",
+        "spps" to "Stop-Process",
+        "kill" to "Stop-Process",
+        "gsv" to "Get-Service",
+        "irm" to "Invoke-RestMethod",
+        "iwr" to "Invoke-WebRequest",
+        "curl" to "Invoke-WebRequest",
+        "wget" to "Invoke-WebRequest",
+        "iex" to "Invoke-Expression",
+        "icm" to "Invoke-Command",
+        "gcm" to "Get-Command",
+        "gm" to "Get-Member",
+        "where" to "Where-Object",
+        "?" to "Where-Object",
+        "foreach" to "ForEach-Object",
+        "%" to "ForEach-Object",
+        "select" to "Select-Object",
+        "sort" to "Sort-Object",
+        "group" to "Group-Object",
+        "measure" to "Measure-Object",
+        "ft" to "Format-Table",
+        "fl" to "Format-List",
+        "fw" to "Format-Wide",
+        "ogv" to "Out-GridView",
+        "cls" to "Clear-Host",
+        "clear" to "Clear-Host",
+        "write" to "Write-Output",
+        "echo" to "Write-Output",
+        "sleep" to "Start-Sleep"
+    )
+
+    private val FUNCTION_DECLARATION_VERB_REGEX = Regex(
+        """^\s*(?:function|filter|workflow)\s+(?:(?:global|script|private|local):)?([A-Za-z0-9_]+)-([A-Za-z0-9_]+)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val EMPTY_CATCH_SINGLE_LINE_REGEX = Regex(
+        """\bcatch\b(?:\s*\[[^\]]+\])?\s*\{\s*(?:#.*)?\}""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val PLAINTEXT_PASSWORD_PARAM_REGEX = Regex(
+        """\[string\]\s*\$(?:[A-Za-z0-9_]*(?:Password|Secret|ApiKey|Token|Passphrase)[A-Za-z0-9_]*)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * Performs static analysis on a PowerShell script inspired by `PSScriptAnalyzer`:
+     * 1. `PSAvoidUsingCmdletAliases`: Warns on shorthand aliases (`gci`, `irm`, `%`, `?`, etc.) with one-click expansion Quick Fix.
+     * 2. `PSUseApprovedVerbs`: Warns when a declared function uses a non-approved PowerShell verb.
+     * 3. `PSAvoidEmptyCatchBlock`: Warns on empty `catch { }` blocks that swallow exceptions silently.
+     * 4. `PSAvoidUsingPlainTextForPassword`: Warns when `[string]$Password` or `[string]$Secret` is used instead of `[SecureString]` or `[PSCredential]`.
+     * 5. `PSSyntaxUnbalancedDelimiters`: Reports syntax errors for unclosed `{ ... }`, `( ... )`, block comments `<# ... #>`, or `#region ... #endregion`.
+     */
+    fun analyzeScriptDiagnostics(text: String): List<PowerShellDiagnostic> {
+        if (text.isBlank()) return emptyList()
+        val lines = text.split('\n')
+        val lineStates = computeLineStates(lines, SyntaxLanguage.POWERSHELL)
+        val diagnostics = ArrayList<PowerShellDiagnostic>()
+
+        var openCurlyCount = 0
+        var lastOpenCurlyLine = 1
+        var openParenCount = 0
+        var lastOpenParenLine = 1
+        val regionOpenStack = ArrayDeque<Int>()
+
+        for (i in lines.indices) {
+            val lineNum = i + 1
+            val line = lines[i]
+            val lexState = lineStates.getOrElse(i) { LineLexState.NORMAL }
+
+            // Track #region / #endregion balance
+            val trimmed = line.trimStart()
+            if (trimmed.startsWith("#region", ignoreCase = true)) {
+                regionOpenStack.addLast(lineNum)
+            } else if (trimmed.startsWith("#endregion", ignoreCase = true)) {
+                if (regionOpenStack.isEmpty()) {
+                    diagnostics.add(
+                        PowerShellDiagnostic(
+                            id = "region_unmatched_$lineNum",
+                            ruleId = "PSSyntaxUnmatchedEndRegion",
+                            severity = DiagnosticSeverity.WARNING,
+                            message = "Unmatched '#endregion' directive without a preceding '#region'.",
+                            lineNumber = lineNum,
+                            column = line.indexOf('#').coerceAtLeast(0) + 1
+                        )
+                    )
+                } else {
+                    regionOpenStack.removeLast()
+                }
+            }
+
+            if (lexState != LineLexState.NORMAL) continue
+
+            // Rule 1: PSUseApprovedVerbs on function declarations
+            val fnMatch = FUNCTION_DECLARATION_VERB_REGEX.find(line)
+            if (fnMatch != null) {
+                val verb = fnMatch.groupValues[1]
+                val noun = fnMatch.groupValues[2]
+                if (!APPROVED_VERBS.contains(verb.lowercase())) {
+                    diagnostics.add(
+                        PowerShellDiagnostic(
+                            id = "verb_${lineNum}_$verb",
+                            ruleId = "PSUseApprovedVerbs",
+                            severity = DiagnosticSeverity.WARNING,
+                            message = "Function '$verb-$noun' uses unapproved verb '$verb'. Prefer standard PowerShell verbs (Get, Set, Invoke, New, Test, ConvertTo).",
+                            lineNumber = lineNum,
+                            column = fnMatch.range.first + 1,
+                            quickFixLabel = "Rename verb to 'Invoke-$noun'",
+                            quickFixTarget = "$verb-$noun",
+                            quickFixReplacement = "Invoke-$noun"
+                        )
+                    )
+                }
+            }
+
+            // Rule 2: PSAvoidEmptyCatchBlock
+            val emptyCatchMatch = EMPTY_CATCH_SINGLE_LINE_REGEX.find(line)
+            if (emptyCatchMatch != null) {
+                diagnostics.add(
+                    PowerShellDiagnostic(
+                        id = "catch_$lineNum",
+                        ruleId = "PSAvoidEmptyCatchBlock",
+                        severity = DiagnosticSeverity.WARNING,
+                        message = "Empty 'catch' block silently swallows exceptions. Log or rethrow '\$_'.",
+                        lineNumber = lineNum,
+                        column = emptyCatchMatch.range.first + 1,
+                        quickFixLabel = "Insert Write-Error \$_",
+                        quickFixTarget = emptyCatchMatch.value,
+                        quickFixReplacement = "catch { Write-Error \$_ }"
+                    )
+                )
+            }
+
+            // Rule 3: PSAvoidUsingPlainTextForPassword
+            val plainPwdMatch = PLAINTEXT_PASSWORD_PARAM_REGEX.find(line)
+            if (plainPwdMatch != null) {
+                val replaced = plainPwdMatch.value.replaceFirst(
+                    Regex("""\[string\]""", RegexOption.IGNORE_CASE),
+                    "[SecureString]"
+                )
+                diagnostics.add(
+                    PowerShellDiagnostic(
+                        id = "pwd_$lineNum",
+                        ruleId = "PSAvoidUsingPlainTextForPassword",
+                        severity = DiagnosticSeverity.WARNING,
+                        message = "Sensitive parameter '${plainPwdMatch.value}' uses plain-text [string]. Use [SecureString] or [PSCredential].",
+                        lineNumber = lineNum,
+                        column = plainPwdMatch.range.first + 1,
+                        quickFixLabel = "Change type to [SecureString]",
+                        quickFixTarget = plainPwdMatch.value,
+                        quickFixReplacement = replaced
+                    )
+                )
+            }
+
+            // Tokenize line to inspect command aliases & delimiter balance outside strings/comments
+            val tokens = tokenizePowerShellLine(line, lexState)
+            var expectCommandPosition = true
+
+            for (token in tokens) {
+                when (token.type) {
+                    PowerShellTokenType.WHITESPACE,
+                    PowerShellTokenType.COMMENT,
+                    PowerShellTokenType.COMMENT_HELP_TAG,
+                    PowerShellTokenType.REGION_DIRECTIVE -> Unit
+
+                    PowerShellTokenType.PUNCTUATION -> {
+                        for (ch in token.text) {
+                            when (ch) {
+                                '{' -> {
+                                    openCurlyCount++
+                                    lastOpenCurlyLine = lineNum
+                                    expectCommandPosition = true
+                                }
+                                '}' -> {
+                                    openCurlyCount--
+                                    if (openCurlyCount < 0) {
+                                        diagnostics.add(
+                                            PowerShellDiagnostic(
+                                                id = "curly_extra_$lineNum",
+                                                ruleId = "PSSyntaxUnbalancedDelimiters",
+                                                severity = DiagnosticSeverity.ERROR,
+                                                message = "Unexpected closing brace '}' with no matching opening '{'.",
+                                                lineNumber = lineNum,
+                                                column = token.start + 1
+                                            )
+                                        )
+                                        openCurlyCount = 0
+                                    }
+                                    expectCommandPosition = true
+                                }
+                                '(' -> {
+                                    openParenCount++
+                                    lastOpenParenLine = lineNum
+                                    expectCommandPosition = true
+                                }
+                                ')' -> {
+                                    openParenCount--
+                                    if (openParenCount < 0) {
+                                        diagnostics.add(
+                                            PowerShellDiagnostic(
+                                                id = "paren_extra_$lineNum",
+                                                ruleId = "PSSyntaxUnbalancedDelimiters",
+                                                severity = DiagnosticSeverity.ERROR,
+                                                message = "Unexpected closing parenthesis ')' with no matching opening '('.",
+                                                lineNumber = lineNum,
+                                                column = token.start + 1
+                                            )
+                                        )
+                                        openParenCount = 0
+                                    }
+                                }
+                                '|', ';', '=' -> {
+                                    expectCommandPosition = true
+                                }
+                            }
+                        }
+                    }
+
+                    PowerShellTokenType.CMDLET,
+                    PowerShellTokenType.IDENTIFIER -> {
+                        if (expectCommandPosition) {
+                            val lowerToken = token.text.lowercase()
+                            // Note: 'foreach' is a statement keyword when followed by '(', or an alias after '|'
+                            val isPipeAliasContext = line.substring(0, token.start).trimEnd().endsWith("|")
+                            val canonical = ALIAS_TO_CANONICAL_CMDLET[lowerToken]
+                            if (canonical != null && (lowerToken != "foreach" || isPipeAliasContext)) {
+                                diagnostics.add(
+                                    PowerShellDiagnostic(
+                                        id = "alias_${lineNum}_${token.start}",
+                                        ruleId = "PSAvoidUsingCmdletAliases",
+                                        severity = DiagnosticSeverity.INFO,
+                                        message = "'${token.text}' is an alias for '$canonical'. Expand aliases in scripts for readability and portability.",
+                                        lineNumber = lineNum,
+                                        column = token.start + 1,
+                                        quickFixLabel = "Expand to '$canonical'",
+                                        quickFixTarget = token.text,
+                                        quickFixReplacement = canonical
+                                    )
+                                )
+                            }
+                            expectCommandPosition = false
+                        }
+                    }
+
+                    else -> {
+                        expectCommandPosition = false
+                    }
+                }
+            }
+        }
+
+        if (openCurlyCount > 0) {
+            diagnostics.add(
+                PowerShellDiagnostic(
+                    id = "unclosed_curly_$lastOpenCurlyLine",
+                    ruleId = "PSSyntaxUnbalancedDelimiters",
+                    severity = DiagnosticSeverity.ERROR,
+                    message = "Unclosed script block '{' ($openCurlyCount missing '}' brace${if (openCurlyCount > 1) "s" else ""}).",
+                    lineNumber = lastOpenCurlyLine,
+                    column = 1
+                )
+            )
+        }
+
+        if (openParenCount > 0) {
+            diagnostics.add(
+                PowerShellDiagnostic(
+                    id = "unclosed_paren_$lastOpenParenLine",
+                    ruleId = "PSSyntaxUnbalancedDelimiters",
+                    severity = DiagnosticSeverity.ERROR,
+                    message = "Unclosed parenthesis '(' ($openParenCount missing ')').",
+                    lineNumber = lastOpenParenLine,
+                    column = 1
+                )
+            )
+        }
+
+        while (regionOpenStack.isNotEmpty()) {
+            val openRegionLine = regionOpenStack.removeFirst()
+            diagnostics.add(
+                PowerShellDiagnostic(
+                    id = "unclosed_region_$openRegionLine",
+                    ruleId = "PSSyntaxUnclosedRegion",
+                    severity = DiagnosticSeverity.INFO,
+                    message = "'#region' on line $openRegionLine has no matching '#endregion'.",
+                    lineNumber = openRegionLine,
+                    column = 1
+                )
+            )
+        }
+
+        return diagnostics.sortedWith(
+            compareBy<PowerShellDiagnostic> { it.severity.ordinal }
+                .thenBy { it.lineNumber }
+                .thenBy { it.column }
+        )
+    }
+
+    /**
+     * Applies a one-click Quick Fix for a [PowerShellDiagnostic] to [documentContent] and returns the updated script.
+     */
+    fun applyDiagnosticQuickFix(
+        documentContent: String,
+        diagnostic: PowerShellDiagnostic
+    ): String {
+        val target = diagnostic.quickFixTarget ?: return documentContent
+        val replacement = diagnostic.quickFixReplacement ?: return documentContent
+        val lines = documentContent.split('\n').toMutableList()
+        val lineIndex = (diagnostic.lineNumber - 1).coerceIn(0, lines.lastIndex)
+        val line = lines[lineIndex]
+        val colIndex = (diagnostic.column - 1).coerceIn(0, line.length)
+
+        val matchIndex = line.indexOf(target, startIndex = colIndex)
+            .takeIf { it >= 0 }
+            ?: line.indexOf(target)
+        if (matchIndex < 0) return documentContent
+
+        lines[lineIndex] = line.substring(0, matchIndex) +
+            replacement +
+            line.substring(matchIndex + target.length)
+        return lines.joinToString("\n")
+    }
 }
 
 enum class CompletionKind(val badge: String) {
@@ -1740,4 +2088,23 @@ data class PowerShellCompletionItem(
     val replaceStartInLine: Int,
     val replaceEndInLine: Int
 )
+
+enum class DiagnosticSeverity(val badge: String) {
+    ERROR("ERR"),
+    WARNING("WARN"),
+    INFO("INFO")
+}
+
+data class PowerShellDiagnostic(
+    val id: String,
+    val ruleId: String,
+    val severity: DiagnosticSeverity,
+    val message: String,
+    val lineNumber: Int,
+    val column: Int,
+    val quickFixLabel: String? = null,
+    val quickFixTarget: String? = null,
+    val quickFixReplacement: String? = null
+)
+
 

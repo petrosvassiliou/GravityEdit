@@ -79,8 +79,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gravityedit.app.R
 import com.gravityedit.app.domain.engine.CompletionKind
+import com.gravityedit.app.domain.engine.DiagnosticSeverity
 import com.gravityedit.app.domain.engine.LineLexState
 import com.gravityedit.app.domain.engine.PowerShellCompletionItem
+import com.gravityedit.app.domain.engine.PowerShellDiagnostic
 import com.gravityedit.app.domain.engine.PowerShellEngine
 import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.EditorDocument
@@ -108,7 +110,7 @@ private data class VisibleLineEntry(
  * code-folding toggles (`function`, `filter`, `workflow`, `#region`, `<# ... #>`),
  * Page Guide overlays at columns 80 and 120, Show Invisibles glyph overlay,
  * inline PowerShell auto-completion popup (Cmdlets, `$Variables`, `-Parameters`, `[Types]`),
- * and real-time PowerShell `AnnotatedString` syntax highlighting.
+ * PSScriptAnalyzer gutter diagnostic badges, and real-time PowerShell syntax highlighting.
  */
 @Composable
 fun EditorCanvas(
@@ -130,7 +132,9 @@ fun EditorCanvas(
     onSelectionChange: (selStart: Int, selEnd: Int) -> Unit,
     onToggleFold: (startLine: Int) -> Unit,
     modifier: Modifier = Modifier,
-    astSymbols: List<AstSymbol> = emptyList()
+    astSymbols: List<AstSymbol> = emptyList(),
+    diagnostics: List<PowerShellDiagnostic> = emptyList(),
+    onOpenDiagnostics: (() -> Unit)? = null
 ) {
     val palette = GravityEditThemeDefaults.syntaxPalette
     val codeStyle = remember(fontSizeSp) { editorCodeTextStyle(fontSizeSp = fontSizeSp) }
@@ -163,6 +167,10 @@ fun EditorCanvas(
 
     val foldByStartLine = remember(foldRegions) {
         foldRegions.associateBy { it.startLine }
+    }
+
+    val diagnosticsByLineNumber = remember(diagnostics) {
+        diagnostics.groupBy { it.lineNumber }
     }
 
     // Build visible line list skipping lines hidden inside currently collapsed FoldRegions
@@ -340,7 +348,8 @@ fun EditorCanvas(
                             .background(rowBg),
                         verticalAlignment = Alignment.Top
                     ) {
-                        // Synchronized Line Number & Code Folding Gutter
+                        // Synchronized Line Number, Diagnostic Indicator & Code Folding Gutter
+                        val lineDiagnostics = diagnosticsByLineNumber[entry.lineNumber].orEmpty()
                         EditorLineGutterCell(
                             lineNumber = entry.lineNumber,
                             isCurrentLine = isCurrentLine,
@@ -350,12 +359,16 @@ fun EditorCanvas(
                             gutterWidth = gutterWidthDp,
                             fontSizeSp = fontSizeSp,
                             palette = palette,
+                            highestDiagnosticSeverity = lineDiagnostics.minByOrNull { it.severity.ordinal }?.severity,
                             onSelectLine = {
                                 onFocusPane()
                                 onSelectionChange(
                                     entry.lineStartOffset,
                                     entry.lineStartOffset + entry.text.length
                                 )
+                                if (lineDiagnostics.isNotEmpty()) {
+                                    onOpenDiagnostics?.invoke()
+                                }
                             },
                             onToggleFold = {
                                 entry.foldRegionStartingHere?.let { onToggleFold(it.startLine) }
@@ -585,6 +598,7 @@ private fun EditorLineGutterCell(
     gutterWidth: androidx.compose.ui.unit.Dp,
     fontSizeSp: Float,
     palette: EditorSyntaxPalette,
+    highestDiagnosticSeverity: DiagnosticSeverity?,
     onSelectLine: () -> Unit,
     onToggleFold: () -> Unit
 ) {
@@ -592,10 +606,25 @@ private fun EditorLineGutterCell(
         modifier = Modifier
             .width(gutterWidth)
             .background(palette.gutterBackground)
-            .padding(start = 6.dp, end = 4.dp, top = 1.dp, bottom = 1.dp),
+            .padding(start = 4.dp, end = 4.dp, top = 1.dp, bottom = 1.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.End
     ) {
+        if (highestDiagnosticSeverity != null) {
+            val dotColor = when (highestDiagnosticSeverity) {
+                DiagnosticSeverity.ERROR -> MaterialTheme.colorScheme.error
+                DiagnosticSeverity.WARNING -> palette.operatorToken
+                DiagnosticSeverity.INFO -> palette.cmdlet
+            }
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(dotColor, RoundedCornerShape(3.dp))
+                    .clickable(onClick = onSelectLine)
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+        }
+
         Text(
             text = lineNumber.toString(),
             fontFamily = JetBrainsMonoFontFamily,

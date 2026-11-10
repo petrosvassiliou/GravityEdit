@@ -20,6 +20,7 @@ import androidx.lifecycle.viewModelScope
 import com.gravityedit.app.domain.engine.ClippingsManager
 import com.gravityedit.app.domain.engine.DiffEngine
 import com.gravityedit.app.domain.engine.FindReplaceEngine
+import com.gravityedit.app.domain.engine.PowerShellDiagnostic
 import com.gravityedit.app.domain.engine.PowerShellEngine
 import com.gravityedit.app.domain.engine.SearchableFileSource
 import com.gravityedit.app.domain.engine.TextTransformEngine
@@ -81,9 +82,10 @@ data class GravityEditUiState(
     val isLeftSidebarVisible: Boolean = true,
     val leftSidebarWidthDp: Float = 272f,
 
-    // Live AST & Code Folding for Active Document
+    // Live AST, Code Folding & PSScriptAnalyzer Diagnostics for Active Document
     val astSymbols: List<AstSymbol> = emptyList(),
     val foldRegions: List<FoldRegion> = emptyList(),
+    val diagnostics: List<PowerShellDiagnostic> = emptyList(),
 
     // Disk Browser (SAF Project Tree)
     val diskBrowserRootUri: String? = null,
@@ -129,6 +131,8 @@ data class GravityEditUiState(
     val showTextFactoryModal: Boolean = false,
     val showDiffModal: Boolean = false,
     val showClippingsModal: Boolean = false,
+    val showDiagnosticsModal: Boolean = false,
+    val showCommandPaletteModal: Boolean = false,
     val showGoToLineDialog: Boolean = false,
     val showSettingsDialog: Boolean = false,
     val statusBannerMessage: String? = null
@@ -866,14 +870,56 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         astParseJob?.cancel()
         val doc = _uiState.value.focusedDocument ?: return
         val contentSnapshot = doc.content
+        val languageSnapshot = doc.language
         astParseJob = viewModelScope.launch(Dispatchers.Default) {
             val symbols = PowerShellEngine.extractAstSymbols(contentSnapshot)
             val folds = PowerShellEngine.extractFoldRegions(contentSnapshot)
+            val diags = if (languageSnapshot == SyntaxLanguage.POWERSHELL) {
+                PowerShellEngine.analyzeScriptDiagnostics(contentSnapshot)
+            } else {
+                emptyList()
+            }
             _uiState.update { state ->
                 state.copy(
                     astSymbols = symbols,
-                    foldRegions = folds
+                    foldRegions = folds,
+                    diagnostics = diags
                 )
+            }
+        }
+    }
+
+    fun applyDiagnosticQuickFix(diagnostic: PowerShellDiagnostic) {
+        val doc = _uiState.value.focusedDocument ?: return
+        val updatedContent = PowerShellEngine.applyDiagnosticQuickFix(doc.content, diagnostic)
+        if (updatedContent != doc.content) {
+            updateDocumentContent(doc.id, updatedContent)
+            _uiState.update {
+                it.copy(statusBannerMessage = "Applied Quick Fix: ${diagnostic.quickFixLabel ?: diagnostic.ruleId}")
+            }
+        }
+    }
+
+    fun applyAllDiagnosticQuickFixes() {
+        val doc = _uiState.value.focusedDocument ?: return
+        val fixable = _uiState.value.diagnostics
+            .filter { it.quickFixTarget != null && it.quickFixReplacement != null }
+            .sortedWith(compareByDescending<PowerShellDiagnostic> { it.lineNumber }.thenByDescending { it.column })
+        if (fixable.isEmpty()) return
+
+        var currentText = doc.content
+        var appliedCount = 0
+        for (diag in fixable) {
+            val nextText = PowerShellEngine.applyDiagnosticQuickFix(currentText, diag)
+            if (nextText != currentText) {
+                currentText = nextText
+                appliedCount++
+            }
+        }
+        if (appliedCount > 0) {
+            updateDocumentContent(doc.id, currentText)
+            _uiState.update {
+                it.copy(statusBannerMessage = "Applied $appliedCount PowerShell Quick Fix(es)")
             }
         }
     }
@@ -1713,6 +1759,35 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setClippingsModalVisible(visible: Boolean) {
         _uiState.update { it.copy(showClippingsModal = visible) }
+    }
+
+    fun setDiagnosticsModalVisible(visible: Boolean) {
+        _uiState.update { it.copy(showDiagnosticsModal = visible) }
+    }
+
+    fun setCommandPaletteModalVisible(visible: Boolean) {
+        _uiState.update { it.copy(showCommandPaletteModal = visible) }
+    }
+
+    fun runSingleQuickTransform(step: TextFactoryStep) {
+        val doc = _uiState.value.focusedDocument ?: return
+        viewModelScope.launch {
+            val result = TextTransformEngine.runPipeline(doc.content, listOf(step.copy(enabled = true)))
+            updateDocumentContent(doc.id, result.transformedText)
+            for ((title, extractedContent) in result.extractedDocuments) {
+                createNewDocument(
+                    initialTitle = title,
+                    initialContent = extractedContent,
+                    language = SyntaxLanguage.PLAIN_TEXT
+                )
+            }
+            _uiState.update {
+                it.copy(
+                    showCommandPaletteModal = false,
+                    statusBannerMessage = "Executed: ${step.operationType.defaultTitle}"
+                )
+            }
+        }
     }
 
     fun setGoToLineDialogVisible(visible: Boolean) {

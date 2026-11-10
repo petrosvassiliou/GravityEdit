@@ -163,6 +163,32 @@ class GravityEditEnginesTest {
         assertTrue(typeMatches.any { it.insertText == "[CmdletBinding()]" && it.kind == CompletionKind.TYPE_ACCELERATOR })
     }
 
+    @Test
+    fun powerShellEngine_analyzesDiagnosticsAndAppliesQuickFixes() {
+        val scriptWithIssues = """
+            function FooBar-Data([string]${'$'}UserPassword) {
+                try {
+                    gci -Path . | where { ${'$'}_.Length -gt 0 }
+                } catch { }
+            }
+        """.trimIndent()
+
+        val diags = PowerShellEngine.analyzeScriptDiagnostics(scriptWithIssues)
+        assertTrue(diags.any { it.ruleId == "PSUseApprovedVerbs" && it.severity == DiagnosticSeverity.WARNING })
+        assertTrue(diags.any { it.ruleId == "PSAvoidUsingPlainTextForPassword" && it.severity == DiagnosticSeverity.WARNING })
+        assertTrue(diags.any { it.ruleId == "PSAvoidEmptyCatchBlock" && it.severity == DiagnosticSeverity.WARNING })
+        val aliasDiag = diags.firstOrNull { it.ruleId == "PSAvoidUsingCmdletAliases" && it.quickFixTarget == "gci" }
+        assertNotNull(aliasDiag)
+
+        val fixedScript = PowerShellEngine.applyDiagnosticQuickFix(scriptWithIssues, aliasDiag!!)
+        assertTrue(fixedScript.contains("Get-ChildItem -Path ."))
+
+        // Unbalanced delimiter detection
+        val unbalanced = "function Get-Broken {\n    Write-Host 'Missing closing brace'"
+        val unbalancedDiags = PowerShellEngine.analyzeScriptDiagnostics(unbalanced)
+        assertTrue(unbalancedDiags.any { it.ruleId == "PSSyntaxUnbalancedDelimiters" && it.severity == DiagnosticSeverity.ERROR })
+    }
+
     // =========================================================================
     // 2. TEXT TRANSFORM ENGINE TESTS (ALL 14 BBEDIT OPERATIONS)
     // =========================================================================

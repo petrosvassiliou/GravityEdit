@@ -1,15 +1,19 @@
-name: GravityEdit Android CI
+name: GravityEdit Android CI & Release
 
 on:
   push:
     branches: [ "main", "master" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-and-test:
-    name: JDK 17 • Unit Tests & Debug APK
+    name: JDK 17 • Unit Tests & APK Build
     runs-on: ubuntu-latest
 
     steps:
@@ -38,3 +42,19 @@ jobs:
         with:
           name: GravityEdit-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Publish GitHub Release on Tag Push
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          cp app/build/outputs/apk/debug/app-debug.apk "GravityEdit-${TAG_NAME}.apk"
+          gh release create "$TAG_NAME" "GravityEdit-${TAG_NAME}.apk" \
+            --title "GravityEdit ${TAG_NAME} — Googlebook OS & Android" \
+            --notes "### GravityEdit ${TAG_NAME} Release
+          - **Adaptive Multi-Form-Factor UI:** Googlebook OS Desktop Multi-Pane Workspace & Android Mobile Mode with Sticky PowerShell Auxiliary Symbol Row
+          - **First-Class PowerShell Engine:** Real-time syntax highlighting, AST Function Navigator, Code Folding, Inline Auto-Completion (\`Cmdlets\`, \`\$Variables\`, \`-Parameters\`, \`[Types]\`), and \`PSScriptAnalyzer\` Live Linter & Quick Fixes
+          - **1:1 BBEdit Feature Parity:** PCRE Find/Replace + Regex Pattern Playground, 14-Operation Text Factory Pipeline, PowerShell Clippings Library, Persistent Scratchpad, and Myers Side-by-Side Diff & Merge Tool
+          - **Command Palette (\`Ctrl+Shift+P\` / \`Ctrl+P\`)** & **Full 6-Language Runtime Localization** (\`EN\`, \`DE\`, \`IT\`, \`ES\`, \`FR\`, \`EL\`)"
+

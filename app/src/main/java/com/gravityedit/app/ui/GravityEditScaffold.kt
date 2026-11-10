@@ -114,10 +114,12 @@ import com.gravityedit.app.domain.model.SplitViewMode
 import com.gravityedit.app.domain.model.SyntaxLanguage
 import com.gravityedit.app.domain.model.WorkspaceToolPanel
 import com.gravityedit.app.ui.components.ClippingsModal
+import com.gravityedit.app.ui.components.CommandPaletteModal
 import com.gravityedit.app.ui.components.EditorCanvas
 import com.gravityedit.app.ui.components.FindReplaceModal
 import com.gravityedit.app.ui.components.GoToLineDialog
 import com.gravityedit.app.ui.components.PowerShellAuxiliarySymbolRow
+import com.gravityedit.app.ui.components.PowerShellDiagnosticsModal
 import com.gravityedit.app.ui.components.SettingsModal
 import com.gravityedit.app.ui.components.SideBySideDiffModal
 import com.gravityedit.app.ui.components.TextFactoryModal
@@ -268,6 +270,41 @@ fun GravityEditScaffold(
             )
         }
 
+        if (uiState.showDiagnosticsModal) {
+            PowerShellDiagnosticsModal(
+                isCompactMobile = !isDesktopExpanded,
+                diagnostics = uiState.diagnostics,
+                onJumpToLine = viewModel::jumpToLine,
+                onApplyQuickFix = viewModel::applyDiagnosticQuickFix,
+                onApplyAllQuickFixes = viewModel::applyAllDiagnosticQuickFixes,
+                onDismiss = { viewModel.setDiagnosticsModalVisible(false) }
+            )
+        }
+
+        if (uiState.showCommandPaletteModal) {
+            CommandPaletteModal(
+                isCompactMobile = !isDesktopExpanded,
+                documents = uiState.documents,
+                astSymbols = uiState.astSymbols,
+                clippings = uiState.clippings,
+                onSelectDocument = viewModel::selectDocument,
+                onJumpToSymbol = viewModel::jumpToAstSymbol,
+                onRunQuickTransform = viewModel::runSingleQuickTransform,
+                onInsertClipping = { clip -> viewModel.insertClippingIntoActiveDocument(clip) },
+                onOpenToolModal = { tool ->
+                    when (tool) {
+                        "diagnostics" -> viewModel.setDiagnosticsModalVisible(true)
+                        "find" -> viewModel.setFindReplaceModalVisible(true, 0)
+                        "factory" -> viewModel.setTextFactoryModalVisible(true)
+                        "diff" -> viewModel.setDiffModalVisible(true)
+                    }
+                },
+                onSelectTheme = viewModel::setThemeMode,
+                onSelectLocale = viewModel::setApplicationLanguage,
+                onDismiss = { viewModel.setCommandPaletteModalVisible(false) }
+            )
+        }
+
         if (uiState.showGoToLineDialog) {
             val focusedDoc = uiState.focusedDocument
             if (focusedDoc != null) {
@@ -314,6 +351,7 @@ fun GravityEditScaffold(
  * - `Ctrl+S`: Save
  * - `Ctrl+Shift+S`: Save As
  * - `Ctrl+W`: Close Tab
+ * - `Ctrl+P` / `Ctrl+Shift+P`: Command Palette & Fuzzy Quick-Open Switcher
  * - `Ctrl+F`: Find/Replace Dialog
  * - `Ctrl+Shift+F`: Multi-File Search
  * - `Ctrl+G`: Go to Line
@@ -333,6 +371,10 @@ private fun handleGlobalHardwareShortcuts(
     val shift = event.isShiftPressed
 
     return when (event.key) {
+        Key.P -> {
+            viewModel.setCommandPaletteModalVisible(true)
+            true
+        }
         Key.N -> {
             viewModel.createNewDocument()
             true
@@ -566,7 +608,8 @@ private fun GooglebookDesktopLayout(
                     onFocusPane = viewModel::setFocusedPane,
                     onContentChange = viewModel::updateDocumentContent,
                     onSelectionChange = viewModel::updateDocumentSelection,
-                    onToggleFold = viewModel::toggleFoldAtLine
+                    onToggleFold = viewModel::toggleFoldAtLine,
+                    onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) }
                 )
             }
 
@@ -579,6 +622,8 @@ private fun GooglebookDesktopLayout(
                 onSelectLineEnding = viewModel::setDocumentLineEnding,
                 onSelectLanguage = viewModel::setDocumentLanguage,
                 onOpenGoToLine = { viewModel.setGoToLineDialogVisible(true) },
+                onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
+                onOpenCommandPalette = { viewModel.setCommandPaletteModalVisible(true) },
                 onAdjustZoom = viewModel::adjustZoom,
                 onResetZoom = { viewModel.setZoomPercent(100) }
             )
@@ -757,6 +802,8 @@ private fun AndroidMobileCompactLayout(
                     document = activeDoc,
                     foldRegions = uiState.foldRegions,
                     astSymbols = uiState.astSymbols,
+                    diagnostics = uiState.diagnostics,
+                    onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
                     searchMatches = uiState.activeDocSearchMatches,
                     activeSearchMatchIndex = uiState.currentMatchIndex,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -789,6 +836,8 @@ private fun AndroidMobileCompactLayout(
                 onSelectLineEnding = viewModel::setDocumentLineEnding,
                 onSelectLanguage = viewModel::setDocumentLanguage,
                 onOpenGoToLine = { viewModel.setGoToLineDialogVisible(true) },
+                onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
+                onOpenCommandPalette = { viewModel.setCommandPaletteModalVisible(true) },
                 onAdjustZoom = viewModel::adjustZoom,
                 onResetZoom = { viewModel.setZoomPercent(100) }
             )
@@ -1438,7 +1487,8 @@ private fun AdaptiveEditorSplitWorkspace(
     onFocusPane: (Int) -> Unit,
     onContentChange: (docId: String, newContent: String, selStart: Int, selEnd: Int) -> Unit,
     onSelectionChange: (docId: String, selStart: Int, selEnd: Int) -> Unit,
-    onToggleFold: (docId: String, startLine: Int) -> Unit
+    onToggleFold: (docId: String, startLine: Int) -> Unit,
+    onOpenDiagnostics: () -> Unit
 ) {
     val primaryDoc = uiState.activeDocument ?: return
     val secondaryDoc = uiState.secondaryDocument ?: primaryDoc
@@ -1449,6 +1499,8 @@ private fun AdaptiveEditorSplitWorkspace(
                 document = primaryDoc,
                 foldRegions = uiState.foldRegions,
                 astSymbols = uiState.astSymbols,
+                diagnostics = uiState.diagnostics,
+                onOpenDiagnostics = onOpenDiagnostics,
                 searchMatches = uiState.activeDocSearchMatches,
                 activeSearchMatchIndex = uiState.currentMatchIndex,
                 fontSizeSp = uiState.effectiveFontSizeSp,
@@ -1478,6 +1530,8 @@ private fun AdaptiveEditorSplitWorkspace(
                     document = primaryDoc,
                     foldRegions = uiState.foldRegions,
                     astSymbols = uiState.astSymbols,
+                    diagnostics = uiState.diagnostics,
+                    onOpenDiagnostics = onOpenDiagnostics,
                     searchMatches = uiState.activeDocSearchMatches,
                     activeSearchMatchIndex = uiState.currentMatchIndex,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -1506,6 +1560,8 @@ private fun AdaptiveEditorSplitWorkspace(
                     document = secondaryDoc,
                     foldRegions = uiState.foldRegions,
                     astSymbols = uiState.astSymbols,
+                    diagnostics = uiState.diagnostics,
+                    onOpenDiagnostics = onOpenDiagnostics,
                     searchMatches = uiState.activeDocSearchMatches,
                     activeSearchMatchIndex = uiState.currentMatchIndex,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -1538,6 +1594,8 @@ private fun AdaptiveEditorSplitWorkspace(
                     document = primaryDoc,
                     foldRegions = uiState.foldRegions,
                     astSymbols = uiState.astSymbols,
+                    diagnostics = uiState.diagnostics,
+                    onOpenDiagnostics = onOpenDiagnostics,
                     searchMatches = uiState.activeDocSearchMatches,
                     activeSearchMatchIndex = uiState.currentMatchIndex,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -1566,6 +1624,8 @@ private fun AdaptiveEditorSplitWorkspace(
                     document = secondaryDoc,
                     foldRegions = uiState.foldRegions,
                     astSymbols = uiState.astSymbols,
+                    diagnostics = uiState.diagnostics,
+                    onOpenDiagnostics = onOpenDiagnostics,
                     searchMatches = uiState.activeDocSearchMatches,
                     activeSearchMatchIndex = uiState.currentMatchIndex,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -1601,6 +1661,8 @@ private fun DesktopBottomStatusBar(
     onSelectLineEnding: (LineEnding) -> Unit,
     onSelectLanguage: (SyntaxLanguage) -> Unit,
     onOpenGoToLine: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
+    onOpenCommandPalette: () -> Unit,
     onAdjustZoom: (Int) -> Unit,
     onResetZoom: () -> Unit
 ) {
@@ -1631,6 +1693,29 @@ private fun DesktopBottomStatusBar(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.clickable(onClick = onOpenGoToLine)
+            )
+
+            // PSScriptAnalyzer Live Diagnostics Status Pill
+            if (doc.language == SyntaxLanguage.POWERSHELL) {
+                val diagCount = uiState.diagnostics.size
+                Text(
+                    text = if (diagCount == 0) "✓ 0 Issues" else "⚠ $diagCount Issues",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (diagCount == 0) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.tertiary
+                    },
+                    modifier = Modifier.clickable(onClick = onOpenDiagnostics)
+                )
+            }
+
+            // Command Palette Quick Trigger
+            Text(
+                text = "⌘ Ctrl+P",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.clickable(onClick = onOpenCommandPalette)
             )
 
             // Selection or Document Stats
