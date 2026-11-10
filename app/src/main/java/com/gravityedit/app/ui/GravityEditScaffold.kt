@@ -756,6 +756,7 @@ private fun AndroidMobileCompactLayout(
                 EditorCanvas(
                     document = activeDoc,
                     foldRegions = uiState.foldRegions,
+                    astSymbols = uiState.astSymbols,
                     searchMatches = uiState.activeDocSearchMatches,
                     activeSearchMatchIndex = uiState.currentMatchIndex,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -1447,6 +1448,7 @@ private fun AdaptiveEditorSplitWorkspace(
             EditorCanvas(
                 document = primaryDoc,
                 foldRegions = uiState.foldRegions,
+                astSymbols = uiState.astSymbols,
                 searchMatches = uiState.activeDocSearchMatches,
                 activeSearchMatchIndex = uiState.currentMatchIndex,
                 fontSizeSp = uiState.effectiveFontSizeSp,
@@ -1475,6 +1477,7 @@ private fun AdaptiveEditorSplitWorkspace(
                 EditorCanvas(
                     document = primaryDoc,
                     foldRegions = uiState.foldRegions,
+                    astSymbols = uiState.astSymbols,
                     searchMatches = uiState.activeDocSearchMatches,
                     activeSearchMatchIndex = uiState.currentMatchIndex,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -1502,6 +1505,7 @@ private fun AdaptiveEditorSplitWorkspace(
                 EditorCanvas(
                     document = secondaryDoc,
                     foldRegions = uiState.foldRegions,
+                    astSymbols = uiState.astSymbols,
                     searchMatches = uiState.activeDocSearchMatches,
                     activeSearchMatchIndex = uiState.currentMatchIndex,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -1533,6 +1537,7 @@ private fun AdaptiveEditorSplitWorkspace(
                 EditorCanvas(
                     document = primaryDoc,
                     foldRegions = uiState.foldRegions,
+                    astSymbols = uiState.astSymbols,
                     searchMatches = uiState.activeDocSearchMatches,
                     activeSearchMatchIndex = uiState.currentMatchIndex,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -1560,6 +1565,7 @@ private fun AdaptiveEditorSplitWorkspace(
                 EditorCanvas(
                     document = secondaryDoc,
                     foldRegions = uiState.foldRegions,
+                    astSymbols = uiState.astSymbols,
                     searchMatches = uiState.activeDocSearchMatches,
                     activeSearchMatchIndex = uiState.currentMatchIndex,
                     fontSizeSp = uiState.effectiveFontSizeSp,

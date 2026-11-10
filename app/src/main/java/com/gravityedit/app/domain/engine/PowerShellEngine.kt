@@ -1396,4 +1396,348 @@ object PowerShellEngine {
         }
         return sb.toString()
     }
+
+    // =========================================================================
+    // INLINE POWERSHELL AUTO-COMPLETION ENGINE (CMDLETS, $VARS, -PARAMS, [TYPES])
+    // =========================================================================
+
+    private val USER_VARIABLE_EXTRACT_REGEX = Regex("""\$(?:(?:env|global|script|private|local):)?[A-Za-z_][A-Za-z0-9_]*""")
+
+    private val COMMON_CMDLET_CATALOG: List<Pair<String, String>> = listOf(
+        "Get-ChildItem" to "Gets items and child items in one or more locations (dir / ls / gci)",
+        "Invoke-RestMethod" to "Sends an HTTP or HTTPS request to a RESTful web service (irm)",
+        "Invoke-WebRequest" to "Gets content from a web page on the internet (iwr)",
+        "Where-Object" to "Selects objects from a collection based on property values (? / where)",
+        "ForEach-Object" to "Performs an operation against each item in a collection (% / foreach)",
+        "Select-Object" to "Selects specified properties of an object or set of objects (select)",
+        "Sort-Object" to "Sorts objects by property values (sort)",
+        "Group-Object" to "Groups objects that contain the same value for specified properties",
+        "Measure-Object" to "Calculates numeric properties of objects and characters/words/lines",
+        "Get-Content" to "Gets the content of the item at the specified location (cat / gc)",
+        "Set-Content" to "Writes new content or replaces the content in a file (sc)",
+        "Add-Content" to "Appends content to the specified items (ac)",
+        "Out-File" to "Sends output to a file",
+        "ConvertTo-Json" to "Converts an object to a JSON-formatted string",
+        "ConvertFrom-Json" to "Converts a JSON-formatted string to a custom PSObject or Hashtable",
+        "Export-Csv" to "Converts objects into a series of CSV strings and saves them to a file",
+        "Import-Csv" to "Creates table-like custom objects from the items in a CSV file",
+        "Test-Path" to "Determines whether all elements of a file or registry path exist",
+        "Join-Path" to "Combines a path and a child path into a single path",
+        "Resolve-Path" to "Resolves the wildcard characters in a path",
+        "New-Item" to "Creates a new file, directory, or registry key (ni)",
+        "Remove-Item" to "Deletes files, folders, registry keys, or variables (rm / del / ri)",
+        "Copy-Item" to "Copies an item from one location to another (cp / copy / cpi)",
+        "Move-Item" to "Moves an item from one location to another (mv / move / mi)",
+        "Get-Item" to "Gets the item at the specified location (gi)",
+        "Get-Process" to "Gets the processes that are running on the local computer (ps / gps)",
+        "Start-Process" to "Starts one or more processes on the local computer (saps)",
+        "Stop-Process" to "Stops one or more running processes (kill / spps)",
+        "Get-Service" to "Gets the services on the computer (gsv)",
+        "Restart-Service" to "Stops and then starts one or more services",
+        "Write-Host" to "Writes customized output to a host console",
+        "Write-Output" to "Sends the specified objects to the next command in the pipeline (echo)",
+        "Write-Verbose" to "Writes text to the verbose message stream",
+        "Write-Warning" to "Writes a warning message to the PowerShell host",
+        "Write-Error" to "Writes an object to the error stream",
+        "Set-ExecutionPolicy" to "Changes the PowerShell script execution policy",
+        "Import-Module" to "Adds modules to the current session (ipmo)",
+        "Get-Command" to "Gets all commands installed on the system (gcm)",
+        "Get-Help" to "Displays information about PowerShell commands and concepts (man)",
+        "Get-Member" to "Gets the properties and methods of objects (gm)",
+        "Get-Date" to "Gets the current date and time",
+        "Start-Sleep" to "Suspends the activity in a script or session for the specified time"
+    )
+
+    private val COMMON_PARAMETER_CATALOG: List<Pair<String, String>> = listOf(
+        "-Path" to "Target file or directory path (supports wildcards)",
+        "-LiteralPath" to "Target literal path (no wildcard expansion)",
+        "-Filter" to "Provider-level filter string (e.g. '*.ps1')",
+        "-Include" to "Items to include in the operation",
+        "-Exclude" to "Items to exclude from the operation",
+        "-Recurse" to "Gets items in the specified locations and all child items",
+        "-Depth" to "Specifies the recursion or serialization depth",
+        "-Force" to "Overrides restrictions that prevent the command from succeeding",
+        "-ErrorAction" to "Action on non-terminating error (Stop, Continue, SilentlyContinue)",
+        "-WarningAction" to "Action on warning (Continue, SilentlyContinue, Inquire, Stop)",
+        "-Verbose" to "Displays detailed information about the operation",
+        "-WhatIf" to "Shows what would happen if the cmdlet runs without executing",
+        "-Confirm" to "Prompts you for confirmation before running the cmdlet",
+        "-OutVariable" to "Stores output objects in the specified variable name",
+        "-PipelineVariable" to "Stores the value of the current pipeline element in a variable",
+        "-Property" to "Specifies the object properties to select or sort",
+        "-ExpandProperty" to "Specifies a property to select and expand",
+        "-Uri" to "Uniform Resource Identifier for web/REST requests",
+        "-Method" to "HTTP method (Get, Post, Put, Delete, Patch)",
+        "-Headers" to "Hashtable of HTTP request headers",
+        "-Body" to "Request body payload for REST/Web calls",
+        "-ContentType" to "Content-Type header (e.g. 'application/json')",
+        "-TimeoutSec" to "Request timeout in seconds",
+        "-Value" to "Specifies the value of the new item or content",
+        "-Encoding" to "Specifies the character encoding (utf8, utf8BOM, unicode, ascii)"
+    )
+
+    private val BUILTIN_VARIABLE_CATALOG: List<Pair<String, String>> = listOf(
+        "\$_" to "Current pipeline object (alias for \$PSItem)",
+        "\$PSItem" to "Current object in the pipeline object stream",
+        "\$true" to "Boolean True constant",
+        "\$false" to "Boolean False constant",
+        "\$null" to "Null / empty reference value",
+        "\$PSScriptRoot" to "Directory from which the current script is being run",
+        "\$PSCommandPath" to "Full path and file name of the script being run",
+        "\$PSVersionTable" to "Read-only hashtable showing details about the PowerShell version",
+        "\$PSCmdlet" to "Object representing the advanced function or cmdlet being run",
+        "\$PSBoundParameters" to "Dictionary of parameters passed to a script or function",
+        "\$Error" to "Array of error objects representing the most recent errors",
+        "\$LastExitCode" to "Exit code of the last native program or script that ran",
+        "\$Args" to "Array of undeclared parameters/values passed to a function or script",
+        "\$MyInvocation" to "Information about the current command, script, or invocation",
+        "\$Matches" to "Hashtable of regex match values populated by -match / switch -Regex",
+        "\$env:PATH" to "System PATH environment variable",
+        "\$env:HOME" to "User home directory environment variable",
+        "\$env:TEMP" to "Temporary directory environment variable",
+        "\$env:COMPUTERNAME" to "Local host / computer name environment variable",
+        "\$global:" to "Global variable scope modifier",
+        "\$script:" to "Script-wide variable scope modifier",
+        "\$private:" to "Private variable scope modifier"
+    )
+
+    private val TYPE_ATTRIBUTE_CATALOG: List<Triple<String, String, String>> = listOf(
+        Triple("[CmdletBinding()]", "[CmdletBinding()]", "Turns a function into an advanced cmdlet-style function"),
+        Triple("[Parameter(Mandatory = \$true)]", "[Parameter(Mandatory = \$true)]", "Declares a mandatory function parameter"),
+        Triple("[ValidateNotNullOrEmpty()]", "[ValidateNotNullOrEmpty()]", "Validates that parameter argument is not null or empty"),
+        Triple("[ValidateSet()]", "[ValidateSet('Val1', 'Val2')]", "Restricts parameter values to a predefined set"),
+        Triple("[OutputType()]", "[OutputType([pscustomobject])]", "Declares the return object type of a function"),
+        Triple("[pscustomobject]", "[pscustomobject]", "PowerShell custom object type accelerator"),
+        Triple("[ordered]", "[ordered]", "Creates an ordered dictionary hashtable ([ordered]@{})"),
+        Triple("[string]", "[string]", "System.String type accelerator"),
+        Triple("[string[]]", "[string[]]", "String array type accelerator"),
+        Triple("[int]", "[int]", "System.Int32 32-bit integer type accelerator"),
+        Triple("[long]", "[long]", "System.Int64 64-bit integer type accelerator"),
+        Triple("[bool]", "[bool]", "System.Boolean type accelerator"),
+        Triple("[switch]", "[switch]", "Switch parameter type accelerator"),
+        Triple("[hashtable]", "[hashtable]", "System.Collections.Hashtable type accelerator"),
+        Triple("[datetime]", "[datetime]", "System.DateTime type accelerator"),
+        Triple("[regex]", "[regex]", "System.Text.RegularExpressions.Regex type accelerator"),
+        Triple("[uri]", "[uri]", "System.Uri type accelerator"),
+        Triple("[xml]", "[xml]", "System.Xml.XmlDocument type accelerator"),
+        Triple("[guid]", "[guid]", "System.Guid type accelerator")
+    )
+
+    /**
+     * Computes context-aware inline PowerShell completions at [cursorColumn] in [line].
+     * Suggests:
+     * - `$Variables` (built-in automatic/scoped variables + user variables declared in [documentContent])
+     * - `-Parameters` and `-Operators` when typing a token starting with `-`
+     * - `[TypeAccelerators]` and `[Attributes]` when typing a token starting with `[`
+     * - `Verb-Noun` Cmdlets, Keywords, and AST Functions declared in the current script
+     */
+    fun computeCompletions(
+        line: String,
+        cursorColumn: Int,
+        documentContent: String = "",
+        astSymbols: List<AstSymbol> = emptyList(),
+        maxResults: Int = 8
+    ): List<PowerShellCompletionItem> {
+        val safeCursor = cursorColumn.coerceIn(0, line.length)
+        if (safeCursor == 0) return emptyList()
+
+        // Find start of token before safeCursor
+        var tokenStart = safeCursor - 1
+        while (tokenStart >= 0) {
+            val ch = line[tokenStart]
+            if (ch == '$' || ch == '[') {
+                break
+            }
+            if (ch == '-' && (tokenStart == 0 || line[tokenStart - 1].isWhitespace() || line[tokenStart - 1] in "({|;=")) {
+                break
+            }
+            if (ch.isLetterOrDigit() || ch == '_' || ch == '-' || ch == ':') {
+                if (tokenStart == 0) break
+                tokenStart--
+            } else {
+                tokenStart++
+                break
+            }
+        }
+        tokenStart = tokenStart.coerceIn(0, safeCursor)
+        val rawPrefix = line.substring(tokenStart, safeCursor)
+        if (rawPrefix.isEmpty()) return emptyList()
+
+        val lowerPrefix = rawPrefix.lowercase()
+        val candidates = ArrayList<PowerShellCompletionItem>()
+
+        when {
+            // 1. Variable completions ($...)
+            rawPrefix.startsWith("$") -> {
+                val userVars = LinkedHashSet<String>()
+                for (m in USER_VARIABLE_EXTRACT_REGEX.findAll(documentContent)) {
+                    if (!m.value.equals(rawPrefix, ignoreCase = true)) {
+                        userVars.add(m.value)
+                    }
+                }
+                for (uVar in userVars) {
+                    if (uVar.lowercase().startsWith(lowerPrefix)) {
+                        candidates.add(
+                            PowerShellCompletionItem(
+                                label = uVar,
+                                insertText = uVar,
+                                kind = CompletionKind.VARIABLE,
+                                detail = "Script Variable",
+                                replaceStartInLine = tokenStart,
+                                replaceEndInLine = safeCursor
+                            )
+                        )
+                    }
+                }
+                for ((varName, desc) in BUILTIN_VARIABLE_CATALOG) {
+                    if (varName.lowercase().startsWith(lowerPrefix) && !varName.equals(rawPrefix, ignoreCase = true)) {
+                        candidates.add(
+                            PowerShellCompletionItem(
+                                label = varName,
+                                insertText = varName,
+                                kind = CompletionKind.VARIABLE,
+                                detail = desc,
+                                replaceStartInLine = tokenStart,
+                                replaceEndInLine = safeCursor
+                            )
+                        )
+                    }
+                }
+            }
+
+            // 2. Parameter & Operator completions (-...)
+            rawPrefix.startsWith("-") -> {
+                if (rawPrefix.length < 2) return emptyList()
+                for ((paramName, desc) in COMMON_PARAMETER_CATALOG) {
+                    if (paramName.lowercase().startsWith(lowerPrefix) && !paramName.equals(rawPrefix, ignoreCase = true)) {
+                        candidates.add(
+                            PowerShellCompletionItem(
+                                label = paramName,
+                                insertText = paramName,
+                                kind = CompletionKind.PARAMETER,
+                                detail = desc,
+                                replaceStartInLine = tokenStart,
+                                replaceEndInLine = safeCursor
+                            )
+                        )
+                    }
+                }
+                for (op in POWERSHELL_OPERATORS) {
+                    if (op.startsWith(lowerPrefix) && !op.equals(rawPrefix, ignoreCase = true)) {
+                        candidates.add(
+                            PowerShellCompletionItem(
+                                label = op,
+                                insertText = op,
+                                kind = CompletionKind.PARAMETER,
+                                detail = "PowerShell Operator",
+                                replaceStartInLine = tokenStart,
+                                replaceEndInLine = safeCursor
+                            )
+                        )
+                    }
+                }
+            }
+
+            // 3. Type & Attribute completions ([...)
+            rawPrefix.startsWith("[") -> {
+                val replaceEnd = if (safeCursor < line.length && line[safeCursor] == ']') {
+                    safeCursor + 1
+                } else {
+                    safeCursor
+                }
+                for ((label, insert, desc) in TYPE_ATTRIBUTE_CATALOG) {
+                    if (label.lowercase().startsWith(lowerPrefix) && !label.equals(rawPrefix, ignoreCase = true)) {
+                        candidates.add(
+                            PowerShellCompletionItem(
+                                label = label,
+                                insertText = insert,
+                                kind = CompletionKind.TYPE_ACCELERATOR,
+                                detail = desc,
+                                replaceStartInLine = tokenStart,
+                                replaceEndInLine = replaceEnd
+                            )
+                        )
+                    }
+                }
+            }
+
+            // 4. Cmdlets, Local AST Functions & Keywords
+            else -> {
+                if (rawPrefix.length < 2) return emptyList()
+                for (sym in astSymbols) {
+                    if (sym.kind == SymbolKind.REGION) continue
+                    if (sym.name.lowercase().startsWith(lowerPrefix) && !sym.name.equals(rawPrefix, ignoreCase = true)) {
+                        candidates.add(
+                            PowerShellCompletionItem(
+                                label = sym.name,
+                                insertText = sym.name,
+                                kind = CompletionKind.FUNCTION,
+                                detail = "${sym.signature} (Ln ${sym.lineNumber})",
+                                replaceStartInLine = tokenStart,
+                                replaceEndInLine = safeCursor
+                            )
+                        )
+                    }
+                }
+                for ((cmdlet, desc) in COMMON_CMDLET_CATALOG) {
+                    val lowerCmd = cmdlet.lowercase()
+                    if ((lowerCmd.startsWith(lowerPrefix) || lowerCmd.contains(lowerPrefix)) &&
+                        !cmdlet.equals(rawPrefix, ignoreCase = true)
+                    ) {
+                        candidates.add(
+                            PowerShellCompletionItem(
+                                label = cmdlet,
+                                insertText = cmdlet,
+                                kind = CompletionKind.CMDLET,
+                                detail = desc,
+                                replaceStartInLine = tokenStart,
+                                replaceEndInLine = safeCursor
+                            )
+                        )
+                    }
+                }
+                for (kw in POWERSHELL_KEYWORDS) {
+                    if (kw.startsWith(lowerPrefix) && !kw.equals(rawPrefix, ignoreCase = true)) {
+                        candidates.add(
+                            PowerShellCompletionItem(
+                                label = kw,
+                                insertText = kw,
+                                kind = CompletionKind.KEYWORD,
+                                detail = "PowerShell Keyword",
+                                replaceStartInLine = tokenStart,
+                                replaceEndInLine = safeCursor
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        return candidates
+            .sortedWith(
+                compareByDescending<PowerShellCompletionItem> {
+                    it.label.lowercase().startsWith(lowerPrefix)
+                }.thenBy { it.label.length }
+            )
+            .take(maxResults)
+    }
 }
+
+enum class CompletionKind(val badge: String) {
+    CMDLET("cmd"),
+    VARIABLE("var"),
+    PARAMETER("prm"),
+    KEYWORD("kw"),
+    TYPE_ACCELERATOR("type"),
+    FUNCTION("fn")
+}
+
+data class PowerShellCompletionItem(
+    val label: String,
+    val insertText: String,
+    val kind: CompletionKind,
+    val detail: String,
+    val replaceStartInLine: Int,
+    val replaceEndInLine: Int
+)
+

@@ -78,12 +78,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gravityedit.app.R
+import com.gravityedit.app.domain.engine.CompletionKind
 import com.gravityedit.app.domain.engine.LineLexState
+import com.gravityedit.app.domain.engine.PowerShellCompletionItem
 import com.gravityedit.app.domain.engine.PowerShellEngine
+import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.EditorDocument
 import com.gravityedit.app.domain.model.FoldRegion
 import com.gravityedit.app.domain.model.LineEnding
 import com.gravityedit.app.domain.model.SearchMatch
+import com.gravityedit.app.domain.model.SyntaxLanguage
 import com.gravityedit.app.ui.theme.EditorSyntaxPalette
 import com.gravityedit.app.ui.theme.GravityEditThemeDefaults
 import com.gravityedit.app.ui.theme.JetBrainsMonoFontFamily
@@ -102,8 +106,9 @@ private data class VisibleLineEntry(
 /**
  * High-speed virtualized `LazyColumn` code editor with synchronized line-number gutter,
  * code-folding toggles (`function`, `filter`, `workflow`, `#region`, `<# ... #>`),
- * Page Guide overlays at columns 80 and 120, Show Invisibles glyph overlay, and
- * real-time PowerShell `AnnotatedString` syntax highlighting.
+ * Page Guide overlays at columns 80 and 120, Show Invisibles glyph overlay,
+ * inline PowerShell auto-completion popup (Cmdlets, `$Variables`, `-Parameters`, `[Types]`),
+ * and real-time PowerShell `AnnotatedString` syntax highlighting.
  */
 @Composable
 fun EditorCanvas(
@@ -124,7 +129,8 @@ fun EditorCanvas(
     onContentChange: (newContent: String, newSelStart: Int, newSelEnd: Int) -> Unit,
     onSelectionChange: (selStart: Int, selEnd: Int) -> Unit,
     onToggleFold: (startLine: Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    astSymbols: List<AstSymbol> = emptyList()
 ) {
     val palette = GravityEditThemeDefaults.syntaxPalette
     val codeStyle = remember(fontSizeSp) { editorCodeTextStyle(fontSizeSp = fontSizeSp) }
@@ -280,140 +286,289 @@ fun EditorCanvas(
                     }
                 }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(rowBg),
-                    verticalAlignment = Alignment.Top
+                // Compute inline PowerShell completions for the currently focused line
+                val localCursorCol = if (isCurrentLine) {
+                    (document.selectionEnd - entry.lineStartOffset).coerceIn(0, entry.text.length)
+                } else {
+                    0
+                }
+                val lineCompletions = remember(
+                    isCurrentLine,
+                    isFocusedPane,
+                    document.language,
+                    entry.text,
+                    localCursorCol,
+                    astSymbols
                 ) {
-                    // Synchronized Line Number & Code Folding Gutter
-                    EditorLineGutterCell(
-                        lineNumber = entry.lineNumber,
-                        isCurrentLine = isCurrentLine,
-                        foldRegion = entry.foldRegionStartingHere,
-                        isFolded = entry.isFolded,
-                        enableCodeFolding = enableCodeFolding,
-                        gutterWidth = gutterWidthDp,
-                        fontSizeSp = fontSizeSp,
-                        palette = palette,
-                        onSelectLine = {
-                            onFocusPane()
-                            onSelectionChange(
-                                entry.lineStartOffset,
-                                entry.lineStartOffset + entry.text.length
-                            )
-                        },
-                        onToggleFold = {
-                            entry.foldRegionStartingHere?.let { onToggleFold(it.startLine) }
-                        }
-                    )
-
-                    // Vertical Gutter Divider
-                    Box(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .height((fontSizeSp * 1.52f).dp)
-                            .background(palette.pageGuideColor.copy(alpha = 0.55f))
-                    )
-
-                    // Editable Syntax-Highlighted Code Line + Page Guides + Fold Pill
-                    val lineBoxModifier = if (softWrap) {
-                        Modifier
-                            .weight(1f)
-                            .padding(horizontal = 8.dp)
+                    if (isCurrentLine && isFocusedPane && document.language == SyntaxLanguage.POWERSHELL) {
+                        PowerShellEngine.computeCompletions(
+                            line = entry.text,
+                            cursorColumn = localCursorCol,
+                            documentContent = document.content,
+                            astSymbols = astSymbols
+                        )
                     } else {
-                        Modifier
-                            .weight(1f)
-                            .horizontalScroll(horizontalScrollState)
-                            .padding(horizontal = 8.dp)
+                        emptyList()
                     }
+                }
 
-                    Row(
-                        modifier = lineBoxModifier.drawBehind {
-                            if (showPageGuide80) {
-                                val x80 = charWidthPx * 80f
-                                drawLine(
-                                    color = palette.pageGuideColor,
-                                    start = Offset(x80, 0f),
-                                    end = Offset(x80, size.height),
-                                    strokeWidth = 1.dp.toPx()
-                                )
-                            }
-                            if (showPageGuide120) {
-                                val x120 = charWidthPx * 120f
-                                drawLine(
-                                    color = palette.pageGuideColor,
-                                    start = Offset(x120, 0f),
-                                    end = Offset(x120, size.height),
-                                    strokeWidth = 1.dp.toPx()
-                                )
-                            }
-                        },
-                        verticalAlignment = Alignment.CenterVertically
+                fun acceptCompletion(item: PowerShellCompletionItem) {
+                    val safeStart = item.replaceStartInLine.coerceIn(0, entry.text.length)
+                    val safeEnd = item.replaceEndInLine.coerceIn(safeStart, entry.text.length)
+                    val updatedLine = buildString {
+                        append(entry.text, 0, safeStart)
+                        append(item.insertText)
+                        append(entry.text, safeEnd, entry.text.length)
+                    }
+                    val newLocalCursor = safeStart + item.insertText.length
+                    val newDocContent = buildString(
+                        document.content.length - entry.text.length + updatedLine.length
                     ) {
-                        VirtualizedEditableCodeLine(
-                            entry = entry,
-                            document = document,
-                            isCurrentLine = isCurrentLine && isFocusedPane,
+                        append(document.content, 0, entry.lineStartOffset)
+                        append(updatedLine)
+                        val afterLine = (entry.lineStartOffset + entry.text.length).coerceAtMost(document.content.length)
+                        append(document.content, afterLine, document.content.length)
+                    }
+                    val globalCursor = (entry.lineStartOffset + newLocalCursor).coerceIn(0, newDocContent.length)
+                    onContentChange(newDocContent, globalCursor, globalCursor)
+                }
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(rowBg),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        // Synchronized Line Number & Code Folding Gutter
+                        EditorLineGutterCell(
+                            lineNumber = entry.lineNumber,
+                            isCurrentLine = isCurrentLine,
+                            foldRegion = entry.foldRegionStartingHere,
+                            isFolded = entry.isFolded,
+                            enableCodeFolding = enableCodeFolding,
+                            gutterWidth = gutterWidthDp,
+                            fontSizeSp = fontSizeSp,
                             palette = palette,
-                            codeStyle = codeStyle,
-                            tabWidth = tabWidth,
-                            softWrap = softWrap,
-                            showInvisibles = showInvisibles,
-                            lineSearchRanges = lineSearchRanges,
-                            activeMatchInLine = activeMatchInLine,
-                            onFocusLine = { cursorCol ->
+                            onSelectLine = {
                                 onFocusPane()
-                                val targetOffset = (entry.lineStartOffset + cursorCol).coerceIn(
+                                onSelectionChange(
                                     entry.lineStartOffset,
                                     entry.lineStartOffset + entry.text.length
                                 )
-                                onSelectionChange(targetOffset, targetOffset)
                             },
-                            onLineTextChanged = { updatedLineText, newLocalCursor ->
-                                val newDocContent = buildString(
-                                    document.content.length - entry.text.length + updatedLineText.length
-                                ) {
-                                    append(document.content, 0, entry.lineStartOffset)
-                                    append(updatedLineText)
-                                    val afterLine = (entry.lineStartOffset + entry.text.length).coerceAtMost(document.content.length)
-                                    append(document.content, afterLine, document.content.length)
-                                }
-                                val globalCursor = (entry.lineStartOffset + newLocalCursor).coerceIn(0, newDocContent.length)
-                                onContentChange(newDocContent, globalCursor, globalCursor)
-                            },
-                            onMergeWithPreviousLine = {
-                                if (entry.lineIndex > 0) {
-                                    val prevLineStart = lineStartOffsets[entry.lineIndex - 1]
-                                    val prevLineLen = lines[entry.lineIndex - 1].length
-                                    val newlineCharIndex = entry.lineStartOffset - 1
-                                    if (newlineCharIndex in document.content.indices) {
-                                        val merged = document.content.removeRange(newlineCharIndex, newlineCharIndex + 1)
-                                        val targetCursor = prevLineStart + prevLineLen
-                                        onContentChange(merged, targetCursor, targetCursor)
-                                    }
-                                }
+                            onToggleFold = {
+                                entry.foldRegionStartingHere?.let { onToggleFold(it.startLine) }
                             }
                         )
 
-                        if (showInvisibles) {
-                            Text(
-                                text = lineEndingGlyph,
-                                style = codeStyle.copy(color = palette.invisibleGlyphColor),
-                                modifier = Modifier.padding(start = 2.dp)
-                            )
+                        // Vertical Gutter Divider
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height((fontSizeSp * 1.52f).dp)
+                                .background(palette.pageGuideColor.copy(alpha = 0.55f))
+                        )
+
+                        // Editable Syntax-Highlighted Code Line + Page Guides + Fold Pill
+                        val lineBoxModifier = if (softWrap) {
+                            Modifier
+                                .weight(1f)
+                                .padding(horizontal = 8.dp)
+                        } else {
+                            Modifier
+                                .weight(1f)
+                                .horizontalScroll(horizontalScrollState)
+                                .padding(horizontal = 8.dp)
                         }
 
-                        if (entry.isFolded && entry.foldRegionStartingHere != null) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            FoldedRegionPill(
-                                foldRegion = entry.foldRegionStartingHere,
+                        Row(
+                            modifier = lineBoxModifier.drawBehind {
+                                if (showPageGuide80) {
+                                    val x80 = charWidthPx * 80f
+                                    drawLine(
+                                        color = palette.pageGuideColor,
+                                        start = Offset(x80, 0f),
+                                        end = Offset(x80, size.height),
+                                        strokeWidth = 1.dp.toPx()
+                                    )
+                                }
+                                if (showPageGuide120) {
+                                    val x120 = charWidthPx * 120f
+                                    drawLine(
+                                        color = palette.pageGuideColor,
+                                        start = Offset(x120, 0f),
+                                        end = Offset(x120, size.height),
+                                        strokeWidth = 1.dp.toPx()
+                                    )
+                                }
+                            },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            VirtualizedEditableCodeLine(
+                                entry = entry,
+                                document = document,
+                                isCurrentLine = isCurrentLine && isFocusedPane,
                                 palette = palette,
-                                fontSizeSp = fontSizeSp,
-                                onUnfold = { onToggleFold(entry.foldRegionStartingHere.startLine) }
+                                codeStyle = codeStyle,
+                                tabWidth = tabWidth,
+                                softWrap = softWrap,
+                                showInvisibles = showInvisibles,
+                                lineSearchRanges = lineSearchRanges,
+                                activeMatchInLine = activeMatchInLine,
+                                topCompletionItem = lineCompletions.firstOrNull(),
+                                onAcceptTopCompletion = { topItem ->
+                                    acceptCompletion(topItem)
+                                },
+                                onFocusLine = { cursorCol ->
+                                    onFocusPane()
+                                    val targetOffset = (entry.lineStartOffset + cursorCol).coerceIn(
+                                        entry.lineStartOffset,
+                                        entry.lineStartOffset + entry.text.length
+                                    )
+                                    onSelectionChange(targetOffset, targetOffset)
+                                },
+                                onLineTextChanged = { updatedLineText, newLocalCursor ->
+                                    val newDocContent = buildString(
+                                        document.content.length - entry.text.length + updatedLineText.length
+                                    ) {
+                                        append(document.content, 0, entry.lineStartOffset)
+                                        append(updatedLineText)
+                                        val afterLine = (entry.lineStartOffset + entry.text.length).coerceAtMost(document.content.length)
+                                        append(document.content, afterLine, document.content.length)
+                                    }
+                                    val globalCursor = (entry.lineStartOffset + newLocalCursor).coerceIn(0, newDocContent.length)
+                                    onContentChange(newDocContent, globalCursor, globalCursor)
+                                },
+                                onMergeWithPreviousLine = {
+                                    if (entry.lineIndex > 0) {
+                                        val prevLineStart = lineStartOffsets[entry.lineIndex - 1]
+                                        val prevLineLen = lines[entry.lineIndex - 1].length
+                                        val newlineCharIndex = entry.lineStartOffset - 1
+                                        if (newlineCharIndex in document.content.indices) {
+                                            val merged = document.content.removeRange(newlineCharIndex, newlineCharIndex + 1)
+                                            val targetCursor = prevLineStart + prevLineLen
+                                            onContentChange(merged, targetCursor, targetCursor)
+                                        }
+                                    }
+                                }
                             )
+
+                            if (showInvisibles) {
+                                Text(
+                                    text = lineEndingGlyph,
+                                    style = codeStyle.copy(color = palette.invisibleGlyphColor),
+                                    modifier = Modifier.padding(start = 2.dp)
+                                )
+                            }
+
+                            if (entry.isFolded && entry.foldRegionStartingHere != null) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                FoldedRegionPill(
+                                    foldRegion = entry.foldRegionStartingHere,
+                                    palette = palette,
+                                    fontSizeSp = fontSizeSp,
+                                    onUnfold = { onToggleFold(entry.foldRegionStartingHere.startLine) }
+                                )
+                            }
                         }
                     }
+
+                    // Inline PowerShell Auto-Completion Popup Bar below active line
+                    if (lineCompletions.isNotEmpty()) {
+                        PowerShellInlineCompletionPopup(
+                            completions = lineCompletions,
+                            gutterWidth = gutterWidthDp,
+                            palette = palette,
+                            onSelectCompletion = { acceptCompletion(it) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PowerShellInlineCompletionPopup(
+    completions: List<PowerShellCompletionItem>,
+    gutterWidth: androidx.compose.ui.unit.Dp,
+    palette: EditorSyntaxPalette,
+    onSelectCompletion: (PowerShellCompletionItem) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.activeLineBackground)
+            .padding(start = gutterWidth + 8.dp, end = 8.dp, top = 2.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            tonalElevation = 6.dp,
+            shadowElevation = 4.dp,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = androidx.compose.foundation.BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(vertical = 4.dp, horizontal = 6.dp)) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    items(completions, key = { it.label }) { item ->
+                        val badgeColor = when (item.kind) {
+                            CompletionKind.CMDLET -> palette.cmdlet
+                            CompletionKind.VARIABLE -> palette.variableNormal
+                            CompletionKind.PARAMETER -> palette.parameter
+                            CompletionKind.TYPE_ACCELERATOR -> palette.typeAttribute
+                            CompletionKind.FUNCTION -> palette.keyword
+                            CompletionKind.KEYWORD -> palette.keyword
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            ),
+                            modifier = Modifier.clickable { onSelectCompletion(item) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Text(
+                                    text = item.kind.badge,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = badgeColor
+                                )
+                                Text(
+                                    text = item.label,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = palette.editorForeground
+                                )
+                            }
+                        }
+                    }
+                }
+                val topDetail = completions.firstOrNull()?.detail
+                if (!topDetail.isNullOrBlank()) {
+                    Text(
+                        text = "⇥ Tab: ${completions.first().label} — $topDetail",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.padding(top = 3.dp, start = 2.dp)
+                    )
                 }
             }
         }
@@ -491,6 +646,8 @@ private fun VirtualizedEditableCodeLine(
     showInvisibles: Boolean,
     lineSearchRanges: List<IntRange>,
     activeMatchInLine: IntRange?,
+    topCompletionItem: PowerShellCompletionItem?,
+    onAcceptTopCompletion: (PowerShellCompletionItem) -> Unit,
     onFocusLine: (cursorCol: Int) -> Unit,
     onLineTextChanged: (updatedText: String, newLocalCursor: Int) -> Unit,
     onMergeWithPreviousLine: () -> Unit
@@ -600,6 +757,12 @@ private fun VirtualizedEditableCodeLine(
             }
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown &&
+                    event.key == Key.Tab &&
+                    topCompletionItem != null
+                ) {
+                    onAcceptTopCompletion(topCompletionItem)
+                    true
+                } else if (event.type == KeyEventType.KeyDown &&
                     event.key == Key.Backspace &&
                     textFieldValue.selection.collapsed &&
                     textFieldValue.selection.start == 0
