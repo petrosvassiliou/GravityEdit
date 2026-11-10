@@ -589,6 +589,39 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         refreshActiveDocSearchMatches()
     }
 
+    fun renameDocument(documentId: String, newTitle: String) {
+        val cleanTitle = newTitle.trim()
+        if (cleanTitle.isEmpty()) return
+
+        _uiState.update { state ->
+            val targetDoc = state.documents.firstOrNull { it.id == documentId } ?: return@update state
+            if (targetDoc.title == cleanTitle) return@update state
+
+            val resolvedLanguage = if (cleanTitle.contains('.')) {
+                SyntaxLanguage.fromFileName(cleanTitle)
+            } else {
+                targetDoc.language
+            }
+
+            val updatedDocs = state.documents.map { doc ->
+                if (doc.id == documentId) {
+                    doc.copy(
+                        title = cleanTitle,
+                        language = resolvedLanguage
+                    )
+                } else {
+                    doc
+                }
+            }
+            state.copy(
+                documents = updatedDocs,
+                statusBannerMessage = "Renamed to $cleanTitle (${resolvedLanguage.displayName})"
+            )
+        }
+        refreshAstAndFoldsForActiveDocument()
+        refreshActiveDocSearchMatches()
+    }
+
     fun selectSecondaryDocument(documentId: String) {
         _uiState.update { it.copy(secondaryDocumentId = documentId) }
     }
@@ -607,8 +640,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             val remaining = state.documents.filterNot { it.id == documentId }.ifEmpty {
                 listOf(
                     EditorDocument(
-                        title = "Untitled-${untitledCounter++}.ps1",
-                        language = SyntaxLanguage.POWERSHELL
+                        title = "Untitled-${untitledCounter++}.txt",
+                        language = SyntaxLanguage.PLAIN_TEXT
                     )
                 )
             }

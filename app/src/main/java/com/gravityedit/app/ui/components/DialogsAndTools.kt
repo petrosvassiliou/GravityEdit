@@ -65,6 +65,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -72,14 +73,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -2493,17 +2499,53 @@ fun NewDocumentDialog(
     onDismiss: () -> Unit
 ) {
     var selectedPreset by remember { mutableStateOf(NEW_DOCUMENT_FILE_TYPE_PRESETS[0]) }
-    var fileName by remember(nextUntitledNumber) {
-        mutableStateOf("Untitled-$nextUntitledNumber.${NEW_DOCUMENT_FILE_TYPE_PRESETS[0].extension}")
+    val initialStem = "Untitled-$nextUntitledNumber"
+    val initialFullName = "$initialStem.${NEW_DOCUMENT_FILE_TYPE_PRESETS[0].extension}"
+    var fileNameField by remember(nextUntitledNumber) {
+        mutableStateOf(
+            TextFieldValue(
+                text = initialFullName,
+                selection = TextRange(0, initialStem.length)
+            )
+        )
     }
     var selectedEncoding by remember { mutableStateOf(DocumentEncoding.UTF_8) }
     var selectedLineEnding by remember { mutableStateOf(LineEnding.LF) }
     var useStarterTemplate by remember { mutableStateOf(false) }
+    val nameFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        runCatching { nameFocusRequester.requestFocus() }
+    }
 
     fun selectPreset(preset: FileTypePreset) {
         selectedPreset = preset
-        val base = fileName.substringBeforeLast('.', fileName).ifBlank { "Untitled-$nextUntitledNumber" }
-        fileName = "$base.${preset.extension}"
+        val currentText = fileNameField.text
+        val base = currentText.substringBeforeLast('.', currentText).ifBlank { "Untitled-$nextUntitledNumber" }
+        val updatedText = "$base.${preset.extension}"
+        fileNameField = TextFieldValue(
+            text = updatedText,
+            selection = TextRange(0, base.length)
+        )
+        runCatching { nameFocusRequester.requestFocus() }
+    }
+
+    fun submitCreate() {
+        val finalName = fileNameField.text.trim().ifEmpty {
+            "Untitled-$nextUntitledNumber.${selectedPreset.extension}"
+        }
+        val resolvedLanguage = if (finalName.contains('.')) {
+            SyntaxLanguage.fromFileName(finalName)
+        } else {
+            selectedPreset.language
+        }
+        onCreateDocument(
+            finalName,
+            resolvedLanguage,
+            selectedEncoding,
+            selectedLineEnding,
+            useStarterTemplate
+        )
     }
 
     val content: @Composable () -> Unit = {
@@ -2536,12 +2578,12 @@ fun NewDocumentDialog(
                 }
             }
 
-            // 1. File Name Input (auto-syncs extension & syntax language)
+            // 1. File Name Input (auto-selects name on focus/click and syncs extension & syntax language)
             OutlinedTextField(
-                value = fileName,
+                value = fileNameField,
                 onValueChange = { updated ->
-                    fileName = updated
-                    val typedExt = updated.substringAfterLast('.', "").lowercase()
+                    fileNameField = updated
+                    val typedExt = updated.text.substringAfterLast('.', "").lowercase()
                     val matchedPreset = NEW_DOCUMENT_FILE_TYPE_PRESETS.firstOrNull { it.extension == typedExt }
                     if (matchedPreset != null) {
                         selectedPreset = matchedPreset
@@ -2549,7 +2591,20 @@ fun NewDocumentDialog(
                 },
                 label = { Text("File Name & Extension") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submitCreate() }),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(nameFocusRequester)
+                    .onFocusChanged { focusState ->
+                        if (focusState.isFocused && fileNameField.selection.collapsed) {
+                            val stemLen = fileNameField.text
+                                .substringBeforeLast('.', fileNameField.text)
+                                .length
+                                .let { if (it > 0) it else fileNameField.text.length }
+                            fileNameField = fileNameField.copy(selection = TextRange(0, stemLen))
+                        }
+                    }
             )
 
             // 2. File Type & Extension Selector Grid
@@ -2661,25 +2716,7 @@ fun NewDocumentDialog(
                     Text(stringResource(R.string.action_cancel))
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    onClick = {
-                        val finalName = fileName.trim().ifEmpty {
-                            "Untitled-$nextUntitledNumber.${selectedPreset.extension}"
-                        }
-                        val resolvedLanguage = if (finalName.contains('.')) {
-                            SyntaxLanguage.fromFileName(finalName)
-                        } else {
-                            selectedPreset.language
-                        }
-                        onCreateDocument(
-                            finalName,
-                            resolvedLanguage,
-                            selectedEncoding,
-                            selectedLineEnding,
-                            useStarterTemplate
-                        )
-                    }
-                ) {
+                Button(onClick = { submitCreate() }) {
                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("${stringResource(R.string.action_new_file)} (${selectedPreset.badge})")

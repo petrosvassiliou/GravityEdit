@@ -3,6 +3,7 @@ package com.gravityedit.app.ui
 import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -25,6 +26,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Notes
@@ -87,6 +91,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -99,7 +105,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -547,6 +557,7 @@ private fun GooglebookDesktopLayout(
                 LeftSidebarContent(
                     uiState = uiState,
                     onSelectDocument = viewModel::selectDocument,
+                    onRenameDocument = viewModel::renameDocument,
                     onCloseDocument = viewModel::closeDocument,
                     onNewDocument = { viewModel.setNewDocumentDialogVisible(true) },
                     onMountFolder = viewModel::requestMountProjectFolder,
@@ -602,6 +613,7 @@ private fun GooglebookDesktopLayout(
                 documents = uiState.documents,
                 activeDocumentId = uiState.focusedDocument?.id ?: uiState.activeDocumentId,
                 onSelectTab = viewModel::selectDocument,
+                onRenameTab = viewModel::renameDocument,
                 onCloseTab = viewModel::closeDocument,
                 onCloseOtherTabs = viewModel::closeOtherDocuments,
                 onMoveTab = viewModel::moveTab,
@@ -663,6 +675,7 @@ private fun AndroidMobileCompactLayout(
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    var editingMobileTabDocId by remember { mutableStateOf<String?>(null) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -674,6 +687,7 @@ private fun AndroidMobileCompactLayout(
                         viewModel.selectDocument(docId)
                         scope.launch { drawerState.close() }
                     },
+                    onRenameDocument = viewModel::renameDocument,
                     onCloseDocument = viewModel::closeDocument,
                     onNewDocument = {
                         scope.launch { drawerState.close() }
@@ -781,9 +795,17 @@ private fun AndroidMobileCompactLayout(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow
             ) {
                 uiState.documents.forEach { doc ->
+                    val isSelected = doc.id == uiState.focusedDocument?.id
                     Tab(
-                        selected = doc.id == uiState.focusedDocument?.id,
-                        onClick = { viewModel.selectDocument(doc.id) },
+                        selected = isSelected,
+                        onClick = {
+                            if (isSelected && !doc.isScratchpad) {
+                                editingMobileTabDocId = doc.id
+                            } else {
+                                editingMobileTabDocId = null
+                                viewModel.selectDocument(doc.id)
+                            }
+                        },
                         text = {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -796,10 +818,25 @@ private fun AndroidMobileCompactLayout(
                                             .background(MaterialTheme.colorScheme.primary, CircleShape)
                                     )
                                 }
-                                Text(
-                                    text = doc.title,
-                                    maxLines = 1,
-                                    fontSize = 12.5.sp
+                                InlineEditableDocumentTitle(
+                                    title = doc.title,
+                                    isEditing = editingMobileTabDocId == doc.id,
+                                    isSelected = isSelected,
+                                    onStartEditing = {
+                                        if (!doc.isScratchpad) {
+                                            viewModel.selectDocument(doc.id)
+                                            editingMobileTabDocId = doc.id
+                                        } else {
+                                            viewModel.selectDocument(doc.id)
+                                        }
+                                    },
+                                    onCommitRename = { newName ->
+                                        editingMobileTabDocId = null
+                                        viewModel.renameDocument(doc.id, newName)
+                                    },
+                                    onCancelRename = {
+                                        editingMobileTabDocId = null
+                                    }
                                 )
                                 if (!doc.isScratchpad && uiState.documents.size > 1) {
                                     Icon(
@@ -885,6 +922,7 @@ private fun AndroidMobileCompactLayout(
 private fun LeftSidebarContent(
     uiState: GravityEditUiState,
     onSelectDocument: (String) -> Unit,
+    onRenameDocument: (docId: String, newTitle: String) -> Unit,
     onCloseDocument: (String) -> Unit,
     onNewDocument: () -> Unit,
     onMountFolder: () -> Unit,
@@ -894,6 +932,8 @@ private fun LeftSidebarContent(
     showMobileToolShortcuts: Boolean = false,
     onOpenMobileTool: ((WorkspaceToolPanel) -> Unit)? = null
 ) {
+    var editingSidebarDocId by remember { mutableStateOf<String?>(null) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -942,7 +982,14 @@ private fun LeftSidebarContent(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onSelectDocument(doc.id) }
+                        .clickable {
+                            if (isSelected && !doc.isScratchpad) {
+                                editingSidebarDocId = doc.id
+                            } else {
+                                editingSidebarDocId = null
+                                onSelectDocument(doc.id)
+                            }
+                        }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
@@ -959,14 +1006,28 @@ private fun LeftSidebarContent(
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = doc.title,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
+                        Box(modifier = Modifier.weight(1f)) {
+                            InlineEditableDocumentTitle(
+                                title = doc.title,
+                                isEditing = editingSidebarDocId == doc.id,
+                                isSelected = isSelected,
+                                onStartEditing = {
+                                    if (!doc.isScratchpad) {
+                                        onSelectDocument(doc.id)
+                                        editingSidebarDocId = doc.id
+                                    } else {
+                                        onSelectDocument(doc.id)
+                                    }
+                                },
+                                onCommitRename = { newName ->
+                                    editingSidebarDocId = null
+                                    onRenameDocument(doc.id, newName)
+                                },
+                                onCancelRename = {
+                                    editingSidebarDocId = null
+                                }
+                            )
+                        }
                         if (doc.isDirty) {
                             Box(
                                 modifier = Modifier
@@ -1367,12 +1428,15 @@ private fun MultiDocumentTabBar(
     documents: List<EditorDocument>,
     activeDocumentId: String,
     onSelectTab: (String) -> Unit,
+    onRenameTab: (docId: String, newTitle: String) -> Unit,
     onCloseTab: (String) -> Unit,
     onCloseOtherTabs: (String) -> Unit,
     onMoveTab: (fromIndex: Int, toIndex: Int) -> Unit,
     onSaveTab: (String) -> Unit,
     onNewTab: () -> Unit
 ) {
+    var editingTabDocId by remember { mutableStateOf<String?>(null) }
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
@@ -1400,7 +1464,20 @@ private fun MultiDocumentTabBar(
                         modifier = Modifier
                             .height(32.dp)
                             .combinedClickable(
-                                onClick = { onSelectTab(doc.id) },
+                                onClick = {
+                                    if (isSelected && !doc.isScratchpad) {
+                                        editingTabDocId = doc.id
+                                    } else {
+                                        editingTabDocId = null
+                                        onSelectTab(doc.id)
+                                    }
+                                },
+                                onDoubleClick = {
+                                    if (!doc.isScratchpad) {
+                                        onSelectTab(doc.id)
+                                        editingTabDocId = doc.id
+                                    }
+                                },
                                 onLongClick = { contextMenuExpanded = true }
                             )
                     ) {
@@ -1416,14 +1493,24 @@ private fun MultiDocumentTabBar(
                                         .background(MaterialTheme.colorScheme.primary, CircleShape)
                                 )
                             }
-                            Text(
-                                text = doc.title,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
+                            InlineEditableDocumentTitle(
+                                title = doc.title,
+                                isEditing = editingTabDocId == doc.id,
+                                isSelected = isSelected,
+                                onStartEditing = {
+                                    if (!doc.isScratchpad) {
+                                        onSelectTab(doc.id)
+                                        editingTabDocId = doc.id
+                                    } else {
+                                        onSelectTab(doc.id)
+                                    }
+                                },
+                                onCommitRename = { newName ->
+                                    editingTabDocId = null
+                                    onRenameTab(doc.id, newName)
+                                },
+                                onCancelRename = {
+                                    editingTabDocId = null
                                 }
                             )
                             if (!doc.isScratchpad && documents.size > 1) {
@@ -1438,11 +1525,21 @@ private fun MultiDocumentTabBar(
                         }
                     }
 
-                    // Tab Context Menu (Save, Close, Close Others, Move Tab Left/Right)
+                    // Tab Context Menu (Rename, Save, Close, Close Others, Move Tab Left/Right)
                     DropdownMenu(
                         expanded = contextMenuExpanded,
                         onDismissRequest = { contextMenuExpanded = false }
                     ) {
+                        if (!doc.isScratchpad) {
+                            DropdownMenuItem(
+                                text = { Text("Rename Document…") },
+                                onClick = {
+                                    contextMenuExpanded = false
+                                    onSelectTab(doc.id)
+                                    editingTabDocId = doc.id
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.action_save)) },
                             onClick = {
@@ -1498,6 +1595,107 @@ private fun MultiDocumentTabBar(
                 }
             }
         }
+    }
+}
+
+/**
+ * Inline-editable document title component.
+ * Clicking on the document's title enters inline rename mode with the full title text
+ * immediately selected (`TextRange(0, title.length)`) so the user can type a new name
+ * and press Enter or click away to commit.
+ */
+@Composable
+private fun InlineEditableDocumentTitle(
+    title: String,
+    isEditing: Boolean,
+    isSelected: Boolean,
+    onStartEditing: () -> Unit,
+    onCommitRename: (String) -> Unit,
+    onCancelRename: () -> Unit
+) {
+    if (isEditing) {
+        var fieldValue by remember(title) {
+            mutableStateOf(
+                TextFieldValue(
+                    text = title,
+                    selection = TextRange(0, title.length)
+                )
+            )
+        }
+        val focusRequester = remember { FocusRequester() }
+        var hadFocus by remember { mutableStateOf(false) }
+
+        LaunchedEffect(Unit) {
+            runCatching { focusRequester.requestFocus() }
+        }
+
+        BasicTextField(
+            value = fieldValue,
+            onValueChange = { fieldValue = it },
+            singleLine = true,
+            textStyle = TextStyle(
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(
+                onDone = { onCommitRename(fieldValue.text) }
+            ),
+            modifier = Modifier
+                .width(150.dp)
+                .background(
+                    MaterialTheme.colorScheme.surface,
+                    RoundedCornerShape(4.dp)
+                )
+                .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.primary,
+                    RoundedCornerShape(4.dp)
+                )
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .focusRequester(focusRequester)
+                .onFocusChanged { state ->
+                    if (state.isFocused) {
+                        hadFocus = true
+                    } else if (hadFocus) {
+                        onCommitRename(fieldValue.text)
+                    }
+                }
+                .onPreviewKeyEvent { keyEvent ->
+                    if (keyEvent.type == KeyEventType.KeyDown) {
+                        when (keyEvent.key) {
+                            Key.Enter -> {
+                                onCommitRename(fieldValue.text)
+                                true
+                            }
+                            Key.Escape -> {
+                                onCancelRename()
+                                true
+                            }
+                            else -> false
+                        }
+                    } else {
+                        false
+                    }
+                }
+        )
+    } else {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = if (isSelected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            modifier = Modifier.clickable { onStartEditing() }
+        )
     }
 }
 
