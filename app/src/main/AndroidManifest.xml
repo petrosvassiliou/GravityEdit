@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Googlebook OS / ChromeOS / Large-Screen Desktop Windowing & Hardware Features -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.type.pc"
+        android:required="false" />
+    <uses-feature
+        android:name="android.software.freeform_window_management"
+        android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
+        android:resizeableActivity="true"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.GravityEdit"
+        tools:targetApi="35">
+
+        <!-- Enable Googlebook OS / Freeform multi-window drag & resize optimization -->
+        <meta-data
+            android:name="WindowManagerPreference:FreeformWindowSize"
+            android:value="maximize" />
+        <meta-data
+            android:name="WindowManagerPreference:FreeformWindowOrientation"
+            android:value="landscape" />
+
+        <!-- Per-app language service support for Android 12L and earlier alongside API 33+ -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data
+                android:name="autoStoreLocales"
+                android:value="true" />
+        </service>
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize">
+
+            <layout
+                android:defaultHeight="820dp"
+                android:defaultWidth="1280dp"
+                android:gravity="center"
+                android:minHeight="480dp"
+                android:minWidth="360dp" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Standard Text, JSON, XML, Markdown & Generic Code Intent Filter -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/xml" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="application/x-powershell" />
+            </intent-filter>
+
+            <!-- Explicit Extension Matchers (.ps1, .psm1, .psd1, .txt, .json, .xml, .md, .log) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathSuffix=".ps1" />
+                <data android:pathSuffix=".psm1" />
+                <data android:pathSuffix=".psd1" />
+                <data android:pathSuffix=".txt" />
+                <data android:pathSuffix=".json" />
+                <data android:pathSuffix=".xml" />
+                <data android:pathSuffix=".md" />
+                <data android:pathSuffix=".log" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

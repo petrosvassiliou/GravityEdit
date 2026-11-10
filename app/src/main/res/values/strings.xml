@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App Identity -->
+    <string name="app_name">GravityEdit</string>
+    <string name="app_tagline">Professional Text &amp; PowerShell Editor</string>
+
+    <!-- Navigation & Workspace Panels -->
+    <string name="nav_disk_browser">Disk Browser</string>
+    <string name="nav_open_documents">Open Documents</string>
+    <string name="nav_text_factory">Text Factory</string>
+    <string name="nav_find_replace">Find &amp; Replace</string>
+    <string name="nav_diff_tool">Diff Tool</string>
+    <string name="nav_clippings">Clippings</string>
+    <string name="nav_scratchpad">Scratchpad</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- File, Tab & Edit Actions -->
+    <string name="action_new_file">New Document</string>
+    <string name="action_open_file">Open File…</string>
+    <string name="action_open_folder">Mount Project Folder…</string>
+    <string name="action_save">Save</string>
+    <string name="action_save_as">Save As…</string>
+    <string name="action_close_tab">Close Tab</string>
+    <string name="action_close_other_tabs">Close Other Tabs</string>
+    <string name="action_duplicate_line">Duplicate Line</string>
+    <string name="action_select_line">Select Line</string>
+    <string name="action_toggle_comment">Toggle PowerShell Comment</string>
+    <string name="action_undo">Undo</string>
+    <string name="action_redo">Redo</string>
+    <string name="action_indent">Indent</string>
+    <string name="action_unindent">Unindent</string>
+    <string name="untitled_document">Untitled</string>
+    <string name="unsaved_changes_indicator">Unsaved changes</string>
+    <string name="empty_folder_hint">No project folder mounted. Mount a directory to browse files.</string>
+    <string name="refresh_folder">Refresh Folder</string>
+
+    <!-- Split View, Navigator & Editor Options -->
+    <string name="split_none">Single Pane</string>
+    <string name="split_horizontal">Split Horizontal</string>
+    <string name="split_vertical">Split Vertical</string>
+    <string name="function_navigator">Function Navigator</string>
+    <string name="function_navigator_empty">No functions or regions found</string>
+    <string name="go_to_line_title">Go to Line</string>
+    <string name="go_to_line_hint">Line number (1 – %1$d)</string>
+    <string name="action_go">Go</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_close">Close</string>
+    <string name="action_run">Run</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_insert">Insert</string>
+    <string name="action_delete">Delete</string>
+    <string name="show_invisibles">Show Invisibles</string>
+    <string name="soft_wrap">Soft Wrap Lines</string>
+    <string name="page_guide_80">Page Guide (Col 80)</string>
+    <string name="page_guide_120">Page Guide (Col 120)</string>
+    <string name="code_folding">Code Folding</string>
+
+    <!-- Bottom Status Bar -->
+    <string name="status_cursor_pos">Ln %1$d, Col %2$d</string>
+    <string name="status_selection_stats">Sel: %1$d chars | %2$d words | %3$d lines</string>
+    <string name="status_doc_stats">%1$d chars | %2$d lines</string>
+    <string name="status_encoding">Encoding</string>
+    <string name="status_line_ending">Line Ending</string>
+    <string name="status_language">Syntax</string>
+    <string name="status_zoom">Zoom %1$d%%</string>
+
+    <!-- Find & Replace, Pattern Playground & Multi-File Search -->
+    <string name="find_title">PCRE Find &amp; Replace</string>
+    <string name="find_label">Find pattern</string>
+    <string name="replace_label">Replace with</string>
+    <string name="opt_case_sensitive">Case sensitive</string>
+    <string name="opt_match_words">Match entire words</string>
+    <string name="opt_grep_regex">Grep (Regex)</string>
+    <string name="opt_wrap_around">Wrap around</string>
+    <string name="opt_selection_only">Search in selection only</string>
+    <string name="btn_find_next">Next</string>
+    <string name="btn_find_prev">Previous</string>
+    <string name="btn_replace">Replace</string>
+    <string name="btn_replace_all">Replace All</string>
+    <string name="btn_extract_matches">Extract to New File</string>
+    <string name="tab_single_file">Active Document</string>
+    <string name="tab_multi_file">Multi-File Search</string>
+    <string name="tab_pattern_playground">Pattern Playground</string>
+    <string name="file_filter_label">File Filter (e.g. *.ps1;*.json)</string>
+    <string name="playground_sample_label">Sample / Test Text</string>
+    <string name="matches_count">%1$d matches found</string>
+    <string name="no_matches_found">No matches found</string>
+
+    <!-- Text Factory (All 14 BBEdit Operations) -->
+    <string name="text_factory_title">Text Factory Pipeline</string>
+    <string name="text_factory_add_step">Add Transformation Step</string>
+    <string name="text_factory_run_pipeline">Run Pipeline on Document</string>
+    <string name="text_factory_empty">Add steps to build a modular BBEdit batch transformation pipeline.</string>
+    <string name="tf_zap_gremlins">Zap Gremlins</string>
+    <string name="tf_process_duplicates">Process Duplicate Lines</string>
+    <string name="tf_sort_lines">Sort Lines</string>
+    <string name="tf_prefix_suffix">Prefix / Suffix Lines</string>
+    <string name="tf_change_case">Change Case</string>
+    <string name="tf_strip_trailing_ws">Strip Trailing Whitespace</string>
+    <string name="tf_entab_detab">Entab &amp; Detab</string>
+    <string name="tf_hard_wrap_unwrap">Hard Wrap / Unwrap Lines</string>
+    <string name="tf_line_numbers">Add / Remove Line Numbers</string>
+    <string name="tf_educate_quotes">Educate / Straighten Quotes</string>
+    <string name="tf_canonize_table">Canonize / Replace Using Table</string>
+    <string name="tf_process_containing">Process Lines Containing…</string>
+    <string name="tf_convert_line_endings">Convert Line Endings</string>
+    <string name="tf_format_prettify">Format / Prettify PowerShell &amp; JSON</string>
+    <string name="move_step_up">Move Step Up</string>
+    <string name="move_step_down">Move Step Down</string>
+
+    <!-- Diff Tool -->
+    <string name="diff_title">Side-by-Side Diff (Myers)</string>
+    <string name="diff_left_doc">Left Document</string>
+    <string name="diff_right_doc">Right Document</string>
+    <string name="diff_copy_to_left">Copy to Left (←)</string>
+    <string name="diff_copy_to_right">Copy to Right (→)</string>
+    <string name="diff_identical">Documents are identical</string>
+    <string name="diff_summary">+%1$d added | -%2$d removed | ~%3$d modified</string>
+
+    <!-- Clippings -->
+    <string name="clippings_title">Clippings &amp; PowerShell Snippets</string>
+    <string name="clippings_search_hint">Filter clippings…</string>
+    <string name="clippings_new">New Clipping</string>
+    <string name="clippings_name_label">Clipping Name</string>
+    <string name="clippings_body_label">Template Body (#INSERTION#, #SELECTION#, etc.)</string>
+
+    <!-- Settings, Themes & Localization -->
+    <string name="settings_title">Preferences &amp; Appearance</string>
+    <string name="settings_theme_section">Editor Color Scheme</string>
+    <string name="theme_dynamic">Material 3 Dynamic (Monet)</string>
+    <string name="theme_light">M3 Developer Light</string>
+    <string name="theme_dark">M3 Developer Dark</string>
+    <string name="theme_amoled">AMOLED Pitch Black (#000000)</string>
+    <string name="settings_language_section">Interface Language</string>
+    <string name="lang_en">English</string>
+    <string name="lang_de">Deutsch (German)</string>
+    <string name="lang_it">Italiano (Italian)</string>
+    <string name="lang_es">Español (Spanish)</string>
+    <string name="lang_fr">Français (French)</string>
+    <string name="lang_el">Ελληνικά (Greek)</string>
+    <string name="settings_editor_section">Editor Behavior</string>
+    <string name="settings_font_size">Font Size (%1$d sp)</string>
+    <string name="settings_tab_width">Tab Width (%1$d spaces)</string>
+    <string name="aux_row_description">PowerShell Auxiliary Symbol Row</string>
+</resources>

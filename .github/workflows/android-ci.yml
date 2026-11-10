@@ -1,0 +1,40 @@
+name: GravityEdit Android CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: JDK 17 • Unit Tests & Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Run JUnit 4 Engine Unit Tests
+        run: gradle testDebugUnitTest --stacktrace
+
+      - name: Assemble Debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Upload GravityEdit Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GravityEdit-debug-apk
+          path: app/build/outputs/apk/debug/*.apk

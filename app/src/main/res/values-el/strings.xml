@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App Identity -->
+    <string name="app_name">GravityEdit</string>
+    <string name="app_tagline">Επαγγελματικός επεξεργαστής κειμένου &amp; PowerShell</string>
+
+    <!-- Navigation & Workspace Panels -->
+    <string name="nav_disk_browser">Περιήγηση δίσκου</string>
+    <string name="nav_open_documents">Ανοιχτά έγγραφα</string>
+    <string name="nav_text_factory">Εργοστάσιο κειμένου</string>
+    <string name="nav_find_replace">Εύρεση &amp; Αντικατάσταση</string>
+    <string name="nav_diff_tool">Εργαλείο σύγκρισης Diff</string>
+    <string name="nav_clippings">Αποσπάσματα</string>
+    <string name="nav_scratchpad">Σημειωματάριο</string>
+    <string name="nav_settings">Ρυθμίσεις</string>
+
+    <!-- File, Tab & Edit Actions -->
+    <string name="action_new_file">Νέο έγγραφο</string>
+    <string name="action_open_file">Άνοιγμα αρχείου…</string>
+    <string name="action_open_folder">Προσάρτηση φακέλου έργου…</string>
+    <string name="action_save">Αποθήκευση</string>
+    <string name="action_save_as">Αποθήκευση ως…</string>
+    <string name="action_close_tab">Κλείσιμο καρτέλας</string>
+    <string name="action_close_other_tabs">Κλείσιμο άλλων καρτελών</string>
+    <string name="action_duplicate_line">Διπλασιασμός γραμμής</string>
+    <string name="action_select_line">Επιλογή γραμμής</string>
+    <string name="action_toggle_comment">Εναλλαγή σχολίου PowerShell</string>
+    <string name="action_undo">Αναίρεση</string>
+    <string name="action_redo">Επανάληψη</string>
+    <string name="action_indent">Αύξηση εσοχής</string>
+    <string name="action_unindent">Μείωση εσοχής</string>
+    <string name="untitled_document">Χωρίς τίτλο</string>
+    <string name="unsaved_changes_indicator">Μη αποθηκευμένες αλλαγές</string>
+    <string name="empty_folder_hint">Δεν έχει προσαρτηθεί φάκελος έργου. Ανοίξτε έναν κατάλογο για περιήγηση στα αρχεία.</string>
+    <string name="refresh_folder">Ανανέωση φακέλου</string>
+
+    <!-- Split View, Navigator & Editor Options -->
+    <string name="split_none">Μονή προβολή</string>
+    <string name="split_horizontal">Οριζόντια διαίρεση</string>
+    <string name="split_vertical">Κατακόρυφη διαίρεση</string>
+    <string name="function_navigator">Πλοηγός συναρτήσεων</string>
+    <string name="function_navigator_empty">Δεν βρέθηκαν συναρτήσεις ή περιοχές</string>
+    <string name="go_to_line_title">Μετάβαση σε γραμμή</string>
+    <string name="go_to_line_hint">Αριθμός γραμμής (1 – %1$d)</string>
+    <string name="action_go">Μετάβαση</string>
+    <string name="action_cancel">Ακύρωση</string>
+    <string name="action_apply">Εφαρμογή</string>
+    <string name="action_close">Κλείσιμο</string>
+    <string name="action_run">Εκτέλεση</string>
+    <string name="action_clear">Εκκαθάριση</string>
+    <string name="action_copy">Αντιγραφή</string>
+    <string name="action_insert">Εισαγωγή</string>
+    <string name="action_delete">Διαγραφή</string>
+    <string name="show_invisibles">Εμφάνιση αόρατων χαρακτήρων</string>
+    <string name="soft_wrap">Αυτόματη αναδίπλωση γραμμών</string>
+    <string name="page_guide_80">Οδηγός σελίδας (Στήλη 80)</string>
+    <string name="page_guide_120">Οδηγός σελίδας (Στήλη 120)</string>
+    <string name="code_folding">Σύμπτυξη κώδικα</string>
+
+    <!-- Bottom Status Bar -->
+    <string name="status_cursor_pos">Γρ %1$d, Στ %2$d</string>
+    <string name="status_selection_stats">Επιλ: %1$d χαρ. | %2$d λέξεις | %3$d γραμμές</string>
+    <string name="status_doc_stats">%1$d χαρ. | %2$d γραμμές</string>
+    <string name="status_encoding">Κωδικοποίηση</string>
+    <string name="status_line_ending">Τέλος γραμμής</string>
+    <string name="status_language">Σύνταξη</string>
+    <string name="status_zoom">Ζουμ %1$d%%</string>
+
+    <!-- Find & Replace, Pattern Playground & Multi-File Search -->
+    <string name="find_title">Εύρεση &amp; Αντικατάσταση PCRE</string>
+    <string name="find_label">Μοτίβο αναζήτησης</string>
+    <string name="replace_label">Αντικατάσταση με</string>
+    <string name="opt_case_sensitive">Διάκριση πεζών/κεφαλαίων</string>
+    <string name="opt_match_words">Ολόκληρες λέξεις μόνο</string>
+    <string name="opt_grep_regex">Grep (Κανονική έκφραση)</string>
+    <string name="opt_wrap_around">Κυκλική αναζήτηση</string>
+    <string name="opt_selection_only">Αναζήτηση μόνο στην επιλογή</string>
+    <string name="btn_find_next">Επόμενο</string>
+    <string name="btn_find_prev">Προηγούμενο</string>
+    <string name="btn_replace">Αντικατάσταση</string>
+    <string name="btn_replace_all">Αντικατάσταση όλων</string>
+    <string name="btn_extract_matches">Εξαγωγή σε νέο αρχείο</string>
+    <string name="tab_single_file">Ενεργό έγγραφο</string>
+    <string name="tab_multi_file">Αναζήτηση πολλαπλών αρχείων</string>
+    <string name="tab_pattern_playground">Εργαστήριο Regex</string>
+    <string name="file_filter_label">Φίλτρο αρχείων (π.χ. *.ps1;*.json)</string>
+    <string name="playground_sample_label">Κείμενο δοκιμής / δείγματος</string>
+    <string name="matches_count">Βρέθηκαν %1$d αντιστοιχίσεις</string>
+    <string name="no_matches_found">Δεν βρέθηκαν αντιστοιχίσεις</string>
+
+    <!-- Text Factory (All 14 BBEdit Operations) -->
+    <string name="text_factory_title">Διοχέτευση Εργοστασίου κειμένου</string>
+    <string name="text_factory_add_step">Προσθήκη βήματος μετασχηματισμού</string>
+    <string name="text_factory_run_pipeline">Εκτέλεση διοχέτευσης στο έγγραφο</string>
+    <string name="text_factory_empty">Προσθέστε βήματα για να δημιουργήσετε μια αρθρωτή μαζική επεξεργασία BBEdit.</string>
+    <string name="tf_zap_gremlins">Καθαρισμός αλλοιωμένων χαρακτήρων (Zap Gremlins)</string>
+    <string name="tf_process_duplicates">Επεξεργασία διπλότυπων γραμμών</string>
+    <string name="tf_sort_lines">Ταξινόμηση γραμμών</string>
+    <string name="tf_prefix_suffix">Πρόθεμα / Επίθεμα γραμμών</string>
+    <string name="tf_change_case">Αλλαγή πεζών/κεφαλαίων</string>
+    <string name="tf_strip_trailing_ws">Αφαίρεση τελικών κενών</string>
+    <string name="tf_entab_detab">Μετατροπή κενών &amp; στηλοθετών</string>
+    <string name="tf_hard_wrap_unwrap">Σταθερή αναδίπλωση / Αφαίρεση αλλαγών</string>
+    <string name="tf_line_numbers">Προσθήκη / Αφαίρεση αριθμών γραμμής</string>
+    <string name="tf_educate_quotes">Τυπογραφικά / Ίσια εισαγωγικά</string>
+    <string name="tf_canonize_table">Κανονικοποίηση μέσω πίνακα</string>
+    <string name="tf_process_containing">Επεξεργασία γραμμών που περιέχουν…</string>
+    <string name="tf_convert_line_endings">Μετατροπή αλλαγών γραμμής</string>
+    <string name="tf_format_prettify">Μορφοποίηση PowerShell &amp; JSON</string>
+    <string name="move_step_up">Μετακίνηση βήματος πάνω</string>
+    <string name="move_step_down">Μετακίνηση βήματος κάτω</string>
+
+    <!-- Diff Tool -->
+    <string name="diff_title">Παράλληλη σύγκριση (Diff Myers)</string>
+    <string name="diff_left_doc">Αριστερό έγγραφο</string>
+    <string name="diff_right_doc">Δεξί έγγραφο</string>
+    <string name="diff_copy_to_left">Αντιγραφή αριστερά (←)</string>
+    <string name="diff_copy_to_right">Αντιγραφή δεξιά (→)</string>
+    <string name="diff_identical">Τα έγγραφα είναι πανομοιότυπα</string>
+    <string name="diff_summary">+%1$d προσθήκες | -%2$d αφαιρέσεις | ~%3$d τροποποιήσεις</string>
+
+    <!-- Clippings -->
+    <string name="clippings_title">Αποσπάσματα &amp; πρότυπα PowerShell</string>
+    <string name="clippings_search_hint">Φιλτράρισμα αποσπασμάτων…</string>
+    <string name="clippings_new">Νέο απόσπασμα</string>
+    <string name="clippings_name_label">Όνομα αποσπάσματος</string>
+    <string name="clippings_body_label">Σώμα προτύπου (#INSERTION#, #SELECTION#, κ.λπ.)</string>
+
+    <!-- Settings, Themes & Localization -->
+    <string name="settings_title">Προτιμήσεις &amp; Εμφάνιση</string>
+    <string name="settings_theme_section">Χρωματικό θέμα επεξεργαστή</string>
+    <string name="theme_dynamic">Material 3 Δυναμικό (Monet)</string>
+    <string name="theme_light">M3 Προγραμματιστή Φωτεινό</string>
+    <string name="theme_dark">M3 Προγραμματιστή Σκοτεινό</string>
+    <string name="theme_amoled">Απόλυτο μαύρο AMOLED (#000000)</string>
+    <string name="settings_language_section">Γλώσσα διεπαφής</string>
+    <string name="lang_en">English</string>
+    <string name="lang_de">Deutsch (German)</string>
+    <string name="lang_it">Italiano (Italian)</string>
+    <string name="lang_es">Español (Spanish)</string>
+    <string name="lang_fr">Français (French)</string>
+    <string name="lang_el">Ελληνικά (Greek)</string>
+    <string name="settings_editor_section">Συμπεριφορά επεξεργαστή</string>
+    <string name="settings_font_size">Μέγεθος γραμματοσειράς (%1$d sp)</string>
+    <string name="settings_tab_width">Πλάτος στηλοθέτη (%1$d κενά)</string>
+    <string name="aux_row_description">Γραμμή βοηθητικών συμβόλων PowerShell</string>
+</resources>

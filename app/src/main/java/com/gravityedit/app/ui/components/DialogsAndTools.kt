@@ -1,0 +1,1882 @@
+package com.gravityedit.app.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.gravityedit.app.R
+import com.gravityedit.app.domain.engine.ClippingsManager
+import com.gravityedit.app.domain.model.CaseTransformMode
+import com.gravityedit.app.domain.model.CharDiffSpan
+import com.gravityedit.app.domain.model.Clipping
+import com.gravityedit.app.domain.model.DiffChangeType
+import com.gravityedit.app.domain.model.DiffResult
+import com.gravityedit.app.domain.model.DiffRow
+import com.gravityedit.app.domain.model.DuplicateLineMode
+import com.gravityedit.app.domain.model.EditorDocument
+import com.gravityedit.app.domain.model.FormatTarget
+import com.gravityedit.app.domain.model.LineEnding
+import com.gravityedit.app.domain.model.LineNumberAction
+import com.gravityedit.app.domain.model.MatchingLinesAction
+import com.gravityedit.app.domain.model.MultiFileSearchMatch
+import com.gravityedit.app.domain.model.PatternPlaygroundEvaluation
+import com.gravityedit.app.domain.model.PrefixSuffixAction
+import com.gravityedit.app.domain.model.QuoteTransformMode
+import com.gravityedit.app.domain.model.SearchMatch
+import com.gravityedit.app.domain.model.SearchOptions
+import com.gravityedit.app.domain.model.SortDirection
+import com.gravityedit.app.domain.model.TabConversionMode
+import com.gravityedit.app.domain.model.TextFactoryStep
+import com.gravityedit.app.domain.model.TextOperationType
+import com.gravityedit.app.domain.model.WrapTransformMode
+import com.gravityedit.app.domain.model.ZapGremlinsAction
+import com.gravityedit.app.ui.theme.EditorSyntaxPalette
+import com.gravityedit.app.ui.theme.GravityEditThemeDefaults
+import com.gravityedit.app.ui.theme.GravityThemeMode
+import com.gravityedit.app.ui.theme.JetBrainsMonoFontFamily
+import kotlin.math.roundToInt
+
+// =========================================================================
+// 1. PCRE FIND & REPLACE, MULTI-FILE SEARCH & REGEX PATTERN PLAYGROUND
+// =========================================================================
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun FindReplaceModal(
+    isCompactMobile: Boolean,
+    initialTab: Int,
+    searchOptions: SearchOptions,
+    activeDocMatches: List<SearchMatch>,
+    currentMatchIndex: Int,
+    multiFileMatches: List<MultiFileSearchMatch>,
+    isMultiFileSearching: Boolean,
+    playgroundSampleText: String,
+    playgroundEvaluation: PatternPlaygroundEvaluation,
+    onUpdateOptions: (SearchOptions) -> Unit,
+    onFindNext: () -> Unit,
+    onFindPrev: () -> Unit,
+    onReplaceCurrent: () -> Unit,
+    onReplaceAll: () -> Unit,
+    onExtractToNewFile: () -> Unit,
+    onRunMultiFileSearch: () -> Unit,
+    onRunMultiFileReplace: () -> Unit,
+    onOpenMultiFileMatch: (uriString: String, lineNumber: Int) -> Unit,
+    onJumpToMatchInActiveDoc: (SearchMatch) -> Unit,
+    onUpdatePlaygroundSample: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val content: @Composable () -> Unit = {
+        FindReplaceModalBody(
+            initialTab = initialTab,
+            searchOptions = searchOptions,
+            activeDocMatches = activeDocMatches,
+            currentMatchIndex = currentMatchIndex,
+            multiFileMatches = multiFileMatches,
+            isMultiFileSearching = isMultiFileSearching,
+            playgroundSampleText = playgroundSampleText,
+            playgroundEvaluation = playgroundEvaluation,
+            onUpdateOptions = onUpdateOptions,
+            onFindNext = onFindNext,
+            onFindPrev = onFindPrev,
+            onReplaceCurrent = onReplaceCurrent,
+            onReplaceAll = onReplaceAll,
+            onExtractToNewFile = onExtractToNewFile,
+            onRunMultiFileSearch = onRunMultiFileSearch,
+            onRunMultiFileReplace = onRunMultiFileReplace,
+            onOpenMultiFileMatch = onOpenMultiFileMatch,
+            onJumpToMatchInActiveDoc = onJumpToMatchInActiveDoc,
+            onUpdatePlaygroundSample = onUpdatePlaygroundSample,
+            onDismiss = onDismiss
+        )
+    }
+
+    if (isCompactMobile) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Box(modifier = Modifier.fillMaxHeight(0.90f)) {
+                content()
+            }
+        }
+    } else {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth(0.84f)
+                    .fillMaxHeight(0.85f)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FindReplaceModalBody(
+    initialTab: Int,
+    searchOptions: SearchOptions,
+    activeDocMatches: List<SearchMatch>,
+    currentMatchIndex: Int,
+    multiFileMatches: List<MultiFileSearchMatch>,
+    isMultiFileSearching: Boolean,
+    playgroundSampleText: String,
+    playgroundEvaluation: PatternPlaygroundEvaluation,
+    onUpdateOptions: (SearchOptions) -> Unit,
+    onFindNext: () -> Unit,
+    onFindPrev: () -> Unit,
+    onReplaceCurrent: () -> Unit,
+    onReplaceAll: () -> Unit,
+    onExtractToNewFile: () -> Unit,
+    onRunMultiFileSearch: () -> Unit,
+    onRunMultiFileReplace: () -> Unit,
+    onOpenMultiFileMatch: (uriString: String, lineNumber: Int) -> Unit,
+    onJumpToMatchInActiveDoc: (SearchMatch) -> Unit,
+    onUpdatePlaygroundSample: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = stringResource(R.string.find_title),
+                style = MaterialTheme.typography.titleLarge
+            )
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
+            }
+        }
+
+        TabRow(selectedTabIndex = selectedTab) {
+            Tab(
+                selected = selectedTab == 0,
+                onClick = { selectedTab = 0 },
+                text = { Text(stringResource(R.string.tab_single_file)) }
+            )
+            Tab(
+                selected = selectedTab == 1,
+                onClick = { selectedTab = 1 },
+                text = { Text(stringResource(R.string.tab_multi_file)) }
+            )
+            Tab(
+                selected = selectedTab == 2,
+                onClick = { selectedTab = 2 },
+                text = { Text(stringResource(R.string.tab_pattern_playground)) }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Shared Find & Replace Pattern Inputs
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = searchOptions.query,
+                onValueChange = { onUpdateOptions(searchOptions.copy(query = it)) },
+                label = { Text(stringResource(R.string.find_label)) },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+                value = searchOptions.replacement,
+                onValueChange = { onUpdateOptions(searchOptions.copy(replacement = it)) },
+                label = { Text(stringResource(R.string.replace_label)) },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // PCRE Option Chips
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            FilterChip(
+                selected = searchOptions.grepRegex,
+                onClick = { onUpdateOptions(searchOptions.copy(grepRegex = !searchOptions.grepRegex)) },
+                label = { Text(stringResource(R.string.opt_grep_regex)) }
+            )
+            FilterChip(
+                selected = searchOptions.caseSensitive,
+                onClick = { onUpdateOptions(searchOptions.copy(caseSensitive = !searchOptions.caseSensitive)) },
+                label = { Text(stringResource(R.string.opt_case_sensitive)) }
+            )
+            FilterChip(
+                selected = searchOptions.matchEntireWords,
+                onClick = { onUpdateOptions(searchOptions.copy(matchEntireWords = !searchOptions.matchEntireWords)) },
+                label = { Text(stringResource(R.string.opt_match_words)) }
+            )
+            FilterChip(
+                selected = searchOptions.wrapAround,
+                onClick = { onUpdateOptions(searchOptions.copy(wrapAround = !searchOptions.wrapAround)) },
+                label = { Text(stringResource(R.string.opt_wrap_around)) }
+            )
+            FilterChip(
+                selected = searchOptions.searchInSelectionOnly,
+                onClick = { onUpdateOptions(searchOptions.copy(searchInSelectionOnly = !searchOptions.searchInSelectionOnly)) },
+                label = { Text(stringResource(R.string.opt_selection_only)) }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        when (selectedTab) {
+            0 -> {
+                // Single-file actions & live match list
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedButton(onClick = onFindPrev) {
+                        Text(stringResource(R.string.btn_find_prev))
+                    }
+                    Button(onClick = onFindNext) {
+                        Text(stringResource(R.string.btn_find_next))
+                    }
+                    OutlinedButton(onClick = onReplaceCurrent) {
+                        Text(stringResource(R.string.btn_replace))
+                    }
+                    Button(onClick = onReplaceAll) {
+                        Text(stringResource(R.string.btn_replace_all))
+                    }
+                    OutlinedButton(onClick = onExtractToNewFile) {
+                        Text(stringResource(R.string.btn_extract_matches))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (activeDocMatches.isEmpty()) {
+                        stringResource(R.string.no_matches_found)
+                    } else {
+                        stringResource(R.string.matches_count, activeDocMatches.size)
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    itemsIndexed(activeDocMatches) { idx, match ->
+                        val isSelected = idx == currentMatchIndex
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerLow
+                                }
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onJumpToMatchInActiveDoc(match) }
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.status_cursor_pos, match.lineNumber, match.columnNumber),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "\"${match.matchedText}\"",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = match.linePreview,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (match.captureGroups.isNotEmpty()) {
+                                    Text(
+                                        text = match.captureGroups.joinToString(" | ") { g ->
+                                            val label = g.groupName?.let { "\${$it}" } ?: "\$${g.groupIndex}"
+                                            "$label = '${g.value}'"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.tertiary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            1 -> {
+                // Multi-File Search & Replace
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = searchOptions.fileFilter,
+                        onValueChange = { onUpdateOptions(searchOptions.copy(fileFilter = it)) },
+                        label = { Text(stringResource(R.string.file_filter_label)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(onClick = onRunMultiFileSearch) {
+                        Text(stringResource(R.string.btn_find_next))
+                    }
+                    OutlinedButton(onClick = onRunMultiFileReplace) {
+                        Text(stringResource(R.string.btn_replace_all))
+                    }
+                }
+
+                if (isMultiFileSearching) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                val totalMultiCount = multiFileMatches.sumOf { it.totalMatches }
+                Text(
+                    text = stringResource(R.string.matches_count, totalMultiCount),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(multiFileMatches, key = { it.uriString }) { fileMatch ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = "${fileMatch.relativePath} (${fileMatch.totalMatches})",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                fileMatch.matches.take(15).forEach { m ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onOpenMultiFileMatch(fileMatch.uriString, m.lineNumber) }
+                                            .padding(vertical = 3.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "Ln ${m.lineNumber}:",
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontSize = 11.5.sp,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+                                        Text(
+                                            text = m.linePreview,
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontSize = 11.5.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            2 -> {
+                // Live Pattern Playground
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (!playgroundEvaluation.isValidRegex) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = playgroundEvaluation.errorMessage ?: "Invalid Regex",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "${stringResource(R.string.matches_count, playgroundEvaluation.matches.size)} • ${playgroundEvaluation.executionTimeMicros} µs",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = playgroundSampleText,
+                        onValueChange = onUpdatePlaygroundSample,
+                        label = { Text(stringResource(R.string.playground_sample_label)) },
+                        textStyle = MaterialTheme.typography.labelMedium.copy(fontSize = 12.5.sp),
+                        minLines = 4,
+                        maxLines = 7,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text(
+                        text = "${stringResource(R.string.replace_label)} Preview:",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = playgroundEvaluation.replacementPreview,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+
+                    playgroundEvaluation.matches.forEachIndexed { idx, match ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text(
+                                    text = "Match #${idx + 1} [${match.range.first}..${match.range.last}]: \"${match.matchedText}\"",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                if (match.captureGroups.isNotEmpty()) {
+                                    match.captureGroups.forEach { cg ->
+                                        val gName = cg.groupName?.let { " (?<$it>)" } ?: ""
+                                        Text(
+                                            text = "  Group \$${cg.groupIndex}$gName -> \"${cg.value}\"",
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontSize = 11.5.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 2. TEXT FACTORY VISUAL PIPELINE BUILDER (ALL 14 BBEDIT OPERATIONS)
+// =========================================================================
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TextFactoryModal(
+    isCompactMobile: Boolean,
+    steps: List<TextFactoryStep>,
+    onAddStep: (TextOperationType) -> Unit,
+    onUpdateStep: (TextFactoryStep) -> Unit,
+    onRemoveStep: (String) -> Unit,
+    onMoveStepUp: (String) -> Unit,
+    onMoveStepDown: (String) -> Unit,
+    onRunPipeline: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val content: @Composable () -> Unit = {
+        TextFactoryModalBody(
+            steps = steps,
+            onAddStep = onAddStep,
+            onUpdateStep = onUpdateStep,
+            onRemoveStep = onRemoveStep,
+            onMoveStepUp = onMoveStepUp,
+            onMoveStepDown = onMoveStepDown,
+            onRunPipeline = onRunPipeline,
+            onDismiss = onDismiss
+        )
+    }
+
+    if (isCompactMobile) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Box(modifier = Modifier.fillMaxHeight(0.90f)) {
+                content()
+            }
+        }
+    } else {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth(0.82f)
+                    .fillMaxHeight(0.86f)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun TextFactoryModalBody(
+    steps: List<TextFactoryStep>,
+    onAddStep: (TextOperationType) -> Unit,
+    onUpdateStep: (TextFactoryStep) -> Unit,
+    onRemoveStep: (String) -> Unit,
+    onMoveStepUp: (String) -> Unit,
+    onMoveStepDown: (String) -> Unit,
+    onRunPipeline: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var addMenuExpanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = stringResource(R.string.text_factory_title),
+                style = MaterialTheme.typography.titleLarge
+            )
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box {
+                OutlinedButton(onClick = { addMenuExpanded = true }) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(stringResource(R.string.text_factory_add_step))
+                }
+                DropdownMenu(
+                    expanded = addMenuExpanded,
+                    onDismissRequest = { addMenuExpanded = false }
+                ) {
+                    TextOperationType.entries.forEach { opType ->
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(
+                                        text = stringResource(opType.titleRes),
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = opType.defaultSummary,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            },
+                            onClick = {
+                                addMenuExpanded = false
+                                onAddStep(opType)
+                            }
+                        )
+                    }
+                }
+            }
+
+            Button(
+                onClick = onRunPipeline,
+                enabled = steps.any { it.enabled }
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(stringResource(R.string.text_factory_run_pipeline))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (steps.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.text_factory_empty),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                itemsIndexed(steps, key = { _, step -> step.id }) { index, step ->
+                    TextFactoryStepCard(
+                        index = index,
+                        totalSteps = steps.size,
+                        step = step,
+                        onUpdateStep = onUpdateStep,
+                        onRemoveStep = { onRemoveStep(step.id) },
+                        onMoveUp = { onMoveStepUp(step.id) },
+                        onMoveDown = { onMoveStepDown(step.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TextFactoryStepCard(
+    index: Int,
+    totalSteps: Int,
+    step: TextFactoryStep,
+    onUpdateStep: (TextFactoryStep) -> Unit,
+    onRemoveStep: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (step.enabled) {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            }
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = step.enabled,
+                    onCheckedChange = { onUpdateStep(step.copy(enabled = it)) }
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${index + 1}. ${stringResource(step.operationType.titleRes)}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = step.configurationSummary(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                IconButton(onClick = onMoveUp, enabled = index > 0) {
+                    Icon(Icons.Default.ArrowUpward, contentDescription = stringResource(R.string.move_step_up))
+                }
+                IconButton(onClick = onMoveDown, enabled = index < totalSteps - 1) {
+                    Icon(Icons.Default.ArrowDownward, contentDescription = stringResource(R.string.move_step_down))
+                }
+                IconButton(onClick = onRemoveStep) {
+                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Per-operation configuration controls
+            when (step.operationType) {
+                TextOperationType.ZAP_GREMLINS -> {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ZapGremlinsAction.entries.forEach { act ->
+                            FilterChip(
+                                selected = step.zapAction == act,
+                                onClick = { onUpdateStep(step.copy(zapAction = act)) },
+                                label = { Text(act.label) }
+                            )
+                        }
+                        FilterChip(
+                            selected = step.zapControlChars,
+                            onClick = { onUpdateStep(step.copy(zapControlChars = !step.zapControlChars)) },
+                            label = { Text("Control Chars") }
+                        )
+                        FilterChip(
+                            selected = step.zapNullBytes,
+                            onClick = { onUpdateStep(step.copy(zapNullBytes = !step.zapNullBytes)) },
+                            label = { Text("Null Bytes") }
+                        )
+                        FilterChip(
+                            selected = step.zapNonAscii,
+                            onClick = { onUpdateStep(step.copy(zapNonAscii = !step.zapNonAscii)) },
+                            label = { Text("Non-ASCII") }
+                        )
+                    }
+                }
+
+                TextOperationType.PROCESS_DUPLICATE_LINES -> {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DuplicateLineMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = step.duplicateMode == mode,
+                                onClick = { onUpdateStep(step.copy(duplicateMode = mode)) },
+                                label = { Text(mode.label) }
+                            )
+                        }
+                        FilterChip(
+                            selected = step.duplicateCaseSensitive,
+                            onClick = { onUpdateStep(step.copy(duplicateCaseSensitive = !step.duplicateCaseSensitive)) },
+                            label = { Text(stringResource(R.string.opt_case_sensitive)) }
+                        )
+                    }
+                }
+
+                TextOperationType.SORT_LINES -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SortDirection.entries.forEach { dir ->
+                                FilterChip(
+                                    selected = step.sortDirection == dir,
+                                    onClick = { onUpdateStep(step.copy(sortDirection = dir)) },
+                                    label = { Text(dir.label) }
+                                )
+                            }
+                            FilterChip(
+                                selected = step.sortCaseSensitive,
+                                onClick = { onUpdateStep(step.copy(sortCaseSensitive = !step.sortCaseSensitive)) },
+                                label = { Text(stringResource(R.string.opt_case_sensitive)) }
+                            )
+                            FilterChip(
+                                selected = step.sortNumeric,
+                                onClick = { onUpdateStep(step.copy(sortNumeric = !step.sortNumeric)) },
+                                label = { Text("Numeric Sort") }
+                            )
+                        }
+                        OutlinedTextField(
+                            value = step.sortRegexPattern,
+                            onValueChange = { onUpdateStep(step.copy(sortRegexPattern = it)) },
+                            label = { Text("Optional Sort Key Regex (Group 1)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                TextOperationType.PREFIX_SUFFIX_LINES -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PrefixSuffixAction.entries.forEach { act ->
+                                FilterChip(
+                                    selected = step.prefixSuffixAction == act,
+                                    onClick = { onUpdateStep(step.copy(prefixSuffixAction = act)) },
+                                    label = { Text(act.label) }
+                                )
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = step.linePrefix,
+                                onValueChange = { onUpdateStep(step.copy(linePrefix = it)) },
+                                label = { Text("Prefix") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = step.lineSuffix,
+                                onValueChange = { onUpdateStep(step.copy(lineSuffix = it)) },
+                                label = { Text("Suffix") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
+                TextOperationType.CHANGE_CASE -> {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CaseTransformMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = step.caseMode == mode,
+                                onClick = { onUpdateStep(step.copy(caseMode = mode)) },
+                                label = { Text(mode.label) }
+                            )
+                        }
+                    }
+                }
+
+                TextOperationType.STRIP_TRAILING_WHITESPACE -> {
+                    FilterChip(
+                        selected = step.stripWhitespacePreserveBlankLines,
+                        onClick = {
+                            onUpdateStep(step.copy(stripWhitespacePreserveBlankLines = !step.stripWhitespacePreserveBlankLines))
+                        },
+                        label = { Text("Preserve Blank Lines") }
+                    )
+                }
+
+                TextOperationType.ENTAB_DETAB -> {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TabConversionMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = step.tabConversionMode == mode,
+                                onClick = { onUpdateStep(step.copy(tabConversionMode = mode)) },
+                                label = { Text(mode.label) }
+                            )
+                        }
+                        listOf(2, 4, 8).forEach { w ->
+                            FilterChip(
+                                selected = step.tabWidth == w,
+                                onClick = { onUpdateStep(step.copy(tabWidth = w)) },
+                                label = { Text("$w spaces") }
+                            )
+                        }
+                    }
+                }
+
+                TextOperationType.HARD_WRAP_UNWRAP -> {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        WrapTransformMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = step.wrapMode == mode,
+                                onClick = { onUpdateStep(step.copy(wrapMode = mode)) },
+                                label = { Text(mode.label) }
+                            )
+                        }
+                        listOf(72, 80, 100, 120).forEach { col ->
+                            FilterChip(
+                                selected = step.wrapColumnWidth == col,
+                                onClick = { onUpdateStep(step.copy(wrapColumnWidth = col)) },
+                                label = { Text("Col $col") }
+                            )
+                        }
+                    }
+                }
+
+                TextOperationType.ADD_REMOVE_LINE_NUMBERS -> {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LineNumberAction.entries.forEach { act ->
+                            FilterChip(
+                                selected = step.lineNumberAction == act,
+                                onClick = { onUpdateStep(step.copy(lineNumberAction = act)) },
+                                label = { Text(act.label) }
+                            )
+                        }
+                    }
+                }
+
+                TextOperationType.EDUCATE_STRAIGHTEN_QUOTES -> {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        QuoteTransformMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = step.quoteMode == mode,
+                                onClick = { onUpdateStep(step.copy(quoteMode = mode)) },
+                                label = { Text(mode.label) }
+                            )
+                        }
+                    }
+                }
+
+                TextOperationType.CANONIZE_REPLACE_TABLE -> {
+                    OutlinedTextField(
+                        value = step.canonizeTableRaw,
+                        onValueChange = { onUpdateStep(step.copy(canonizeTableRaw = it)) },
+                        label = { Text("Key=Value Replacement Table") },
+                        textStyle = MaterialTheme.typography.labelMedium,
+                        minLines = 3,
+                        maxLines = 5,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                TextOperationType.PROCESS_LINES_CONTAINING -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MatchingLinesAction.entries.forEach { act ->
+                                FilterChip(
+                                    selected = step.matchingLinesAction == act,
+                                    onClick = { onUpdateStep(step.copy(matchingLinesAction = act)) },
+                                    label = { Text(act.label) }
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = step.matchingPattern,
+                            onValueChange = { onUpdateStep(step.copy(matchingPattern = it)) },
+                            label = { Text(stringResource(R.string.find_label)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                TextOperationType.CONVERT_LINE_ENDINGS -> {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LineEnding.entries.forEach { le ->
+                            FilterChip(
+                                selected = step.targetLineEnding == le,
+                                onClick = { onUpdateStep(step.copy(targetLineEnding = le)) },
+                                label = { Text(le.displayName) }
+                            )
+                        }
+                    }
+                }
+
+                TextOperationType.FORMAT_PRETTIFY -> {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FormatTarget.entries.forEach { target ->
+                            FilterChip(
+                                selected = step.formatTarget == target,
+                                onClick = { onUpdateStep(step.copy(formatTarget = target)) },
+                                label = { Text(target.label) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 3. SIDE-BY-SIDE MYERS DIFF VIEW & DIRECTIONAL MERGE UI
+// =========================================================================
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SideBySideDiffModal(
+    isCompactMobile: Boolean,
+    documents: List<EditorDocument>,
+    diffResult: DiffResult?,
+    onSelectLeftDoc: (String) -> Unit,
+    onSelectRightDoc: (String) -> Unit,
+    onMergeToLeft: (Int) -> Unit,
+    onMergeToRight: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val content: @Composable () -> Unit = {
+        SideBySideDiffBody(
+            documents = documents,
+            diffResult = diffResult,
+            onSelectLeftDoc = onSelectLeftDoc,
+            onSelectRightDoc = onSelectRightDoc,
+            onMergeToLeft = onMergeToLeft,
+            onMergeToRight = onMergeToRight,
+            onDismiss = onDismiss
+        )
+    }
+
+    if (isCompactMobile) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Box(modifier = Modifier.fillMaxHeight(0.92f)) {
+                content()
+            }
+        }
+    } else {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .fillMaxHeight(0.88f)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SideBySideDiffBody(
+    documents: List<EditorDocument>,
+    diffResult: DiffResult?,
+    onSelectLeftDoc: (String) -> Unit,
+    onSelectRightDoc: (String) -> Unit,
+    onMergeToLeft: (Int) -> Unit,
+    onMergeToRight: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = GravityEditThemeDefaults.syntaxPalette
+    var leftDropdownExpanded by remember { mutableStateOf(false) }
+    var rightDropdownExpanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = stringResource(R.string.diff_title),
+                    style = MaterialTheme.typography.titleLarge
+                )
+                if (diffResult != null) {
+                    Text(
+                        text = if (diffResult.isIdentical) {
+                            stringResource(R.string.diff_identical)
+                        } else {
+                            stringResource(
+                                R.string.diff_summary,
+                                diffResult.addedCount,
+                                diffResult.removedCount,
+                                diffResult.modifiedCount
+                            )
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Left & Right Document Pickers
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = { leftDropdownExpanded = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "${stringResource(R.string.diff_left_doc)}: ${diffResult?.leftTitle ?: ""}",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                DropdownMenu(
+                    expanded = leftDropdownExpanded,
+                    onDismissRequest = { leftDropdownExpanded = false }
+                ) {
+                    documents.forEach { doc ->
+                        DropdownMenuItem(
+                            text = { Text(doc.title) },
+                            onClick = {
+                                leftDropdownExpanded = false
+                                onSelectLeftDoc(doc.id)
+                            }
+                        )
+                    }
+                }
+            }
+
+            Box(modifier = Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = { rightDropdownExpanded = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "${stringResource(R.string.diff_right_doc)}: ${diffResult?.rightTitle ?: ""}",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                DropdownMenu(
+                    expanded = rightDropdownExpanded,
+                    onDismissRequest = { rightDropdownExpanded = false }
+                ) {
+                    documents.forEach { doc ->
+                        DropdownMenuItem(
+                            text = { Text(doc.title) },
+                            onClick = {
+                                rightDropdownExpanded = false
+                                onSelectRightDoc(doc.id)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        if (diffResult != null) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+            ) {
+                items(diffResult.rows, key = { it.rowIndex }) { row ->
+                    DiffComparisonRowItem(
+                        row = row,
+                        palette = palette,
+                        onMergeToLeft = { onMergeToLeft(row.rowIndex) },
+                        onMergeToRight = { onMergeToRight(row.rowIndex) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiffComparisonRowItem(
+    row: DiffRow,
+    palette: EditorSyntaxPalette,
+    onMergeToLeft: () -> Unit,
+    onMergeToRight: () -> Unit
+) {
+    val leftBg = when (row.changeType) {
+        DiffChangeType.EQUAL -> palette.editorBackground
+        DiffChangeType.DELETE -> palette.diffRemovedBackground
+        DiffChangeType.INSERT -> palette.gutterBackground.copy(alpha = 0.5f)
+        DiffChangeType.MODIFY -> palette.diffModifiedBackground
+    }
+    val rightBg = when (row.changeType) {
+        DiffChangeType.EQUAL -> palette.editorBackground
+        DiffChangeType.DELETE -> palette.gutterBackground.copy(alpha = 0.5f)
+        DiffChangeType.INSERT -> palette.diffAddedBackground
+        DiffChangeType.MODIFY -> palette.diffModifiedBackground
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(0.25.dp, palette.pageGuideColor.copy(alpha = 0.4f)),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Left Side
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .background(leftBg)
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = row.leftLineNumber?.toString()?.padStart(4, ' ') ?: "    ",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 11.sp,
+                color = palette.gutterText,
+                modifier = Modifier.width(34.dp)
+            )
+            Text(
+                text = buildCharHighlightedAnnotatedString(
+                    text = row.leftText ?: "",
+                    spans = row.leftCharHighlights,
+                    highlightColor = palette.diffRemovedHighlight,
+                    baseColor = palette.editorForeground
+                ),
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        // Center Directional Merge Actions (← / →)
+        Row(
+            modifier = Modifier
+                .width(56.dp)
+                .background(palette.gutterBackground),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (row.changeType != DiffChangeType.EQUAL) {
+                IconButton(
+                    onClick = onMergeToLeft,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.diff_copy_to_left),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                IconButton(
+                    onClick = onMergeToRight,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = stringResource(R.string.diff_copy_to_right),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
+        }
+
+        // Right Side
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .background(rightBg)
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = row.rightLineNumber?.toString()?.padStart(4, ' ') ?: "    ",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 11.sp,
+                color = palette.gutterText,
+                modifier = Modifier.width(34.dp)
+            )
+            Text(
+                text = buildCharHighlightedAnnotatedString(
+                    text = row.rightText ?: "",
+                    spans = row.rightCharHighlights,
+                    highlightColor = palette.diffAddedHighlight,
+                    baseColor = palette.editorForeground
+                ),
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private fun buildCharHighlightedAnnotatedString(
+    text: String,
+    spans: List<CharDiffSpan>,
+    highlightColor: androidx.compose.ui.graphics.Color,
+    baseColor: androidx.compose.ui.graphics.Color
+): AnnotatedString {
+    return buildAnnotatedString {
+        append(text)
+        addStyle(SpanStyle(color = baseColor), 0, text.length)
+        for (span in spans) {
+            if (span.isChanged) {
+                val s = span.start.coerceIn(0, text.length)
+                val e = span.end.coerceIn(s, text.length)
+                if (s < e) {
+                    addStyle(
+                        SpanStyle(background = highlightColor, fontWeight = FontWeight.Bold),
+                        s,
+                        e
+                    )
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 4. CLIPPINGS & POWERSHELL SNIPPETS PICKER
+// =========================================================================
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ClippingsModal(
+    isCompactMobile: Boolean,
+    clippings: List<Clipping>,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onInsertClipping: (Clipping, String) -> Unit,
+    onAddCustomClipping: (name: String, trigger: String, body: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val clipboardManager = LocalClipboardManager.current
+    var showCreateForm by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
+    var newTrigger by remember { mutableStateOf("") }
+    var newBody by remember { mutableStateOf("#SELECTION##INSERTION#") }
+
+    val filtered = remember(clippings, searchQuery) {
+        ClippingsManager.filterClippings(clippings, searchQuery)
+    }
+
+    val content: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = stringResource(R.string.clippings_title),
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = { showCreateForm = !showCreateForm }) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(stringResource(R.string.clippings_new))
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (showCreateForm) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = newName,
+                                onValueChange = { newName = it },
+                                label = { Text(stringResource(R.string.clippings_name_label)) },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = newTrigger,
+                                onValueChange = { newTrigger = it },
+                                label = { Text("Trigger") },
+                                singleLine = true,
+                                modifier = Modifier.width(130.dp)
+                            )
+                        }
+                        OutlinedTextField(
+                            value = newBody,
+                            onValueChange = { newBody = it },
+                            label = { Text(stringResource(R.string.clippings_body_label)) },
+                            textStyle = MaterialTheme.typography.labelMedium,
+                            minLines = 3,
+                            maxLines = 6,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(onClick = { showCreateForm = false }) {
+                                Text(stringResource(R.string.action_cancel))
+                            }
+                            Button(
+                                onClick = {
+                                    onAddCustomClipping(newName, newTrigger, newBody)
+                                    newName = ""
+                                    newTrigger = ""
+                                    showCreateForm = false
+                                }
+                            ) {
+                                Text(stringResource(R.string.action_save))
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                label = { Text(stringResource(R.string.clippings_search_hint)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(filtered, key = { it.id }) { clipping ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = clipping.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "${clipping.category.displayName} • [${clipping.triggerPrefix}]",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        val clipText = clipboardManager.getText()?.text ?: ""
+                                        onInsertClipping(clipping, clipText)
+                                    }
+                                ) {
+                                    Text(stringResource(R.string.action_insert))
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = clipping.templateBody,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 11.5.sp,
+                                    maxLines = 5,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (isCompactMobile) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Box(modifier = Modifier.fillMaxHeight(0.88f)) {
+                content()
+            }
+        }
+    } else {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth(0.76f)
+                    .fillMaxHeight(0.84f)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 5. GO TO LINE DIALOG (Ctrl+G)
+// =========================================================================
+
+@Composable
+fun GoToLineDialog(
+    maxLineCount: Int,
+    currentLine: Int,
+    onGoToLine: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var inputText by remember(currentLine) { mutableStateOf(currentLine.toString()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.go_to_line_title)) },
+        text = {
+            OutlinedTextField(
+                value = inputText,
+                onValueChange = { inputText = it.filter { ch -> ch.isDigit() } },
+                label = { Text(stringResource(R.string.go_to_line_hint, maxLineCount)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        val parsed = inputText.toIntOrNull()
+                        if (parsed != null) onGoToLine(parsed)
+                    }
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val parsed = inputText.toIntOrNull() ?: currentLine
+                    onGoToLine(parsed)
+                }
+            ) {
+                Text(stringResource(R.string.action_go))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        }
+    )
+}
+
+// =========================================================================
+// 6. SETTINGS, MATERIAL 3 THEMES & 6-LANGUAGE RUNTIME LOCALIZATION DIALOG
+// =========================================================================
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SettingsModal(
+    themeMode: GravityThemeMode,
+    appLocaleTag: String,
+    fontSizeSp: Float,
+    tabWidth: Int,
+    softWrap: Boolean,
+    showInvisibles: Boolean,
+    showPageGuide80: Boolean,
+    showPageGuide120: Boolean,
+    enableCodeFolding: Boolean,
+    onSelectTheme: (GravityThemeMode) -> Unit,
+    onSelectLanguage: (String) -> Unit,
+    onFontSizeChange: (Float) -> Unit,
+    onTabWidthChange: (Int) -> Unit,
+    onSoftWrapChange: (Boolean) -> Unit,
+    onShowInvisiblesChange: (Boolean) -> Unit,
+    onPageGuide80Change: (Boolean) -> Unit,
+    onPageGuide120Change: (Boolean) -> Unit,
+    onCodeFoldingChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth(0.75f)
+                .heightIn(max = 680.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_title),
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
+                    }
+                }
+
+                // 1. Material 3 Color Schemes (Dynamic, Light, Dark, AMOLED Pitch Black)
+                Text(
+                    text = stringResource(R.string.settings_theme_section),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val themeItems = listOf(
+                        GravityThemeMode.DYNAMIC to R.string.theme_dynamic,
+                        GravityThemeMode.LIGHT to R.string.theme_light,
+                        GravityThemeMode.DARK to R.string.theme_dark,
+                        GravityThemeMode.AMOLED to R.string.theme_amoled
+                    )
+                    themeItems.forEach { (mode, labelRes) ->
+                        FilterChip(
+                            selected = themeMode == mode,
+                            onClick = { onSelectTheme(mode) },
+                            leadingIcon = if (themeMode == mode) {
+                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null,
+                            label = { Text(stringResource(labelRes)) }
+                        )
+                    }
+                }
+
+                HorizontalDivider()
+
+                // 2. Runtime 6-Language Localization Switcher
+                Text(
+                    text = stringResource(R.string.settings_language_section),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val locales = listOf(
+                        "en" to R.string.lang_en,
+                        "de" to R.string.lang_de,
+                        "it" to R.string.lang_it,
+                        "es" to R.string.lang_es,
+                        "fr" to R.string.lang_fr,
+                        "el" to R.string.lang_el
+                    )
+                    locales.forEach { (tag, labelRes) ->
+                        val isSelected = appLocaleTag.startsWith(tag, ignoreCase = true)
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { onSelectLanguage(tag) },
+                            leadingIcon = if (isSelected) {
+                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null,
+                            label = { Text(stringResource(labelRes)) }
+                        )
+                    }
+                }
+
+                HorizontalDivider()
+
+                // 3. Editor Typography & Canvas Behavior
+                Text(
+                    text = stringResource(R.string.settings_editor_section),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Text(
+                    text = stringResource(R.string.settings_font_size, fontSizeSp.roundToInt()),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Slider(
+                    value = fontSizeSp,
+                    onValueChange = onFontSizeChange,
+                    valueRange = 10f..24f,
+                    steps = 13
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_tab_width, tabWidth),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    listOf(2, 4, 8).forEach { w ->
+                        FilterChip(
+                            selected = tabWidth == w,
+                            onClick = { onTabWidthChange(w) },
+                            label = { Text("$w") }
+                        )
+                    }
+                }
+
+                SettingSwitchRow(
+                    label = stringResource(R.string.soft_wrap),
+                    checked = softWrap,
+                    onCheckedChange = onSoftWrapChange
+                )
+                SettingSwitchRow(
+                    label = stringResource(R.string.show_invisibles),
+                    checked = showInvisibles,
+                    onCheckedChange = onShowInvisiblesChange
+                )
+                SettingSwitchRow(
+                    label = stringResource(R.string.page_guide_80),
+                    checked = showPageGuide80,
+                    onCheckedChange = onPageGuide80Change
+                )
+                SettingSwitchRow(
+                    label = stringResource(R.string.page_guide_120),
+                    checked = showPageGuide120,
+                    onCheckedChange = onPageGuide120Change
+                )
+                SettingSwitchRow(
+                    label = stringResource(R.string.code_folding),
+                    checked = enableCodeFolding,
+                    onCheckedChange = onCodeFoldingChange
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingSwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodyMedium)
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}

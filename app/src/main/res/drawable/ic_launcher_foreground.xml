@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Rounded Code Card Frame -->
+    <path
+        android:fillColor="#004494"
+        android:pathData="M26,26h56c3.3,0 6,2.7 6,6v44c0,3.3 -2.7,6 -6,6H26c-3.3,0 -6,-2.7 -6,-6V32c0,-3.3 2.7,-6 6,-6z" />
+    <!-- PowerShell Prompt Chevron > -->
+    <path
+        android:fillColor="#82B1FF"
+        android:pathData="M34,41l15,13l-15,13l-3.5,-4l10.5,-9l-10.5,-9z" />
+    <!-- PowerShell Underscore Cursor _ -->
+    <path
+        android:fillColor="#FFCB6B"
+        android:pathData="M53,63h21v5H53z" />
+</vector>

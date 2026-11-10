@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App Identity -->
+    <string name="app_name">GravityEdit</string>
+    <string name="app_tagline">Editor professionale di testo e PowerShell</string>
+
+    <!-- Navigation & Workspace Panels -->
+    <string name="nav_disk_browser">Esplora disco</string>
+    <string name="nav_open_documents">Documenti aperti</string>
+    <string name="nav_text_factory">Fabbrica di testo</string>
+    <string name="nav_find_replace">Trova e sostituisci</string>
+    <string name="nav_diff_tool">Strumento Diff</string>
+    <string name="nav_clippings">Frammenti</string>
+    <string name="nav_scratchpad">Blocco appunti</string>
+    <string name="nav_settings">Impostazioni</string>
+
+    <!-- File, Tab & Edit Actions -->
+    <string name="action_new_file">Nuovo documento</string>
+    <string name="action_open_file">Apri file…</string>
+    <string name="action_open_folder">Monta cartella progetto…</string>
+    <string name="action_save">Salva</string>
+    <string name="action_save_as">Salva con nome…</string>
+    <string name="action_close_tab">Chiudi scheda</string>
+    <string name="action_close_other_tabs">Chiudi le altre schede</string>
+    <string name="action_duplicate_line">Duplica riga</string>
+    <string name="action_select_line">Seleziona riga</string>
+    <string name="action_toggle_comment">Attiva/disattiva commento PowerShell</string>
+    <string name="action_undo">Annulla</string>
+    <string name="action_redo">Ripeti</string>
+    <string name="action_indent">Aumenta rientro</string>
+    <string name="action_unindent">Riduci rientro</string>
+    <string name="untitled_document">Senza titolo</string>
+    <string name="unsaved_changes_indicator">Modifiche non salvate</string>
+    <string name="empty_folder_hint">Nessuna cartella di progetto montata. Apri una directory per sfogliare i file.</string>
+    <string name="refresh_folder">Aggiorna cartella</string>
+
+    <!-- Split View, Navigator & Editor Options -->
+    <string name="split_none">Pannello singolo</string>
+    <string name="split_horizontal">Dividi in orizzontale</string>
+    <string name="split_vertical">Dividi in verticale</string>
+    <string name="function_navigator">Navigatore funzioni</string>
+    <string name="function_navigator_empty">Nessuna funzione o regione trovata</string>
+    <string name="go_to_line_title">Vai alla riga</string>
+    <string name="go_to_line_hint">Numero di riga (1 – %1$d)</string>
+    <string name="action_go">Vai</string>
+    <string name="action_cancel">Annulla</string>
+    <string name="action_apply">Applica</string>
+    <string name="action_close">Chiudi</string>
+    <string name="action_run">Esegui</string>
+    <string name="action_clear">Pulisci</string>
+    <string name="action_copy">Copia</string>
+    <string name="action_insert">Inserisci</string>
+    <string name="action_delete">Elimina</string>
+    <string name="show_invisibles">Mostra caratteri invisibili</string>
+    <string name="soft_wrap">A capo automatico</string>
+    <string name="page_guide_80">Guida pagina (Col 80)</string>
+    <string name="page_guide_120">Guida pagina (Col 120)</string>
+    <string name="code_folding">Compressione codice</string>
+
+    <!-- Bottom Status Bar -->
+    <string name="status_cursor_pos">Rg %1$d, Col %2$d</string>
+    <string name="status_selection_stats">Sel: %1$d car. | %2$d parole | %3$d righe</string>
+    <string name="status_doc_stats">%1$d car. | %2$d righe</string>
+    <string name="status_encoding">Codifica</string>
+    <string name="status_line_ending">Fine riga</string>
+    <string name="status_language">Sintassi</string>
+    <string name="status_zoom">Zoom %1$d%%</string>
+
+    <!-- Find & Replace, Pattern Playground & Multi-File Search -->
+    <string name="find_title">Trova e sostituisci PCRE</string>
+    <string name="find_label">Modello di ricerca</string>
+    <string name="replace_label">Sostituisci con</string>
+    <string name="opt_case_sensitive">Maiuscole/minuscole</string>
+    <string name="opt_match_words">Solo parole intere</string>
+    <string name="opt_grep_regex">Grep (Espressione regolare)</string>
+    <string name="opt_wrap_around">Ricomincia dall\'inizio</string>
+    <string name="opt_selection_only">Cerca solo nella selezione</string>
+    <string name="btn_find_next">Successivo</string>
+    <string name="btn_find_prev">Precedente</string>
+    <string name="btn_replace">Sostituisci</string>
+    <string name="btn_replace_all">Sostituisci tutto</string>
+    <string name="btn_extract_matches">Estrai in nuovo file</string>
+    <string name="tab_single_file">Documento attivo</string>
+    <string name="tab_multi_file">Ricerca multi-file</string>
+    <string name="tab_pattern_playground">Laboratorio Regex</string>
+    <string name="file_filter_label">Filtro file (es. *.ps1;*.json)</string>
+    <string name="playground_sample_label">Testo di prova / esempio</string>
+    <string name="matches_count">%1$d corrispondenze trovate</string>
+    <string name="no_matches_found">Nessuna corrispondenza trovata</string>
+
+    <!-- Text Factory (All 14 BBEdit Operations) -->
+    <string name="text_factory_title">Pipeline Fabbrica di testo</string>
+    <string name="text_factory_add_step">Aggiungi passaggio di trasformazione</string>
+    <string name="text_factory_run_pipeline">Esegui pipeline sul documento</string>
+    <string name="text_factory_empty">Aggiungi passaggi per creare una pipeline modulare di trasformazione BBEdit.</string>
+    <string name="tf_zap_gremlins">Elimina caratteri anomali (Zap Gremlins)</string>
+    <string name="tf_process_duplicates">Elabora righe duplicate</string>
+    <string name="tf_sort_lines">Ordina righe</string>
+    <string name="tf_prefix_suffix">Prefisso / Suffisso righe</string>
+    <string name="tf_change_case">Cambia maiuscole/minuscole</string>
+    <string name="tf_strip_trailing_ws">Rimuovi spazi finali</string>
+    <string name="tf_entab_detab">Converti spazi e tabulazioni</string>
+    <string name="tf_hard_wrap_unwrap">A capo fisso / Rimuovi interruzioni</string>
+    <string name="tf_line_numbers">Aggiungi / Rimuovi numeri di riga</string>
+    <string name="tf_educate_quotes">Virgolette tipografiche / dritte</string>
+    <string name="tf_canonize_table">Normalizza tramite tabella</string>
+    <string name="tf_process_containing">Elabora righe contenenti…</string>
+    <string name="tf_convert_line_endings">Converti interruzioni di riga</string>
+    <string name="tf_format_prettify">Formatta PowerShell e JSON</string>
+    <string name="move_step_up">Sposta passaggio su</string>
+    <string name="move_step_down">Sposta passaggio giù</string>
+
+    <!-- Diff Tool -->
+    <string name="diff_title">Confronto affiancato (Diff Myers)</string>
+    <string name="diff_left_doc">Documento sinistro</string>
+    <string name="diff_right_doc">Documento destro</string>
+    <string name="diff_copy_to_left">Copia a sinistra (←)</string>
+    <string name="diff_copy_to_right">Copia a destra (→)</string>
+    <string name="diff_identical">I documenti sono identici</string>
+    <string name="diff_summary">+%1$d aggiunte | -%2$d rimosse | ~%3$d modificate</string>
+
+    <!-- Clippings -->
+    <string name="clippings_title">Frammenti e snippet PowerShell</string>
+    <string name="clippings_search_hint">Filtra frammenti…</string>
+    <string name="clippings_new">Nuovo frammento</string>
+    <string name="clippings_name_label">Nome del frammento</string>
+    <string name="clippings_body_label">Corpo modello (#INSERTION#, #SELECTION#, ecc.)</string>
+
+    <!-- Settings, Themes & Localization -->
+    <string name="settings_title">Preferenze e aspetto</string>
+    <string name="settings_theme_section">Schema colori dell\'editor</string>
+    <string name="theme_dynamic">Material 3 Dinamico (Monet)</string>
+    <string name="theme_light">M3 Sviluppatore Chiaro</string>
+    <string name="theme_dark">M3 Sviluppatore Scuro</string>
+    <string name="theme_amoled">Nero assoluto AMOLED (#000000)</string>
+    <string name="settings_language_section">Lingua dell\'interfaccia</string>
+    <string name="lang_en">English</string>
+    <string name="lang_de">Deutsch (German)</string>
+    <string name="lang_it">Italiano (Italian)</string>
+    <string name="lang_es">Español (Spanish)</string>
+    <string name="lang_fr">Français (French)</string>
+    <string name="lang_el">Ελληνικά (Greek)</string>
+    <string name="settings_editor_section">Comportamento dell\'editor</string>
+    <string name="settings_font_size">Dimensione carattere (%1$d sp)</string>
+    <string name="settings_tab_width">Ampiezza tabulazione (%1$d spazi)</string>
+    <string name="aux_row_description">Barra simboli ausiliari PowerShell</string>
+</resources>

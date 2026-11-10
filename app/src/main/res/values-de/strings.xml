@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App Identity -->
+    <string name="app_name">GravityEdit</string>
+    <string name="app_tagline">Professioneller Text- &amp; PowerShell-Editor</string>
+
+    <!-- Navigation & Workspace Panels -->
+    <string name="nav_disk_browser">Dateibrowser</string>
+    <string name="nav_open_documents">Geöffnete Dokumente</string>
+    <string name="nav_text_factory">Text-Fabrik</string>
+    <string name="nav_find_replace">Suchen &amp; Ersetzen</string>
+    <string name="nav_diff_tool">Diff-Vergleich</string>
+    <string name="nav_clippings">Textbausteine</string>
+    <string name="nav_scratchpad">Notizblock</string>
+    <string name="nav_settings">Einstellungen</string>
+
+    <!-- File, Tab & Edit Actions -->
+    <string name="action_new_file">Neues Dokument</string>
+    <string name="action_open_file">Datei öffnen…</string>
+    <string name="action_open_folder">Projektordner einbinden…</string>
+    <string name="action_save">Speichern</string>
+    <string name="action_save_as">Speichern unter…</string>
+    <string name="action_close_tab">Tab schließen</string>
+    <string name="action_close_other_tabs">Andere Tabs schließen</string>
+    <string name="action_duplicate_line">Zeile duplizieren</string>
+    <string name="action_select_line">Zeile auswählen</string>
+    <string name="action_toggle_comment">PowerShell-Kommentar umschalten</string>
+    <string name="action_undo">Rückgängig</string>
+    <string name="action_redo">Wiederholen</string>
+    <string name="action_indent">Einrücken</string>
+    <string name="action_unindent">Ausrücken</string>
+    <string name="untitled_document">Unbenannt</string>
+    <string name="unsaved_changes_indicator">Ungespeicherte Änderungen</string>
+    <string name="empty_folder_hint">Kein Projektordner eingebunden. Öffnen Sie ein Verzeichnis, um Dateien zu durchsuchen.</string>
+    <string name="refresh_folder">Ordner aktualisieren</string>
+
+    <!-- Split View, Navigator & Editor Options -->
+    <string name="split_none">Einzelansicht</string>
+    <string name="split_horizontal">Horizontal teilen</string>
+    <string name="split_vertical">Vertikal teilen</string>
+    <string name="function_navigator">Funktionsnavigator</string>
+    <string name="function_navigator_empty">Keine Funktionen oder Regionen gefunden</string>
+    <string name="go_to_line_title">Gehe zu Zeile</string>
+    <string name="go_to_line_hint">Zeilennummer (1 – %1$d)</string>
+    <string name="action_go">Los</string>
+    <string name="action_cancel">Abbrechen</string>
+    <string name="action_apply">Anwenden</string>
+    <string name="action_close">Schließen</string>
+    <string name="action_run">Ausführen</string>
+    <string name="action_clear">Leeren</string>
+    <string name="action_copy">Kopieren</string>
+    <string name="action_insert">Einfügen</string>
+    <string name="action_delete">Löschen</string>
+    <string name="show_invisibles">Unsichtbare Zeichen anzeigen</string>
+    <string name="soft_wrap">Dynamischer Zeilenumbruch</string>
+    <string name="page_guide_80">Seitenhilfslinie (Spalte 80)</string>
+    <string name="page_guide_120">Seitenhilfslinie (Spalte 120)</string>
+    <string name="code_folding">Code-Faltung</string>
+
+    <!-- Bottom Status Bar -->
+    <string name="status_cursor_pos">Zl %1$d, Sp %2$d</string>
+    <string name="status_selection_stats">Ausw.: %1$d Zeichen | %2$d Wörter | %3$d Zeilen</string>
+    <string name="status_doc_stats">%1$d Zeichen | %2$d Zeilen</string>
+    <string name="status_encoding">Kodierung</string>
+    <string name="status_line_ending">Zeilenende</string>
+    <string name="status_language">Syntax</string>
+    <string name="status_zoom">Zoom %1$d%%</string>
+
+    <!-- Find & Replace, Pattern Playground & Multi-File Search -->
+    <string name="find_title">PCRE Suchen &amp; Ersetzen</string>
+    <string name="find_label">Suchmuster</string>
+    <string name="replace_label">Ersetzen durch</string>
+    <string name="opt_case_sensitive">Groß-/Kleinschreibung beachten</string>
+    <string name="opt_match_words">Nur ganze Wörter</string>
+    <string name="opt_grep_regex">Grep (Regulärer Ausdruck)</string>
+    <string name="opt_wrap_around">Am Dokumentende fortsetzen</string>
+    <string name="opt_selection_only">Nur in Auswahl suchen</string>
+    <string name="btn_find_next">Weiter</string>
+    <string name="btn_find_prev">Zurück</string>
+    <string name="btn_replace">Ersetzen</string>
+    <string name="btn_replace_all">Alle ersetzen</string>
+    <string name="btn_extract_matches">In neue Datei extrahieren</string>
+    <string name="tab_single_file">Aktives Dokument</string>
+    <string name="tab_multi_file">Dateienübergreifende Suche</string>
+    <string name="tab_pattern_playground">Regex-Testlabor</string>
+    <string name="file_filter_label">Dateifilter (z. B. *.ps1;*.json)</string>
+    <string name="playground_sample_label">Beispiel- / Testtext</string>
+    <string name="matches_count">%1$d Treffer gefunden</string>
+    <string name="no_matches_found">Keine Treffer gefunden</string>
+
+    <!-- Text Factory (All 14 BBEdit Operations) -->
+    <string name="text_factory_title">Text-Fabrik-Pipeline</string>
+    <string name="text_factory_add_step">Transformationsschritt hinzufügen</string>
+    <string name="text_factory_run_pipeline">Pipeline auf Dokument anwenden</string>
+    <string name="text_factory_empty">Fügen Sie Schritte hinzu, um eine modulare BBEdit-Stapelverarbeitung zu erstellen.</string>
+    <string name="tf_zap_gremlins">Steuerzeichen bereinigen (Zap Gremlins)</string>
+    <string name="tf_process_duplicates">Doppelte Zeilen verarbeiten</string>
+    <string name="tf_sort_lines">Zeilen sortieren</string>
+    <string name="tf_prefix_suffix">Präfix / Suffix für Zeilen</string>
+    <string name="tf_change_case">Groß-/Kleinschreibung ändern</string>
+    <string name="tf_strip_trailing_ws">Leerzeichen am Zeilenende entfernen</string>
+    <string name="tf_entab_detab">Tabs &amp; Leerzeichen umwandeln</string>
+    <string name="tf_hard_wrap_unwrap">Fester Zeilenumbruch / Umbruch entfernen</string>
+    <string name="tf_line_numbers">Zeilennummern hinzufügen / entfernen</string>
+    <string name="tf_educate_quotes">Typografische / Gerade Anführungszeichen</string>
+    <string name="tf_canonize_table">Ersetzungstabelle anwenden</string>
+    <string name="tf_process_containing">Zeilen mit Muster verarbeiten…</string>
+    <string name="tf_convert_line_endings">Zeilenenden konvertieren</string>
+    <string name="tf_format_prettify">PowerShell &amp; JSON formatieren</string>
+    <string name="move_step_up">Schritt nach oben</string>
+    <string name="move_step_down">Schritt nach unten</string>
+
+    <!-- Diff Tool -->
+    <string name="diff_title">Nebeneinander-Vergleich (Myers-Diff)</string>
+    <string name="diff_left_doc">Linkes Dokument</string>
+    <string name="diff_right_doc">Rechtes Dokument</string>
+    <string name="diff_copy_to_left">Nach links kopieren (←)</string>
+    <string name="diff_copy_to_right">Nach rechts kopieren (→)</string>
+    <string name="diff_identical">Dokumente sind identisch</string>
+    <string name="diff_summary">+%1$d hinzugefügt | -%2$d entfernt | ~%3$d geändert</string>
+
+    <!-- Clippings -->
+    <string name="clippings_title">Textbausteine &amp; PowerShell-Snippets</string>
+    <string name="clippings_search_hint">Textbausteine filtern…</string>
+    <string name="clippings_new">Neuer Textbaustein</string>
+    <string name="clippings_name_label">Name des Textbausteins</string>
+    <string name="clippings_body_label">Vorlagentext (#INSERTION#, #SELECTION#, usw.)</string>
+
+    <!-- Settings, Themes & Localization -->
+    <string name="settings_title">Einstellungen &amp; Darstellung</string>
+    <string name="settings_theme_section">Editor-Farbschema</string>
+    <string name="theme_dynamic">Material 3 Dynamisch (Monet)</string>
+    <string name="theme_light">M3 Entwickler Hell</string>
+    <string name="theme_dark">M3 Entwickler Dunkel</string>
+    <string name="theme_amoled">AMOLED Tiefschwarz (#000000)</string>
+    <string name="settings_language_section">Oberflächensprache</string>
+    <string name="lang_en">English</string>
+    <string name="lang_de">Deutsch (German)</string>
+    <string name="lang_it">Italiano (Italian)</string>
+    <string name="lang_es">Español (Spanish)</string>
+    <string name="lang_fr">Français (French)</string>
+    <string name="lang_el">Ελληνικά (Greek)</string>
+    <string name="settings_editor_section">Editor-Verhalten</string>
+    <string name="settings_font_size">Schriftgröße (%1$d sp)</string>
+    <string name="settings_tab_width">Tabulatorbreite (%1$d Leerzeichen)</string>
+    <string name="aux_row_description">PowerShell-Sonderzeichenleiste</string>
+</resources>
