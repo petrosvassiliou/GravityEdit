@@ -118,6 +118,7 @@ import com.gravityedit.app.ui.components.CommandPaletteModal
 import com.gravityedit.app.ui.components.EditorCanvas
 import com.gravityedit.app.ui.components.FindReplaceModal
 import com.gravityedit.app.ui.components.GoToLineDialog
+import com.gravityedit.app.ui.components.NewDocumentDialog
 import com.gravityedit.app.ui.components.PowerShellAuxiliarySymbolRow
 import com.gravityedit.app.ui.components.PowerShellDiagnosticsModal
 import com.gravityedit.app.ui.components.SettingsModal
@@ -190,6 +191,23 @@ fun GravityEditScaffold(
         }
 
         // Shared Modals & Tool Sheets (Adaptive Dialogs on Googlebook OS / BottomSheets on Mobile)
+        if (uiState.showNewDocumentDialog) {
+            NewDocumentDialog(
+                isCompactMobile = !isDesktopExpanded,
+                nextUntitledNumber = uiState.nextUntitledNumber,
+                onCreateDocument = { fileName, language, encoding, lineEnding, useStarterTemplate ->
+                    viewModel.createNewDocument(
+                        initialTitle = fileName,
+                        language = language,
+                        encoding = encoding,
+                        lineEnding = lineEnding,
+                        useStarterTemplate = useStarterTemplate
+                    )
+                },
+                onDismiss = { viewModel.setNewDocumentDialogVisible(false) }
+            )
+        }
+
         if (uiState.showFindReplaceModal) {
             FindReplaceModal(
                 isCompactMobile = !isDesktopExpanded,
@@ -376,7 +394,7 @@ private fun handleGlobalHardwareShortcuts(
             true
         }
         Key.N -> {
-            viewModel.createNewDocument()
+            viewModel.setNewDocumentDialogVisible(true)
             true
         }
         Key.O -> {
@@ -530,7 +548,7 @@ private fun GooglebookDesktopLayout(
                     uiState = uiState,
                     onSelectDocument = viewModel::selectDocument,
                     onCloseDocument = viewModel::closeDocument,
-                    onNewDocument = { viewModel.createNewDocument() },
+                    onNewDocument = { viewModel.setNewDocumentDialogVisible(true) },
                     onMountFolder = viewModel::requestMountProjectFolder,
                     onRefreshFolder = viewModel::refreshDiskBrowser,
                     onToggleDirectoryNode = viewModel::toggleDirectoryNode,
@@ -564,7 +582,7 @@ private fun GooglebookDesktopLayout(
                 uiState = uiState,
                 functionMenuExpanded = functionMenuExpanded,
                 onFunctionMenuExpandedChange = onFunctionMenuExpandedChange,
-                onNewFile = { viewModel.createNewDocument() },
+                onNewFile = { viewModel.setNewDocumentDialogVisible(true) },
                 onOpenFile = viewModel::requestOpenFile,
                 onSaveFile = viewModel::requestSaveActiveDocument,
                 onSaveAsFile = viewModel::requestSaveAsActiveDocument,
@@ -591,7 +609,7 @@ private fun GooglebookDesktopLayout(
                     viewModel.selectDocument(docId)
                     viewModel.requestSaveActiveDocument()
                 },
-                onNewTab = { viewModel.createNewDocument() }
+                onNewTab = { viewModel.setNewDocumentDialogVisible(true) }
             )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -658,8 +676,8 @@ private fun AndroidMobileCompactLayout(
                     },
                     onCloseDocument = viewModel::closeDocument,
                     onNewDocument = {
-                        viewModel.createNewDocument()
                         scope.launch { drawerState.close() }
+                        viewModel.setNewDocumentDialogVisible(true)
                     },
                     onMountFolder = {
                         viewModel.requestMountProjectFolder()
@@ -731,6 +749,9 @@ private fun AndroidMobileCompactLayout(
                         )
                     }
 
+                    IconButton(onClick = { viewModel.setNewDocumentDialogVisible(true) }) {
+                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.action_new_file))
+                    }
                     IconButton(onClick = viewModel::requestOpenFile) {
                         Icon(Icons.Default.FileOpen, contentDescription = stringResource(R.string.action_open_file))
                     }

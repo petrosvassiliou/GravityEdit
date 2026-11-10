@@ -96,6 +96,7 @@ import com.gravityedit.app.domain.model.Clipping
 import com.gravityedit.app.domain.model.DiffChangeType
 import com.gravityedit.app.domain.model.DiffResult
 import com.gravityedit.app.domain.model.DiffRow
+import com.gravityedit.app.domain.model.DocumentEncoding
 import com.gravityedit.app.domain.model.DuplicateLineMode
 import com.gravityedit.app.domain.model.EditorDocument
 import com.gravityedit.app.domain.model.FormatTarget
@@ -109,6 +110,7 @@ import com.gravityedit.app.domain.model.QuoteTransformMode
 import com.gravityedit.app.domain.model.SearchMatch
 import com.gravityedit.app.domain.model.SearchOptions
 import com.gravityedit.app.domain.model.SortDirection
+import com.gravityedit.app.domain.model.SyntaxLanguage
 import com.gravityedit.app.domain.model.TabConversionMode
 import com.gravityedit.app.domain.model.TextFactoryStep
 import com.gravityedit.app.domain.model.TextOperationType
@@ -2447,4 +2449,267 @@ fun CommandPaletteModal(
         }
     }
 }
+
+// =========================================================================
+// 9. NEW DOCUMENT & FILE TYPE / EXTENSION SELECTOR DIALOG (+ / CTRL+N)
+// =========================================================================
+
+private data class FileTypePreset(
+    val id: String,
+    val label: String,
+    val extension: String,
+    val language: SyntaxLanguage,
+    val badge: String
+)
+
+private val NEW_DOCUMENT_FILE_TYPE_PRESETS: List<FileTypePreset> = listOf(
+    FileTypePreset("txt", "Plain Text (.txt)", "txt", SyntaxLanguage.PLAIN_TEXT, "TXT"),
+    FileTypePreset("ps1", "PowerShell Script (.ps1)", "ps1", SyntaxLanguage.POWERSHELL, "PS1"),
+    FileTypePreset("psm1", "PowerShell Module (.psm1)", "psm1", SyntaxLanguage.POWERSHELL, "PSM1"),
+    FileTypePreset("psd1", "PowerShell Manifest (.psd1)", "psd1", SyntaxLanguage.POWERSHELL, "PSD1"),
+    FileTypePreset("md", "Markdown (.md)", "md", SyntaxLanguage.MARKDOWN, "MD"),
+    FileTypePreset("json", "JSON (.json)", "json", SyntaxLanguage.JSON, "JSON"),
+    FileTypePreset("yaml", "YAML (.yaml)", "yaml", SyntaxLanguage.YAML, "YAML"),
+    FileTypePreset("xml", "XML (.xml)", "xml", SyntaxLanguage.XML, "XML"),
+    FileTypePreset("kt", "Kotlin (.kt)", "kt", SyntaxLanguage.KOTLIN, "KT"),
+    FileTypePreset("py", "Python (.py)", "py", SyntaxLanguage.PYTHON, "PY"),
+    FileTypePreset("sh", "Shell / Bash (.sh)", "sh", SyntaxLanguage.SHELL_BASH, "SH"),
+    FileTypePreset("html", "HTML (.html)", "html", SyntaxLanguage.HTML_CSS, "HTML"),
+    FileTypePreset("css", "CSS (.css)", "css", SyntaxLanguage.HTML_CSS, "CSS")
+)
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun NewDocumentDialog(
+    isCompactMobile: Boolean,
+    nextUntitledNumber: Int,
+    onCreateDocument: (
+        fileName: String,
+        language: SyntaxLanguage,
+        encoding: DocumentEncoding,
+        lineEnding: LineEnding,
+        useStarterTemplate: Boolean
+    ) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedPreset by remember { mutableStateOf(NEW_DOCUMENT_FILE_TYPE_PRESETS[0]) }
+    var fileName by remember(nextUntitledNumber) {
+        mutableStateOf("Untitled-$nextUntitledNumber.${NEW_DOCUMENT_FILE_TYPE_PRESETS[0].extension}")
+    }
+    var selectedEncoding by remember { mutableStateOf(DocumentEncoding.UTF_8) }
+    var selectedLineEnding by remember { mutableStateOf(LineEnding.LF) }
+    var useStarterTemplate by remember { mutableStateOf(false) }
+
+    fun selectPreset(preset: FileTypePreset) {
+        selectedPreset = preset
+        val base = fileName.substringBeforeLast('.', fileName).ifBlank { "Untitled-$nextUntitledNumber" }
+        fileName = "$base.${preset.extension}"
+    }
+
+    val content: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = stringResource(R.string.action_new_file),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Choose file type, extension, encoding, and line endings",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
+                }
+            }
+
+            // 1. File Name Input (auto-syncs extension & syntax language)
+            OutlinedTextField(
+                value = fileName,
+                onValueChange = { updated ->
+                    fileName = updated
+                    val typedExt = updated.substringAfterLast('.', "").lowercase()
+                    val matchedPreset = NEW_DOCUMENT_FILE_TYPE_PRESETS.firstOrNull { it.extension == typedExt }
+                    if (matchedPreset != null) {
+                        selectedPreset = matchedPreset
+                    }
+                },
+                label = { Text("File Name & Extension") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // 2. File Type & Extension Selector Grid
+            Text(
+                text = stringResource(R.string.picker_language_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                NEW_DOCUMENT_FILE_TYPE_PRESETS.forEach { preset ->
+                    val isSelected = selectedPreset.id == preset.id
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { selectPreset(preset) },
+                        leadingIcon = if (isSelected) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(15.dp)) }
+                        } else null,
+                        label = { Text(preset.label, fontSize = 12.sp) }
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
+            // 3. Encoding & Line Ending Selection
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = stringResource(R.string.picker_encoding_title),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        DocumentEncoding.entries.forEach { enc ->
+                            FilterChip(
+                                selected = selectedEncoding == enc,
+                                onClick = { selectedEncoding = enc },
+                                label = { Text(enc.displayName, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = stringResource(R.string.picker_line_ending_title),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        LineEnding.entries.forEach { le ->
+                            FilterChip(
+                                selected = selectedLineEnding == le,
+                                onClick = { selectedLineEnding = le },
+                                label = { Text(le.badge, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 4. Optional Starter Boilerplate Switch
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { useStarterTemplate = !useStarterTemplate }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Insert Starter Template for .${selectedPreset.extension}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Pre-populate new file with standard ${selectedPreset.language.displayName} boilerplate",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = useStarterTemplate,
+                    onCheckedChange = { useStarterTemplate = it }
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        val finalName = fileName.trim().ifEmpty {
+                            "Untitled-$nextUntitledNumber.${selectedPreset.extension}"
+                        }
+                        val resolvedLanguage = if (finalName.contains('.')) {
+                            SyntaxLanguage.fromFileName(finalName)
+                        } else {
+                            selectedPreset.language
+                        }
+                        onCreateDocument(
+                            finalName,
+                            resolvedLanguage,
+                            selectedEncoding,
+                            selectedLineEnding,
+                            useStarterTemplate
+                        )
+                    }
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("${stringResource(R.string.action_new_file)} (${selectedPreset.badge})")
+                }
+            }
+        }
+    }
+
+    if (isCompactMobile) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+            content()
+        }
+    } else {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .width(680.dp)
+                    .padding(16.dp)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
 

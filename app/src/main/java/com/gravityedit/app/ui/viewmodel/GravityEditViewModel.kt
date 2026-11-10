@@ -126,6 +126,8 @@ data class GravityEditUiState(
     val enableCodeFolding: Boolean = true,
 
     // Modal & Dialog Visibility Flags
+    val showNewDocumentDialog: Boolean = false,
+    val nextUntitledNumber: Int = 2,
     val showFindReplaceModal: Boolean = false,
     val findReplaceInitialTab: Int = 0,
     val showTextFactoryModal: Boolean = false,
@@ -406,27 +408,173 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     // DOCUMENT & MULTI-TAB MANAGEMENT
     // =========================================================================
 
+    fun setNewDocumentDialogVisible(visible: Boolean) {
+        _uiState.update {
+            it.copy(
+                showNewDocumentDialog = visible,
+                nextUntitledNumber = untitledCounter
+            )
+        }
+    }
+
     fun createNewDocument(
         initialTitle: String? = null,
         initialContent: String = "",
-        language: SyntaxLanguage = SyntaxLanguage.POWERSHELL
+        language: SyntaxLanguage = SyntaxLanguage.POWERSHELL,
+        encoding: DocumentEncoding = DocumentEncoding.UTF_8,
+        lineEnding: LineEnding = LineEnding.LF,
+        useStarterTemplate: Boolean = false
     ) {
-        val ext = language.extensions.firstOrNull() ?: "ps1"
-        val title = initialTitle ?: "Untitled-${untitledCounter++}.$ext"
+        val ext = language.extensions.firstOrNull() ?: "txt"
+        val resolvedTitle = initialTitle?.trim()?.takeIf { it.isNotEmpty() }
+            ?: "Untitled-${untitledCounter++}.$ext"
+        if (initialTitle != null && initialTitle.startsWith("Untitled-")) {
+            untitledCounter++
+        }
+        val resolvedContent = if (initialContent.isNotEmpty()) {
+            initialContent
+        } else if (useStarterTemplate) {
+            starterTemplateForFile(resolvedTitle, language)
+        } else {
+            ""
+        }
         val newDoc = EditorDocument(
-            title = title,
-            content = initialContent,
-            savedContent = initialContent,
-            language = language
+            title = resolvedTitle,
+            content = resolvedContent,
+            savedContent = resolvedContent,
+            language = language,
+            encoding = encoding,
+            lineEnding = lineEnding
         )
         _uiState.update { state ->
             state.copy(
                 documents = state.documents + newDoc,
-                activeDocumentId = newDoc.id
+                activeDocumentId = newDoc.id,
+                showNewDocumentDialog = false,
+                nextUntitledNumber = untitledCounter,
+                statusBannerMessage = "Created $resolvedTitle (${language.displayName}, ${encoding.displayName}, ${lineEnding.badge})"
             )
         }
         refreshAstAndFoldsForActiveDocument()
         refreshActiveDocSearchMatches()
+    }
+
+    private fun starterTemplateForFile(fileName: String, language: SyntaxLanguage): String {
+        val ext = fileName.substringAfterLast('.', "").lowercase()
+        return when {
+            ext == "psm1" -> """
+                # PowerShell Module ($fileName)
+                function Invoke-ModuleAction {
+                    [CmdletBinding()]
+                    param (
+                        [Parameter(Mandatory = ${'$'}true)]
+                        [string]${'$'}InputObject
+                    )
+                    Write-Output ${'$'}InputObject
+                }
+
+                Export-ModuleMember -Function 'Invoke-*'
+            """.trimIndent()
+            ext == "psd1" -> """
+                @{
+                    RootModule        = '${fileName.substringBeforeLast('.')}.psm1'
+                    ModuleVersion     = '1.0.0'
+                    GUID              = '00000000-0000-0000-0000-000000000000'
+                    Author            = 'GravityEdit Developer'
+                    Description       = 'PowerShell Module Manifest'
+                    PowerShellVersion = '7.2'
+                    FunctionsToExport = @('*')
+                    CmdletsToExport   = @()
+                    VariablesToExport = @()
+                    AliasesToExport   = @()
+                }
+            """.trimIndent()
+            language == SyntaxLanguage.POWERSHELL -> """
+                [CmdletBinding()]
+                param (
+                    [Parameter(Mandatory = ${'$'}false)]
+                    [string]${'$'}Path = "."
+                )
+
+                Get-ChildItem -Path ${'$'}Path
+            """.trimIndent()
+            language == SyntaxLanguage.JSON -> """
+                {
+                  "name": "${fileName.substringBeforeLast('.')}",
+                  "version": "1.0.0",
+                  "enabled": true
+                }
+            """.trimIndent()
+            language == SyntaxLanguage.YAML -> """
+                # $fileName
+                name: ${fileName.substringBeforeLast('.')}
+                version: "1.0.0"
+                environment: production
+            """.trimIndent()
+            language == SyntaxLanguage.XML -> """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <configuration>
+                    <property name="app" value="GravityEdit" />
+                </configuration>
+            """.trimIndent()
+            language == SyntaxLanguage.MARKDOWN -> """
+                # ${fileName.substringBeforeLast('.')}
+
+                ## Overview
+                Created with **GravityEdit**.
+            """.trimIndent()
+            language == SyntaxLanguage.PYTHON -> """
+                #!/usr/bin/env python3
+                # $fileName
+
+
+                def main() -> None:
+                    print("Hello from $fileName")
+
+
+                if __name__ == "__main__":
+                    main()
+            """.trimIndent()
+            language == SyntaxLanguage.KOTLIN -> """
+                package com.example
+
+                fun main() {
+                    println("Hello from $fileName")
+                }
+            """.trimIndent()
+            language == SyntaxLanguage.SHELL_BASH -> """
+                #!/usr/bin/env bash
+                set -euo pipefail
+
+                echo "Running $fileName..."
+            """.trimIndent()
+            language == SyntaxLanguage.HTML_CSS && ext == "css" -> """
+                :root {
+                  --bg: #13161c;
+                  --fg: #e3e7f0;
+                }
+
+                body {
+                  margin: 0;
+                  background: var(--bg);
+                  color: var(--fg);
+                }
+            """.trimIndent()
+            language == SyntaxLanguage.HTML_CSS -> """
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                  <meta charset="UTF-8" />
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                  <title>${fileName.substringBeforeLast('.')}</title>
+                </head>
+                <body>
+                  <h1>${fileName.substringBeforeLast('.')}</h1>
+                </body>
+                </html>
+            """.trimIndent()
+            else -> ""
+        }
     }
 
     fun selectDocument(documentId: String) {
