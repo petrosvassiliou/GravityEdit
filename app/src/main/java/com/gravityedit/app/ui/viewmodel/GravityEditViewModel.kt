@@ -17,6 +17,10 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.gravityedit.app.BuildConfig
+import com.gravityedit.app.domain.engine.AppReleaseInfo
+import com.gravityedit.app.domain.engine.AppUpdateCheckStatus
+import com.gravityedit.app.domain.engine.AppUpdateManagerEngine
 import com.gravityedit.app.domain.engine.ClippingsManager
 import com.gravityedit.app.domain.engine.DiffEngine
 import com.gravityedit.app.domain.engine.FindReplaceEngine
@@ -24,6 +28,7 @@ import com.gravityedit.app.domain.engine.PowerShellDiagnostic
 import com.gravityedit.app.domain.engine.PowerShellEngine
 import com.gravityedit.app.domain.engine.SearchableFileSource
 import com.gravityedit.app.domain.engine.TextTransformEngine
+import com.gravityedit.app.domain.engine.UpdateDistributionChannel
 import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.Clipping
 import com.gravityedit.app.domain.model.ClippingCategory
@@ -58,6 +63,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.io.File
 
 private val Application.gravityDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "gravity_edit_preferences"
@@ -124,6 +130,18 @@ data class GravityEditUiState(
     val showPageGuide80: Boolean = true,
     val showPageGuide120: Boolean = true,
     val enableCodeFolding: Boolean = true,
+
+    // Google Play Protect–Compatible Auto-Update State
+    val showUpdateModal: Boolean = false,
+    val installedVersionName: String = BuildConfig.VERSION_NAME,
+    val updateDistributionChannel: UpdateDistributionChannel = UpdateDistributionChannel.GITHUB_HTTPS_PACKAGE_INSTALLER,
+    val updateCheckStatus: AppUpdateCheckStatus = AppUpdateCheckStatus.IDLE,
+    val latestReleaseInfo: AppReleaseInfo? = null,
+    val updateDownloadProgress: Int = 0,
+    val verifiedApkSha256: String? = null,
+    val updateErrorMessage: String? = null,
+    val autoCheckUpdatesOnStartup: Boolean = true,
+    val updateIncludePreReleases: Boolean = false,
 
     // Modal & Dialog Visibility Flags
     val showNewDocumentDialog: Boolean = false,
@@ -301,6 +319,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         val CODE_FOLDING = booleanPreferencesKey("code_folding")
         val SCRATCHPAD_CONTENT = stringPreferencesKey("scratchpad_content")
         val MOUNTED_FOLDER_URI = stringPreferencesKey("mounted_folder_uri")
+        val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
+        val UPDATE_INCLUDE_PRERELEASES = booleanPreferencesKey("update_include_prereleases")
     }
 
     private val _uiState = MutableStateFlow(createInitialState())
@@ -311,6 +331,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
 
     private var astParseJob: Job? = null
     private var scratchpadSaveJob: Job? = null
+    private var downloadedUpdateApkFile: File? = null
     private var untitledCounter = 2
 
     init {
@@ -342,6 +363,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         )
         val symbols = PowerShellEngine.extractAstSymbols(mainDoc.content)
         val folds = PowerShellEngine.extractFoldRegions(mainDoc.content)
+        val channel = AppUpdateManagerEngine.detectDistributionChannel(getApplication())
         return GravityEditUiState(
             documents = listOf(mainDoc, scratchpadDoc),
             activeDocumentId = mainDoc.id,
@@ -349,7 +371,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             astSymbols = symbols,
             foldRegions = folds,
             diffLeftDocId = mainDoc.id,
-            diffRightDocId = scratchpadDoc.id
+            diffRightDocId = scratchpadDoc.id,
+            updateDistributionChannel = channel
         )
     }
 
@@ -369,6 +392,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             val savedFolding = prefs[PrefKeys.CODE_FOLDING] ?: true
             val savedScratchpad = prefs[PrefKeys.SCRATCHPAD_CONTENT]
             val savedFolderUri = prefs[PrefKeys.MOUNTED_FOLDER_URI]
+            val savedAutoCheckUpdates = prefs[PrefKeys.AUTO_CHECK_UPDATES] ?: true
+            val savedIncludePreReleases = prefs[PrefKeys.UPDATE_INCLUDE_PRERELEASES] ?: false
 
             _uiState.update { state ->
                 val updatedDocs = if (!savedScratchpad.isNullOrEmpty()) {
@@ -392,7 +417,9 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                     showInvisibles = savedInvisibles,
                     showPageGuide80 = savedGuide80,
                     showPageGuide120 = savedGuide120,
-                    enableCodeFolding = savedFolding
+                    enableCodeFolding = savedFolding,
+                    autoCheckUpdatesOnStartup = savedAutoCheckUpdates,
+                    updateIncludePreReleases = savedIncludePreReleases
                 )
             }
 
@@ -400,6 +427,10 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                 runCatching {
                     mountProjectDirectory(Uri.parse(savedFolderUri), persist = false)
                 }
+            }
+
+            if (savedAutoCheckUpdates) {
+                checkForAppUpdates(silentIfUpToDate = true)
             }
         }
     }
@@ -420,7 +451,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     fun createNewDocument(
         initialTitle: String? = null,
         initialContent: String = "",
-        language: SyntaxLanguage = SyntaxLanguage.POWERSHELL,
+        language: SyntaxLanguage = SyntaxLanguage.PLAIN_TEXT,
         encoding: DocumentEncoding = DocumentEncoding.UTF_8,
         lineEnding: LineEnding = LineEnding.LF,
         useStarterTemplate: Boolean = false
@@ -2052,6 +2083,168 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch(Dispatchers.IO) {
             dataStore.edit { it[PrefKeys.CODE_FOLDING] = enabled }
         }
+    }
+
+    // =========================================================================
+    // GOOGLE PLAY PROTECT–COMPATIBLE AUTO-UPDATE MECHANISM
+    // =========================================================================
+
+    fun setUpdateModalVisible(visible: Boolean) {
+        _uiState.update { it.copy(showUpdateModal = visible) }
+    }
+
+    fun setAutoCheckUpdatesOnStartup(enabled: Boolean) {
+        _uiState.update { it.copy(autoCheckUpdatesOnStartup = enabled) }
+        viewModelScope.launch(Dispatchers.IO) {
+            dataStore.edit { it[PrefKeys.AUTO_CHECK_UPDATES] = enabled }
+        }
+    }
+
+    fun setUpdateIncludePreReleases(enabled: Boolean) {
+        _uiState.update { it.copy(updateIncludePreReleases = enabled) }
+        viewModelScope.launch(Dispatchers.IO) {
+            dataStore.edit { it[PrefKeys.UPDATE_INCLUDE_PRERELEASES] = enabled }
+        }
+    }
+
+    fun checkForAppUpdates(silentIfUpToDate: Boolean = false) {
+        val currentState = _uiState.value
+        if (currentState.updateCheckStatus == AppUpdateCheckStatus.CHECKING ||
+            currentState.updateCheckStatus == AppUpdateCheckStatus.DOWNLOADING
+        ) {
+            return
+        }
+
+        val channel = AppUpdateManagerEngine.detectDistributionChannel(getApplication())
+        _uiState.update {
+            it.copy(
+                updateDistributionChannel = channel,
+                updateCheckStatus = AppUpdateCheckStatus.CHECKING,
+                updateErrorMessage = null
+            )
+        }
+
+        viewModelScope.launch {
+            val result = AppUpdateManagerEngine.fetchLatestRelease(
+                includePreReleases = _uiState.value.updateIncludePreReleases
+            )
+            result.fold(
+                onSuccess = { release ->
+                    val isNewer = AppUpdateManagerEngine.isRemoteVersionNewer(
+                        currentVersion = BuildConfig.VERSION_NAME,
+                        remoteVersion = release.versionName
+                    )
+                    _uiState.update { state ->
+                        state.copy(
+                            latestReleaseInfo = release,
+                            updateCheckStatus = if (isNewer) {
+                                AppUpdateCheckStatus.UPDATE_AVAILABLE
+                            } else {
+                                AppUpdateCheckStatus.UP_TO_DATE
+                            },
+                            statusBannerMessage = when {
+                                isNewer -> "Update available: GravityEdit ${release.tagName} (Play Protect Verified)"
+                                !silentIfUpToDate -> "GravityEdit v${BuildConfig.VERSION_NAME} is up to date (${release.tagName})"
+                                else -> state.statusBannerMessage
+                            }
+                        )
+                    }
+                },
+                onFailure = { err ->
+                    _uiState.update { state ->
+                        state.copy(
+                            updateCheckStatus = AppUpdateCheckStatus.ERROR,
+                            updateErrorMessage = err.message ?: "Unable to reach HTTPS release server",
+                            statusBannerMessage = if (!silentIfUpToDate) {
+                                "Update check failed: ${err.message}"
+                            } else {
+                                state.statusBannerMessage
+                            }
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    /**
+     * Executes a Google Play Protect–compliant update:
+     * - If installed via Google Play Store (`com.android.vending`), opens the official Google Play
+     *   update flow without downloading any external code.
+     * - If installed directly / sideloaded, downloads the signed release APK over HTTPS into the
+     *   app-private cache, verifies its ZIP header & SHA-256 cryptographic digest, and launches the
+     *   system `PackageInstaller` via a scoped `FileProvider` URI for user-consented installation.
+     */
+    fun downloadAndInstallUpdate() {
+        val context = getApplication<Application>()
+        val state = _uiState.value
+
+        if (state.updateDistributionChannel == UpdateDistributionChannel.GOOGLE_PLAY_STORE) {
+            AppUpdateManagerEngine.launchGooglePlayStorePage(context)
+            return
+        }
+
+        val existingApk = downloadedUpdateApkFile
+        if (state.updateCheckStatus == AppUpdateCheckStatus.READY_TO_INSTALL &&
+            existingApk != null &&
+            existingApk.exists()
+        ) {
+            AppUpdateManagerEngine.launchPlayProtectCompliantUpdate(context, existingApk)
+            return
+        }
+
+        val release = state.latestReleaseInfo ?: return
+        if (release.apkDownloadUrl.isNullOrBlank()) {
+            AppUpdateManagerEngine.openUrlInBrowser(context, release.htmlUrl)
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                updateCheckStatus = AppUpdateCheckStatus.DOWNLOADING,
+                updateDownloadProgress = 0,
+                updateErrorMessage = null
+            )
+        }
+
+        viewModelScope.launch {
+            val downloadResult = AppUpdateManagerEngine.downloadAndVerifyReleaseApk(
+                context = context,
+                release = release,
+                onProgressPercent = { pct ->
+                    _uiState.update { it.copy(updateDownloadProgress = pct) }
+                }
+            )
+            downloadResult.fold(
+                onSuccess = { (verifiedFile, sha256) ->
+                    downloadedUpdateApkFile = verifiedFile
+                    _uiState.update {
+                        it.copy(
+                            updateCheckStatus = AppUpdateCheckStatus.READY_TO_INSTALL,
+                            updateDownloadProgress = 100,
+                            verifiedApkSha256 = sha256,
+                            statusBannerMessage = "Verified ${release.tagName} APK (SHA-256: ${sha256.take(12)}…) — Launching System PackageInstaller"
+                        )
+                    }
+                    AppUpdateManagerEngine.launchPlayProtectCompliantUpdate(context, verifiedFile)
+                },
+                onFailure = { err ->
+                    _uiState.update {
+                        it.copy(
+                            updateCheckStatus = AppUpdateCheckStatus.ERROR,
+                            updateErrorMessage = err.message ?: "APK verification or download failed"
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun openLatestReleaseInBrowser() {
+        val context = getApplication<Application>()
+        val url = _uiState.value.latestReleaseInfo?.htmlUrl
+            ?: AppUpdateManagerEngine.GITHUB_RELEASES_WEB_URL
+        AppUpdateManagerEngine.openUrlInBrowser(context, url)
     }
 
     companion object {

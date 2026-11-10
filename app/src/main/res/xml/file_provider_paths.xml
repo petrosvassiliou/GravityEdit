@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Scoped private cache directory for verified APK update packages handed to Android PackageInstaller -->
+    <cache-path
+        name="apk_updates"
+        path="updates/" />
+</paths>

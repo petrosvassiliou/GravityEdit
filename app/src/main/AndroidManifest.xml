@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Network & Google Play Protect Compatible PackageInstaller Update Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Googlebook OS / ChromeOS / Large-Screen Desktop Windowing & Hardware Features -->
     <uses-feature
         android:name="android.hardware.touchscreen"
@@ -23,7 +27,19 @@
         android:resizeableActivity="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.GravityEdit"
+        android:usesCleartextTraffic="false"
         tools:targetApi="35">
+
+        <!-- Scoped FileProvider for Google Play Protect–scanned PackageInstaller APK handoff -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
 
         <!-- Enable Googlebook OS / Freeform multi-window drag & resize optimization -->
         <meta-data

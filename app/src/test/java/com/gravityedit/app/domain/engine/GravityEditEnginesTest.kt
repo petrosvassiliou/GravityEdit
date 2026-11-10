@@ -417,4 +417,48 @@ class GravityEditEnginesTest {
         assertTrue(updatedDoc.content.contains("#region Section Name"))
         assertTrue(updatedDoc.content.contains("Get-Date"))
     }
+
+    // =========================================================================
+    // 6. GOOGLE PLAY PROTECT AUTO-UPDATE ENGINE & FILE TYPE RESOLUTION TESTS
+    // =========================================================================
+
+    @Test
+    fun appUpdateManagerEngine_comparesSemanticVersionsAndVerifiesSha256AndApkHeaders() {
+        assertEquals(listOf(1, 0, 0), AppUpdateManagerEngine.parseSemVerParts("v1.0.0"))
+        assertEquals(listOf(1, 2, 10), AppUpdateManagerEngine.parseSemVerParts("v1.2.10-beta.1"))
+
+        assertTrue(AppUpdateManagerEngine.compareSemVer("v1.1.0", "1.0.0") > 0)
+        assertTrue(AppUpdateManagerEngine.compareSemVer("v1.0.0", "v1.0.0") == 0)
+        assertTrue(AppUpdateManagerEngine.compareSemVer("v1.0.0", "v2.0.0") < 0)
+
+        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer(installedVersion = "1.0.0", remoteTagOrVersion = "v1.0.1"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer(installedVersion = "1.2.0", remoteTagOrVersion = "v1.2.0"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer(installedVersion = "1.2.0", remoteTagOrVersion = "v1.1.9"))
+
+        // Verify SHA-256 digest calculation and ZIP magic header check on a temporary file
+        val tempApk = java.io.File.createTempFile("gravityedit_test_", ".apk")
+        try {
+            // Write valid ZIP local file header magic bytes (PK\x03\x04) + payload
+            val payload = byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x47, 0x72, 0x61, 0x76, 0x69, 0x74, 0x79)
+            tempApk.writeBytes(payload)
+
+            assertTrue(AppUpdateManagerEngine.hasValidApkZipHeader(tempApk))
+            val sha256 = AppUpdateManagerEngine.computeSha256Hex(tempApk)
+            assertEquals(64, sha256.length)
+            assertEquals(sha256, AppUpdateManagerEngine.computeSha256Hex(tempApk))
+        } finally {
+            tempApk.delete()
+        }
+
+        // Verify file type detection across supported extensions for New Document & Rename
+        assertEquals(SyntaxLanguage.PLAIN_TEXT, SyntaxLanguage.fromFileName("Untitled-1.txt"))
+        assertEquals(SyntaxLanguage.POWERSHELL, SyntaxLanguage.fromFileName("Deploy-Cluster.ps1"))
+        assertEquals(SyntaxLanguage.POWERSHELL, SyntaxLanguage.fromFileName("Utilities.psm1"))
+        assertEquals(SyntaxLanguage.MARKDOWN, SyntaxLanguage.fromFileName("README.md"))
+        assertEquals(SyntaxLanguage.JSON, SyntaxLanguage.fromFileName("config.json"))
+        assertEquals(SyntaxLanguage.YAML, SyntaxLanguage.fromFileName("pipeline.yaml"))
+        assertEquals(SyntaxLanguage.KOTLIN, SyntaxLanguage.fromFileName("Main.kt"))
+        assertEquals(SyntaxLanguage.PYTHON, SyntaxLanguage.fromFileName("script.py"))
+    }
 }
+

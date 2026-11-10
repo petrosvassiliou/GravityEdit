@@ -115,6 +115,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gravityedit.app.R
+import com.gravityedit.app.domain.engine.AppUpdateCheckStatus
 import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.DiskBrowserNode
 import com.gravityedit.app.domain.model.DocumentEncoding
@@ -123,6 +124,7 @@ import com.gravityedit.app.domain.model.LineEnding
 import com.gravityedit.app.domain.model.SplitViewMode
 import com.gravityedit.app.domain.model.SyntaxLanguage
 import com.gravityedit.app.domain.model.WorkspaceToolPanel
+import com.gravityedit.app.ui.components.AppUpdateModal
 import com.gravityedit.app.ui.components.ClippingsModal
 import com.gravityedit.app.ui.components.CommandPaletteModal
 import com.gravityedit.app.ui.components.EditorCanvas
@@ -321,6 +323,8 @@ fun GravityEditScaffold(
                 onInsertClipping = { clip -> viewModel.insertClippingIntoActiveDocument(clip) },
                 onOpenToolModal = { tool ->
                     when (tool) {
+                        "newdoc" -> viewModel.setNewDocumentDialogVisible(true)
+                        "update" -> viewModel.setUpdateModalVisible(true)
                         "diagnostics" -> viewModel.setDiagnosticsModalVisible(true)
                         "find" -> viewModel.setFindReplaceModalVisible(true, 0)
                         "factory" -> viewModel.setTextFactoryModalVisible(true)
@@ -357,6 +361,8 @@ fun GravityEditScaffold(
                 showPageGuide80 = uiState.showPageGuide80,
                 showPageGuide120 = uiState.showPageGuide120,
                 enableCodeFolding = uiState.enableCodeFolding,
+                installedVersionName = uiState.installedVersionName,
+                autoCheckUpdates = uiState.autoCheckUpdatesOnStartup,
                 onSelectTheme = viewModel::setThemeMode,
                 onSelectLanguage = viewModel::setApplicationLanguage,
                 onFontSizeChange = viewModel::setFontSizeSp,
@@ -366,7 +372,30 @@ fun GravityEditScaffold(
                 onPageGuide80Change = viewModel::setShowPageGuide80,
                 onPageGuide120Change = viewModel::setShowPageGuide120,
                 onCodeFoldingChange = viewModel::setEnableCodeFolding,
+                onAutoCheckUpdatesChange = viewModel::setAutoCheckUpdatesOnStartup,
+                onOpenUpdateModal = { viewModel.setUpdateModalVisible(true) },
                 onDismiss = { viewModel.setSettingsDialogVisible(false) }
+            )
+        }
+
+        if (uiState.showUpdateModal) {
+            AppUpdateModal(
+                isCompactMobile = !isDesktopExpanded,
+                installedVersionName = uiState.installedVersionName,
+                distributionChannel = uiState.updateDistributionChannel,
+                updateStatus = uiState.updateCheckStatus,
+                latestRelease = uiState.latestReleaseInfo,
+                downloadProgress = uiState.updateDownloadProgress,
+                verifiedSha256 = uiState.verifiedApkSha256,
+                errorMessage = uiState.updateErrorMessage,
+                autoCheckOnStartup = uiState.autoCheckUpdatesOnStartup,
+                includePreReleases = uiState.updateIncludePreReleases,
+                onAutoCheckChange = viewModel::setAutoCheckUpdatesOnStartup,
+                onIncludePreReleasesChange = viewModel::setUpdateIncludePreReleases,
+                onCheckNow = { viewModel.checkForAppUpdates(silentStartupCheck = false) },
+                onDownloadAndInstall = viewModel::downloadAndInstallUpdate,
+                onOpenReleaseInBrowser = viewModel::openLatestReleaseInBrowser,
+                onDismiss = { viewModel.setUpdateModalVisible(false) }
             )
         }
     }
@@ -654,6 +683,7 @@ private fun GooglebookDesktopLayout(
                 onOpenGoToLine = { viewModel.setGoToLineDialogVisible(true) },
                 onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
                 onOpenCommandPalette = { viewModel.setCommandPaletteModalVisible(true) },
+                onOpenUpdateModal = { viewModel.setUpdateModalVisible(true) },
                 onAdjustZoom = viewModel::adjustZoom,
                 onResetZoom = { viewModel.setZoomPercent(100) }
             )
@@ -851,6 +881,19 @@ private fun AndroidMobileCompactLayout(
                         }
                     )
                 }
+
+                // Trailing '+' Tab Button: Opens New Document & File Type Selector Dialog
+                Tab(
+                    selected = false,
+                    onClick = { viewModel.setNewDocumentDialogVisible(true) },
+                    text = {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = stringResource(R.string.action_new_file),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                )
             }
 
             // Center Virtualized Editor Canvas
@@ -896,6 +939,7 @@ private fun AndroidMobileCompactLayout(
                 onOpenGoToLine = { viewModel.setGoToLineDialogVisible(true) },
                 onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
                 onOpenCommandPalette = { viewModel.setCommandPaletteModalVisible(true) },
+                onOpenUpdateModal = { viewModel.setUpdateModalVisible(true) },
                 onAdjustZoom = viewModel::adjustZoom,
                 onResetZoom = { viewModel.setZoomPercent(100) }
             )
@@ -1882,6 +1926,7 @@ private fun DesktopBottomStatusBar(
     onOpenGoToLine: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     onOpenCommandPalette: () -> Unit,
+    onOpenUpdateModal: () -> Unit,
     onAdjustZoom: (Int) -> Unit,
     onResetZoom: () -> Unit
 ) {
@@ -1935,6 +1980,24 @@ private fun DesktopBottomStatusBar(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.clickable(onClick = onOpenCommandPalette)
+            )
+
+            // Play Protect Auto-Update & Version Status Pill
+            val updateAvailable = uiState.updateCheckStatus == AppUpdateCheckStatus.UPDATE_AVAILABLE
+            Text(
+                text = if (updateAvailable) {
+                    "⬆ Update (${uiState.latestReleaseInfo?.tagName ?: "New"})"
+                } else {
+                    "v${uiState.installedVersionName}"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (updateAvailable) FontWeight.Bold else FontWeight.Normal,
+                color = if (updateAvailable) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.clickable(onClick = onOpenUpdateModal)
             )
 
             // Selection or Document Stats
