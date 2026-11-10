@@ -1784,7 +1784,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             _uiState.update {
                 it.copy(
                     showCommandPaletteModal = false,
-                    statusBannerMessage = "Executed: ${step.operationType.defaultTitle}"
+                    statusBannerMessage = "Executed: ${step.operationType.name.replace('_', ' ')}"
                 )
             }
         }

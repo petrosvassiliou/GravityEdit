@@ -2190,8 +2190,8 @@ fun CommandPaletteModal(
                 CommandPaletteEntry(
                     id = "tx_${opType.name}",
                     categoryBadge = "BBEDIT",
-                    title = "Text Transform: ${opType.defaultTitle}",
-                    subtitle = "Execute immediately on active document",
+                    title = "Text Transform: ${opType.name.replace('_', ' ')}",
+                    subtitle = opType.defaultSummary,
                     action = {
                         onRunQuickTransform(TextFactoryStep(operationType = opType, enabled = true))
                     }
