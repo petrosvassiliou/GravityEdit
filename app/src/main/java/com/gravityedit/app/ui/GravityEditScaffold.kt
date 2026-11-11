@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,11 +20,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -116,6 +119,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gravityedit.app.R
 import com.gravityedit.app.domain.engine.AppUpdateCheckStatus
+import com.gravityedit.app.domain.engine.PowerShellEngine
 import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.DiskBrowserNode
 import com.gravityedit.app.domain.model.DocumentEncoding
@@ -153,7 +157,7 @@ fun GravityEditScaffold(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isDesktopExpanded = windowSizeClass.widthSizeClass != WindowWidthSizeClass.Compact
 
-    var scrollEventTarget by remember { mutableStateOf<Pair<String, Int>?>(null) }
+    var scrollEventTarget by remember { mutableStateOf<GravityEditUiEvent.ScrollToLine?>(null) }
     var functionMenuExpanded by remember { mutableStateOf(false) }
     val rootFocusRequester = remember { FocusRequester() }
 
@@ -165,7 +169,7 @@ fun GravityEditScaffold(
                     onLaunchSaveAsFilePicker(event.documentId, event.suggestedFileName)
                 GravityEditUiEvent.RequestMountFolderPicker -> onLaunchMountFolderPicker()
                 is GravityEditUiEvent.ScrollToLine -> {
-                    scrollEventTarget = event.documentId to event.lineIndex
+                    scrollEventTarget = event
                 }
                 is GravityEditUiEvent.ShowStatusToast -> Unit
             }
@@ -175,6 +179,8 @@ fun GravityEditScaffold(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .systemBarsPadding()
             .focusRequester(rootFocusRequester)
             .onPreviewKeyEvent { keyEvent ->
                 handleGlobalHardwareShortcuts(
@@ -246,7 +252,7 @@ fun GravityEditScaffold(
                         viewModel.selectDocument(docId)
                         viewModel.jumpToLine(lineNum)
                     } else {
-                        viewModel.openFileFromUri(Uri.parse(uriStr))
+                        viewModel.openFileFromUri(Uri.parse(uriStr), jumpToLineNumber = lineNum)
                     }
                 },
                 onJumpToMatchInActiveDoc = { match ->
@@ -416,6 +422,7 @@ fun GravityEditScaffold(
  * - `Ctrl+D`: Duplicate Line
  * - `Ctrl+L`: Select Line
  * - `Ctrl+/`: Toggle PowerShell Comment `#`
+ * - `Ctrl++` / `Ctrl+-` / `Ctrl+0`: Zoom In / Out / Reset 100%
  */
 private fun handleGlobalHardwareShortcuts(
     event: KeyEvent,
@@ -491,6 +498,18 @@ private fun handleGlobalHardwareShortcuts(
             viewModel.redo()
             true
         }
+        Key.Equals, Key.Plus, Key.NumPadAdd -> {
+            viewModel.adjustZoom(10)
+            true
+        }
+        Key.Minus, Key.NumPadSubtract -> {
+            viewModel.adjustZoom(-10)
+            true
+        }
+        Key.Zero, Key.NumPad0 -> {
+            viewModel.setZoomPercent(100)
+            true
+        }
         else -> false
     }
 }
@@ -503,7 +522,7 @@ private fun handleGlobalHardwareShortcuts(
 private fun GooglebookDesktopLayout(
     uiState: GravityEditUiState,
     viewModel: GravityEditViewModel,
-    scrollEventTarget: Pair<String, Int>?,
+    scrollEventTarget: GravityEditUiEvent.ScrollToLine?,
     functionMenuExpanded: Boolean,
     onFunctionMenuExpandedChange: (Boolean) -> Unit
 ) {
@@ -699,7 +718,7 @@ private fun GooglebookDesktopLayout(
 private fun AndroidMobileCompactLayout(
     uiState: GravityEditUiState,
     viewModel: GravityEditViewModel,
-    scrollEventTarget: Pair<String, Int>?,
+    scrollEventTarget: GravityEditUiEvent.ScrollToLine?,
     functionMenuExpanded: Boolean,
     onFunctionMenuExpandedChange: (Boolean) -> Unit
 ) {
@@ -899,6 +918,7 @@ private fun AndroidMobileCompactLayout(
             // Center Virtualized Editor Canvas
             val activeDoc = uiState.focusedDocument
             if (activeDoc != null) {
+                val mobileScroll = scrollEventTarget?.takeIf { it.documentId == activeDoc.id }
                 EditorCanvas(
                     document = activeDoc,
                     foldRegions = uiState.foldRegions,
@@ -915,7 +935,8 @@ private fun AndroidMobileCompactLayout(
                     showPageGuide120 = uiState.showPageGuide120,
                     enableCodeFolding = uiState.enableCodeFolding,
                     isFocusedPane = true,
-                    scrollTargetLine = if (scrollEventTarget?.first == activeDoc.id) scrollEventTarget.second else null,
+                    scrollTargetLine = mobileScroll?.lineIndex,
+                    scrollRequestId = mobileScroll?.requestId ?: 0L,
                     onFocusPane = { viewModel.setFocusedPane(0) },
                     onContentChange = { text, sStart, sEnd ->
                         viewModel.updateDocumentContent(activeDoc.id, text, sStart, sEnd)
@@ -930,9 +951,10 @@ private fun AndroidMobileCompactLayout(
                 )
             }
 
-            // Compact Mobile Status Strip
+            // Compact Mobile Status Strip (horizontally scrollable so all pickers remain tappable)
             DesktopBottomStatusBar(
                 uiState = uiState,
+                isCompactMobile = true,
                 onSelectEncoding = viewModel::setDocumentEncoding,
                 onSelectLineEnding = viewModel::setDocumentLineEnding,
                 onSelectLanguage = viewModel::setDocumentLanguage,
@@ -1644,9 +1666,9 @@ private fun MultiDocumentTabBar(
 
 /**
  * Inline-editable document title component.
- * Clicking on the document's title enters inline rename mode with the full title text
- * immediately selected (`TextRange(0, title.length)`) so the user can type a new name
- * and press Enter or click away to commit.
+ * Clicking on the document's title enters inline rename mode with the filename stem
+ * immediately selected (`0 until dotIdx`) so the user can type a new name without
+ * accidentally overwriting the file extension, and press Enter or click away to commit.
  */
 @Composable
 private fun InlineEditableDocumentTitle(
@@ -1659,10 +1681,12 @@ private fun InlineEditableDocumentTitle(
 ) {
     if (isEditing) {
         var fieldValue by remember(title) {
+            val dotIdx = title.lastIndexOf('.')
+            val stemEnd = if (dotIdx > 0) dotIdx else title.length
             mutableStateOf(
                 TextFieldValue(
                     text = title,
-                    selection = TextRange(0, title.length)
+                    selection = TextRange(0, stemEnd)
                 )
             )
         }
@@ -1746,7 +1770,7 @@ private fun InlineEditableDocumentTitle(
 @Composable
 private fun AdaptiveEditorSplitWorkspace(
     uiState: GravityEditUiState,
-    scrollEventTarget: Pair<String, Int>?,
+    scrollEventTarget: GravityEditUiEvent.ScrollToLine?,
     onFocusPane: (Int) -> Unit,
     onContentChange: (docId: String, newContent: String, selStart: Int, selEnd: Int) -> Unit,
     onSelectionChange: (docId: String, selStart: Int, selEnd: Int) -> Unit,
@@ -1755,14 +1779,64 @@ private fun AdaptiveEditorSplitWorkspace(
 ) {
     val primaryDoc = uiState.activeDocument ?: return
     val secondaryDoc = uiState.secondaryDocument ?: primaryDoc
+    val focusedDocId = uiState.focusedDocument?.id
+
+    val primaryIsFocusedDoc = primaryDoc.id == focusedDocId
+    val primaryFolds = if (primaryIsFocusedDoc) {
+        uiState.foldRegions
+    } else {
+        remember(primaryDoc.content) { PowerShellEngine.extractFoldRegions(primaryDoc.content) }
+    }
+    val primarySymbols = if (primaryIsFocusedDoc) {
+        uiState.astSymbols
+    } else {
+        remember(primaryDoc.content) { PowerShellEngine.extractAstSymbols(primaryDoc.content) }
+    }
+    val primaryDiags = if (primaryIsFocusedDoc) {
+        uiState.diagnostics
+    } else {
+        remember(primaryDoc.content, primaryDoc.language) {
+            if (primaryDoc.language == SyntaxLanguage.POWERSHELL) {
+                PowerShellEngine.analyzeScriptDiagnostics(primaryDoc.content)
+            } else {
+                emptyList()
+            }
+        }
+    }
+
+    val secondaryIsFocusedDoc = secondaryDoc.id == focusedDocId
+    val secondaryFolds = if (secondaryIsFocusedDoc) {
+        uiState.foldRegions
+    } else {
+        remember(secondaryDoc.content) { PowerShellEngine.extractFoldRegions(secondaryDoc.content) }
+    }
+    val secondarySymbols = if (secondaryIsFocusedDoc) {
+        uiState.astSymbols
+    } else {
+        remember(secondaryDoc.content) { PowerShellEngine.extractAstSymbols(secondaryDoc.content) }
+    }
+    val secondaryDiags = if (secondaryIsFocusedDoc) {
+        uiState.diagnostics
+    } else {
+        remember(secondaryDoc.content, secondaryDoc.language) {
+            if (secondaryDoc.language == SyntaxLanguage.POWERSHELL) {
+                PowerShellEngine.analyzeScriptDiagnostics(secondaryDoc.content)
+            } else {
+                emptyList()
+            }
+        }
+    }
+
+    val primaryScroll = scrollEventTarget?.takeIf { it.documentId == primaryDoc.id }
+    val secondaryScroll = scrollEventTarget?.takeIf { it.documentId == secondaryDoc.id }
 
     when (uiState.splitViewMode) {
         SplitViewMode.NONE -> {
             EditorCanvas(
                 document = primaryDoc,
-                foldRegions = uiState.foldRegions,
-                astSymbols = uiState.astSymbols,
-                diagnostics = uiState.diagnostics,
+                foldRegions = primaryFolds,
+                astSymbols = primarySymbols,
+                diagnostics = primaryDiags,
                 onOpenDiagnostics = onOpenDiagnostics,
                 searchMatches = uiState.activeDocSearchMatches,
                 activeSearchMatchIndex = uiState.currentMatchIndex,
@@ -1774,7 +1848,8 @@ private fun AdaptiveEditorSplitWorkspace(
                 showPageGuide120 = uiState.showPageGuide120,
                 enableCodeFolding = uiState.enableCodeFolding,
                 isFocusedPane = true,
-                scrollTargetLine = if (scrollEventTarget?.first == primaryDoc.id) scrollEventTarget.second else null,
+                scrollTargetLine = primaryScroll?.lineIndex,
+                scrollRequestId = primaryScroll?.requestId ?: 0L,
                 onFocusPane = { onFocusPane(0) },
                 onContentChange = { text, sStart, sEnd ->
                     onContentChange(primaryDoc.id, text, sStart, sEnd)
@@ -1791,12 +1866,12 @@ private fun AdaptiveEditorSplitWorkspace(
             Row(modifier = Modifier.fillMaxSize()) {
                 EditorCanvas(
                     document = primaryDoc,
-                    foldRegions = uiState.foldRegions,
-                    astSymbols = uiState.astSymbols,
-                    diagnostics = uiState.diagnostics,
+                    foldRegions = primaryFolds,
+                    astSymbols = primarySymbols,
+                    diagnostics = primaryDiags,
                     onOpenDiagnostics = onOpenDiagnostics,
-                    searchMatches = uiState.activeDocSearchMatches,
-                    activeSearchMatchIndex = uiState.currentMatchIndex,
+                    searchMatches = if (primaryIsFocusedDoc) uiState.activeDocSearchMatches else emptyList(),
+                    activeSearchMatchIndex = if (primaryIsFocusedDoc) uiState.currentMatchIndex else -1,
                     fontSizeSp = uiState.effectiveFontSizeSp,
                     tabWidth = uiState.tabWidth,
                     softWrap = uiState.softWrap,
@@ -1805,7 +1880,8 @@ private fun AdaptiveEditorSplitWorkspace(
                     showPageGuide120 = uiState.showPageGuide120,
                     enableCodeFolding = uiState.enableCodeFolding,
                     isFocusedPane = uiState.focusedPane == 0,
-                    scrollTargetLine = if (scrollEventTarget?.first == primaryDoc.id) scrollEventTarget.second else null,
+                    scrollTargetLine = primaryScroll?.lineIndex,
+                    scrollRequestId = primaryScroll?.requestId ?: 0L,
                     onFocusPane = { onFocusPane(0) },
                     onContentChange = { text, sStart, sEnd ->
                         onContentChange(primaryDoc.id, text, sStart, sEnd)
@@ -1821,12 +1897,12 @@ private fun AdaptiveEditorSplitWorkspace(
                 VerticalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.outlineVariant)
                 EditorCanvas(
                     document = secondaryDoc,
-                    foldRegions = uiState.foldRegions,
-                    astSymbols = uiState.astSymbols,
-                    diagnostics = uiState.diagnostics,
+                    foldRegions = secondaryFolds,
+                    astSymbols = secondarySymbols,
+                    diagnostics = secondaryDiags,
                     onOpenDiagnostics = onOpenDiagnostics,
-                    searchMatches = uiState.activeDocSearchMatches,
-                    activeSearchMatchIndex = uiState.currentMatchIndex,
+                    searchMatches = if (secondaryIsFocusedDoc) uiState.activeDocSearchMatches else emptyList(),
+                    activeSearchMatchIndex = if (secondaryIsFocusedDoc) uiState.currentMatchIndex else -1,
                     fontSizeSp = uiState.effectiveFontSizeSp,
                     tabWidth = uiState.tabWidth,
                     softWrap = uiState.softWrap,
@@ -1835,7 +1911,8 @@ private fun AdaptiveEditorSplitWorkspace(
                     showPageGuide120 = uiState.showPageGuide120,
                     enableCodeFolding = uiState.enableCodeFolding,
                     isFocusedPane = uiState.focusedPane == 1,
-                    scrollTargetLine = if (scrollEventTarget?.first == secondaryDoc.id) scrollEventTarget.second else null,
+                    scrollTargetLine = secondaryScroll?.lineIndex,
+                    scrollRequestId = secondaryScroll?.requestId ?: 0L,
                     onFocusPane = { onFocusPane(1) },
                     onContentChange = { text, sStart, sEnd ->
                         onContentChange(secondaryDoc.id, text, sStart, sEnd)
@@ -1855,12 +1932,12 @@ private fun AdaptiveEditorSplitWorkspace(
             Column(modifier = Modifier.fillMaxSize()) {
                 EditorCanvas(
                     document = primaryDoc,
-                    foldRegions = uiState.foldRegions,
-                    astSymbols = uiState.astSymbols,
-                    diagnostics = uiState.diagnostics,
+                    foldRegions = primaryFolds,
+                    astSymbols = primarySymbols,
+                    diagnostics = primaryDiags,
                     onOpenDiagnostics = onOpenDiagnostics,
-                    searchMatches = uiState.activeDocSearchMatches,
-                    activeSearchMatchIndex = uiState.currentMatchIndex,
+                    searchMatches = if (primaryIsFocusedDoc) uiState.activeDocSearchMatches else emptyList(),
+                    activeSearchMatchIndex = if (primaryIsFocusedDoc) uiState.currentMatchIndex else -1,
                     fontSizeSp = uiState.effectiveFontSizeSp,
                     tabWidth = uiState.tabWidth,
                     softWrap = uiState.softWrap,
@@ -1869,7 +1946,8 @@ private fun AdaptiveEditorSplitWorkspace(
                     showPageGuide120 = uiState.showPageGuide120,
                     enableCodeFolding = uiState.enableCodeFolding,
                     isFocusedPane = uiState.focusedPane == 0,
-                    scrollTargetLine = if (scrollEventTarget?.first == primaryDoc.id) scrollEventTarget.second else null,
+                    scrollTargetLine = primaryScroll?.lineIndex,
+                    scrollRequestId = primaryScroll?.requestId ?: 0L,
                     onFocusPane = { onFocusPane(0) },
                     onContentChange = { text, sStart, sEnd ->
                         onContentChange(primaryDoc.id, text, sStart, sEnd)
@@ -1885,12 +1963,12 @@ private fun AdaptiveEditorSplitWorkspace(
                 HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.outlineVariant)
                 EditorCanvas(
                     document = secondaryDoc,
-                    foldRegions = uiState.foldRegions,
-                    astSymbols = uiState.astSymbols,
-                    diagnostics = uiState.diagnostics,
+                    foldRegions = secondaryFolds,
+                    astSymbols = secondarySymbols,
+                    diagnostics = secondaryDiags,
                     onOpenDiagnostics = onOpenDiagnostics,
-                    searchMatches = uiState.activeDocSearchMatches,
-                    activeSearchMatchIndex = uiState.currentMatchIndex,
+                    searchMatches = if (secondaryIsFocusedDoc) uiState.activeDocSearchMatches else emptyList(),
+                    activeSearchMatchIndex = if (secondaryIsFocusedDoc) uiState.currentMatchIndex else -1,
                     fontSizeSp = uiState.effectiveFontSizeSp,
                     tabWidth = uiState.tabWidth,
                     softWrap = uiState.softWrap,
@@ -1899,7 +1977,8 @@ private fun AdaptiveEditorSplitWorkspace(
                     showPageGuide120 = uiState.showPageGuide120,
                     enableCodeFolding = uiState.enableCodeFolding,
                     isFocusedPane = uiState.focusedPane == 1,
-                    scrollTargetLine = if (scrollEventTarget?.first == secondaryDoc.id) scrollEventTarget.second else null,
+                    scrollTargetLine = secondaryScroll?.lineIndex,
+                    scrollRequestId = secondaryScroll?.requestId ?: 0L,
                     onFocusPane = { onFocusPane(1) },
                     onContentChange = { text, sStart, sEnd ->
                         onContentChange(secondaryDoc.id, text, sStart, sEnd)
@@ -1928,7 +2007,8 @@ private fun DesktopBottomStatusBar(
     onOpenCommandPalette: () -> Unit,
     onOpenUpdateModal: () -> Unit,
     onAdjustZoom: (Int) -> Unit,
-    onResetZoom: () -> Unit
+    onResetZoom: () -> Unit,
+    isCompactMobile: Boolean = false
 ) {
     val doc = uiState.focusedDocument ?: return
     val (lineNum, colNum) = doc.cursorLineAndColumn()
@@ -1938,6 +2018,17 @@ private fun DesktopBottomStatusBar(
     var lineEndingMenuExpanded by remember { mutableStateOf(false) }
     var languageMenuExpanded by remember { mutableStateOf(false) }
 
+    val rowModifier = if (isCompactMobile) {
+        Modifier
+            .fillMaxSize()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 10.dp)
+    } else {
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp)
+    }
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier
@@ -1945,9 +2036,7 @@ private fun DesktopBottomStatusBar(
             .height(28.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 10.dp),
+            modifier = rowModifier,
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -2017,17 +2106,28 @@ private fun DesktopBottomStatusBar(
                 maxLines = 1
             )
 
-            if (uiState.statusBannerMessage != null) {
-                Text(
-                    text = "• ${uiState.statusBannerMessage}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
+            if (isCompactMobile) {
+                if (uiState.statusBannerMessage != null) {
+                    Text(
+                        text = "• ${uiState.statusBannerMessage}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        maxLines = 1
+                    )
+                }
             } else {
-                Spacer(modifier = Modifier.weight(1f))
+                if (uiState.statusBannerMessage != null) {
+                    Text(
+                        text = "• ${uiState.statusBannerMessage}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
 
             // Interactive Encoding Picker

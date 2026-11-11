@@ -29,7 +29,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        handleIncomingFileIntent(intent)
+        if (savedInstanceState == null) {
+            handleIncomingFileIntent(intent)
+        }
 
         setContent {
             val windowSizeClass = calculateWindowSizeClass(activity = this)

@@ -460,5 +460,112 @@ class GravityEditEnginesTest {
         assertEquals(SyntaxLanguage.KOTLIN, SyntaxLanguage.fromFileName("Main.kt"))
         assertEquals(SyntaxLanguage.PYTHON, SyntaxLanguage.fromFileName("script.py"))
     }
+
+    // =========================================================================
+    // 7. QS REGRESSION TESTS (PIPELINE ALIASES, CLIPPINGS, REGEX & SELECTION)
+    // =========================================================================
+
+    @Test
+    fun powerShellEngine_detectsAliasesAfterPipesAssignmentsAndSubexpressionsAndSenderVar() {
+        val tokens = PowerShellEngine.tokenizePowerShellLine("Register-ObjectEvent -Action { Write-Host \$sender }")
+        assertTrue(tokens.any { it.type == PowerShellTokenType.VARIABLE_AUTOMATIC && it.text == "\$sender" })
+
+        val script = """
+            ${'$'}files = ls -Path .
+            gci -Path . | where { ${'$'}_.Length -gt 0 } | select Name
+            foreach (${'$'}f in ${'$'}files) {
+                Write-Output "${'$'}(cat ${'$'}f)"
+            }
+        """.trimIndent()
+
+        val diags = PowerShellEngine.analyzeScriptDiagnostics(script)
+        val aliasTargets = diags
+            .filter { it.ruleId == "PSAvoidUsingCmdletAliases" }
+            .mapNotNull { it.quickFixTarget }
+
+        assertTrue(aliasTargets.contains("ls"))
+        assertTrue(aliasTargets.contains("gci"))
+        assertTrue(aliasTargets.contains("where"))
+        assertTrue(aliasTargets.contains("select"))
+        assertTrue(aliasTargets.contains("cat"))
+        // Statement keyword 'foreach ($f in $files)' must NOT be flagged as an alias
+        assertFalse(aliasTargets.contains("foreach"))
+    }
+
+    @Test
+    fun clippingsManager_builtInPowerShellTemplatesProduceValidSyntaxWithoutAliasOrDelimiterErrors() {
+        val advFn = ClippingsManager.BUILT_IN_CLIPPINGS.first { it.id == "ps_cmdlet_binding" }
+        val expanded = ClippingsManager.expandTemplate(
+            templateBody = advFn.templateBody,
+            context = ClippingExpansionContext(
+                selectedText = "Write-Output \$item",
+                fileName = "Invoke-Deploy.ps1",
+                userName = "Tester"
+            ),
+            nowDate = "2026-11-11",
+            nowTime = "15:00:00"
+        )
+        assertTrue(expanded.textToInsert.contains("\$(\$MyInvocation.MyCommand.Name)"))
+        assertFalse(expanded.textToInsert.contains("\$({MyInvocation"))
+
+        val diagnostics = PowerShellEngine.analyzeScriptDiagnostics(expanded.textToInsert)
+        assertTrue(diagnostics.none { it.severity == DiagnosticSeverity.ERROR })
+    }
+
+    @Test
+    fun findReplaceEngine_respectsSelectionRangeExclusivityAndDotMatchesAllFlag() {
+        val multiLineText = "BEGIN\nsecret_line_1\nsecret_line_2\nEND"
+
+        val withoutDotAll = FindReplaceEngine.findAllMatches(
+            text = multiLineText,
+            options = SearchOptions(query = "BEGIN.*END", grepRegex = true, dotMatchesAll = false)
+        )
+        assertEquals(0, withoutDotAll.size)
+
+        val withDotAll = FindReplaceEngine.findAllMatches(
+            text = multiLineText,
+            options = SearchOptions(query = "BEGIN.*END", grepRegex = true, dotMatchesAll = true)
+        )
+        assertEquals(1, withDotAll.size)
+
+        // Selection-only search should not include characters outside [selStart, selEnd)
+        val sample = "foo bar foo baz foo"
+        val selStart = 4 // "bar foo baz "
+        val selEnd = 15
+        val selMatches = FindReplaceEngine.findAllMatches(
+            text = sample,
+            options = SearchOptions(query = "foo", grepRegex = false),
+            selectionRange = selStart until selEnd
+        )
+        assertEquals(1, selMatches.size)
+        assertEquals(8, selMatches.first().range.first)
+
+        val (replaced, count) = FindReplaceEngine.replaceAll(
+            text = sample,
+            options = SearchOptions(query = "foo", replacement = "FOO", grepRegex = false),
+            selectionRange = selStart until selEnd
+        )
+        assertEquals(1, count)
+        assertEquals("foo bar FOO baz foo", replaced)
+    }
+
+    @Test
+    fun editorDocument_computesAccurateCursorLineColAndSelectionStatistics() {
+        val doc = EditorDocument(
+            title = "Test.ps1",
+            content = "first line\nsecond line\nthird line",
+            selectionStart = 11,
+            selectionEnd = 22
+        )
+        val (ln, col) = doc.cursorLineAndColumn()
+        assertEquals(2, ln)
+        assertEquals(12, col)
+
+        val stats = doc.selectionStats()
+        assertTrue(stats.hasSelection)
+        assertEquals(11, stats.charCount)
+        assertEquals(2, stats.wordCount)
+        assertEquals(1, stats.lineCount)
+    }
 }
 

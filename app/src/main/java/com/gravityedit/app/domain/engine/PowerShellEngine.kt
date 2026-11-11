@@ -110,7 +110,7 @@ object PowerShellEngine {
         "\$executioncontext", "\$foreach", "\$switch", "\$this", "\$stacktrace",
         "\$ofs", "\$psboundparameters", "\$pscmdlet", "\$psdebugcontext",
         "\$psdefaultparametervalues", "\$psemailserver", "\$pshome", "\$pssessionapplicationname",
-        "\$pssessionconfigurationname", "\$pssessionoption", "\$pwd", "\$ sender", "\$event",
+        "\$pssessionconfigurationname", "\$pssessionoption", "\$pwd", "\$sender", "\$event",
         "\$eventargs", "\$eventsubscriber", "\$nestedpromptlevel"
     )
 
@@ -1989,6 +1989,13 @@ object PowerShellEngine {
                             }
                             expectCommandPosition = false
                         }
+                    }
+
+                    PowerShellTokenType.OPERATOR -> {
+                        expectCommandPosition = token.text == "|" ||
+                            token.text == "=" ||
+                            token.text == "+=" ||
+                            token.text == "\$("
                     }
 
                     else -> {

@@ -46,7 +46,7 @@ object ClippingsManager {
                     )
 
                     begin {
-                        Write-Verbose "Starting ${'$'}({MyInvocation.MyCommand.Name}) on #DATE#"
+                        Write-Verbose "Starting ${'$'}(${'$'}MyInvocation.MyCommand.Name) on #DATE#"
                     }
 
                     process {
@@ -58,7 +58,7 @@ object ClippingsManager {
                     }
 
                     end {
-                        Write-Verbose "Completed ${'$'}({MyInvocation.MyCommand.Name})"
+                        Write-Verbose "Completed ${'$'}(${'$'}MyInvocation.MyCommand.Name)"
                     }
                 }
             """.trimIndent()

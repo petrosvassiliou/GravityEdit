@@ -59,6 +59,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -132,6 +136,7 @@ fun EditorCanvas(
     onSelectionChange: (selStart: Int, selEnd: Int) -> Unit,
     onToggleFold: (startLine: Int) -> Unit,
     modifier: Modifier = Modifier,
+    scrollRequestId: Long = 0L,
     astSymbols: List<AstSymbol> = emptyList(),
     diagnostics: List<PowerShellDiagnostic> = emptyList(),
     onOpenDiagnostics: (() -> Unit)? = null
@@ -214,7 +219,7 @@ fun EditorCanvas(
     val listState: LazyListState = rememberLazyListState()
     val horizontalScrollState = rememberScrollState()
 
-    LaunchedEffect(scrollTargetLine, document.scrollLineIndex) {
+    LaunchedEffect(scrollTargetLine, scrollRequestId, document.scrollLineIndex) {
         val target = scrollTargetLine ?: document.scrollLineIndex
         val visibleIdx = visibleEntries.indexOfFirst { it.lineIndex >= target }
         if (visibleIdx >= 0) {
@@ -418,6 +423,9 @@ fun EditorCanvas(
                             },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val visibleEntryIndex = remember(visibleEntries, entry.lineIndex) {
+                                visibleEntries.indexOfFirst { it.lineIndex == entry.lineIndex }
+                            }
                             VirtualizedEditableCodeLine(
                                 entry = entry,
                                 document = document,
@@ -433,13 +441,27 @@ fun EditorCanvas(
                                 onAcceptTopCompletion = { topItem ->
                                     acceptCompletion(topItem)
                                 },
-                                onFocusLine = { cursorCol ->
+                                onSelectionInLineChanged = { localStart, localEnd ->
                                     onFocusPane()
-                                    val targetOffset = (entry.lineStartOffset + cursorCol).coerceIn(
+                                    val minOff = (entry.lineStartOffset + minOf(localStart, localEnd)).coerceIn(
                                         entry.lineStartOffset,
                                         entry.lineStartOffset + entry.text.length
                                     )
-                                    onSelectionChange(targetOffset, targetOffset)
+                                    val maxOff = (entry.lineStartOffset + maxOf(localStart, localEnd)).coerceIn(
+                                        minOff,
+                                        entry.lineStartOffset + entry.text.length
+                                    )
+                                    onSelectionChange(minOff, maxOff)
+                                },
+                                onNavigateVerticalLine = { deltaVisibleRow, preferredCol ->
+                                    val targetVisibleIdx = visibleEntryIndex + deltaVisibleRow
+                                    if (targetVisibleIdx in visibleEntries.indices) {
+                                        onFocusPane()
+                                        val targetEntry = visibleEntries[targetVisibleIdx]
+                                        val clampedCol = preferredCol.coerceIn(0, targetEntry.text.length)
+                                        val targetOffset = targetEntry.lineStartOffset + clampedCol
+                                        onSelectionChange(targetOffset, targetOffset)
+                                    }
                                 },
                                 onLineTextChanged = { updatedLineText, newLocalCursor ->
                                     val newDocContent = buildString(
@@ -677,7 +699,8 @@ private fun VirtualizedEditableCodeLine(
     activeMatchInLine: IntRange?,
     topCompletionItem: PowerShellCompletionItem?,
     onAcceptTopCompletion: (PowerShellCompletionItem) -> Unit,
-    onFocusLine: (cursorCol: Int) -> Unit,
+    onSelectionInLineChanged: (localStart: Int, localEnd: Int) -> Unit,
+    onNavigateVerticalLine: (deltaVisibleRow: Int, preferredCol: Int) -> Unit,
     onLineTextChanged: (updatedText: String, newLocalCursor: Int) -> Unit,
     onMergeWithPreviousLine: () -> Unit
 ) {
@@ -746,15 +769,21 @@ private fun VirtualizedEditableCodeLine(
         value = textFieldValue,
         onValueChange = { newValue ->
             val oldText = textFieldValue.text
+            val previousSelection = textFieldValue.selection
             textFieldValue = newValue
             if (newValue.text != oldText) {
-                // Auto-indent when user presses Enter to create a new line
+                // Auto-indent when user presses Enter on soft/hardware keyboard to create a new line
                 if (newValue.text.length == oldText.length + 1 && newValue.text.contains('\n')) {
                     val nlIndex = newValue.text.indexOf('\n')
                     val currentIndent = oldText.takeWhile { it == ' ' || it == '\t' }
                     val beforeTrimmed = oldText.substring(0, nlIndex).trimEnd()
-                    val extraIndent = if (beforeTrimmed.endsWith("{") || beforeTrimmed.endsWith("(")) {
+                    val indentStep = if (document.useSpacesForTabs) {
                         " ".repeat(tabWidth.coerceIn(2, 8))
+                    } else {
+                        "\t"
+                    }
+                    val extraIndent = if (beforeTrimmed.endsWith("{") || beforeTrimmed.endsWith("(")) {
+                        indentStep
                     } else {
                         ""
                     }
@@ -766,13 +795,13 @@ private fun VirtualizedEditableCodeLine(
                 } else {
                     onLineTextChanged(newValue.text, newValue.selection.end)
                 }
-            } else if (newValue.selection != textFieldValue.selection) {
-                onFocusLine(newValue.selection.end)
+            } else if (newValue.selection != previousSelection) {
+                onSelectionInLineChanged(newValue.selection.start, newValue.selection.end)
             }
         },
         textStyle = codeStyle,
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-        singleLine = !softWrap,
+        singleLine = false,
         visualTransformation = syntaxVisualTransformation,
         modifier = Modifier
             .then(if (softWrap) Modifier.fillMaxWidth() else Modifier.width(2200.dp))
@@ -780,26 +809,82 @@ private fun VirtualizedEditableCodeLine(
             .onFocusChanged { focusState ->
                 val newlyFocused = focusState.isFocused
                 if (newlyFocused && !hasFocus) {
-                    onFocusLine(textFieldValue.selection.end)
+                    onSelectionInLineChanged(textFieldValue.selection.start, textFieldValue.selection.end)
                 }
                 hasFocus = newlyFocused
             }
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
-                    event.key == Key.Tab &&
-                    topCompletionItem != null
-                ) {
-                    onAcceptTopCompletion(topCompletionItem)
-                    true
-                } else if (event.type == KeyEventType.KeyDown &&
-                    event.key == Key.Backspace &&
-                    textFieldValue.selection.collapsed &&
-                    textFieldValue.selection.start == 0
-                ) {
-                    onMergeWithPreviousLine()
-                    true
-                } else {
-                    false
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val hasCmdOrAlt = event.isCtrlPressed || event.isMetaPressed || event.isAltPressed
+
+                when {
+                    !hasCmdOrAlt && (event.key == Key.Enter || event.key == Key.NumPadEnter) -> {
+                        val selMin = textFieldValue.selection.min.coerceIn(0, textFieldValue.text.length)
+                        val selMax = textFieldValue.selection.max.coerceIn(selMin, textFieldValue.text.length)
+                        val before = textFieldValue.text.substring(0, selMin)
+                        val after = textFieldValue.text.substring(selMax)
+                        val currentIndent = before.takeWhile { it == ' ' || it == '\t' }
+                        val indentStep = if (document.useSpacesForTabs) {
+                            " ".repeat(tabWidth.coerceIn(2, 8))
+                        } else {
+                            "\t"
+                        }
+                        val extraIndent = if (before.trimEnd().endsWith("{") || before.trimEnd().endsWith("(")) {
+                            indentStep
+                        } else {
+                            ""
+                        }
+                        val inserted = "\n$currentIndent$extraIndent"
+                        onLineTextChanged(before + inserted + after, before.length + inserted.length)
+                        true
+                    }
+                    !hasCmdOrAlt && event.key == Key.Tab -> {
+                        if (event.isShiftPressed) {
+                            val txt = textFieldValue.text
+                            val removeCount = when {
+                                txt.startsWith("\t") -> 1
+                                else -> txt.takeWhile { it == ' ' }.length.coerceAtMost(tabWidth.coerceIn(1, 8))
+                            }
+                            if (removeCount > 0) {
+                                val nextCursor = (textFieldValue.selection.end - removeCount).coerceAtLeast(0)
+                                onLineTextChanged(txt.substring(removeCount), nextCursor)
+                            }
+                            true
+                        } else if (topCompletionItem != null) {
+                            onAcceptTopCompletion(topCompletionItem)
+                            true
+                        } else {
+                            val indentStr = if (document.useSpacesForTabs) {
+                                " ".repeat(tabWidth.coerceIn(1, 8))
+                            } else {
+                                "\t"
+                            }
+                            val selMin = textFieldValue.selection.min.coerceIn(0, textFieldValue.text.length)
+                            val selMax = textFieldValue.selection.max.coerceIn(selMin, textFieldValue.text.length)
+                            val updated = textFieldValue.text.substring(0, selMin) +
+                                indentStr +
+                                textFieldValue.text.substring(selMax)
+                            val nextCursor = selMin + indentStr.length
+                            onLineTextChanged(updated, nextCursor)
+                            true
+                        }
+                    }
+                    !hasCmdOrAlt && !event.isShiftPressed && event.key == Key.DirectionUp -> {
+                        onNavigateVerticalLine(-1, textFieldValue.selection.end)
+                        true
+                    }
+                    !hasCmdOrAlt && !event.isShiftPressed && event.key == Key.DirectionDown -> {
+                        onNavigateVerticalLine(1, textFieldValue.selection.end)
+                        true
+                    }
+                    !hasCmdOrAlt &&
+                        event.key == Key.Backspace &&
+                        textFieldValue.selection.collapsed &&
+                        textFieldValue.selection.start == 0 -> {
+                        onMergeWithPreviousLine()
+                        true
+                    }
+                    else -> false
                 }
             }
     )

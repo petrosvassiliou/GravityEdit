@@ -334,6 +334,18 @@ private fun FindReplaceModalBody(
                 onClick = { onUpdateOptions(searchOptions.copy(searchInSelectionOnly = !searchOptions.searchInSelectionOnly)) },
                 label = { Text(stringResource(R.string.opt_selection_only)) }
             )
+            if (searchOptions.grepRegex) {
+                FilterChip(
+                    selected = searchOptions.multiLine,
+                    onClick = { onUpdateOptions(searchOptions.copy(multiLine = !searchOptions.multiLine)) },
+                    label = { Text("Multi-Line (^\$)") }
+                )
+                FilterChip(
+                    selected = searchOptions.dotMatchesAll,
+                    onClick = { onUpdateOptions(searchOptions.copy(dotMatchesAll = !searchOptions.dotMatchesAll)) },
+                    label = { Text("Dot Matches All (?s)") }
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -846,29 +858,40 @@ private fun TextFactoryStepCard(
             // Per-operation configuration controls
             when (step.operationType) {
                 TextOperationType.ZAP_GREMLINS -> {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ZapGremlinsAction.entries.forEach { act ->
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ZapGremlinsAction.entries.forEach { act ->
+                                FilterChip(
+                                    selected = step.zapAction == act,
+                                    onClick = { onUpdateStep(step.copy(zapAction = act)) },
+                                    label = { Text(act.label) }
+                                )
+                            }
                             FilterChip(
-                                selected = step.zapAction == act,
-                                onClick = { onUpdateStep(step.copy(zapAction = act)) },
-                                label = { Text(act.label) }
+                                selected = step.zapControlChars,
+                                onClick = { onUpdateStep(step.copy(zapControlChars = !step.zapControlChars)) },
+                                label = { Text("Control Chars") }
+                            )
+                            FilterChip(
+                                selected = step.zapNullBytes,
+                                onClick = { onUpdateStep(step.copy(zapNullBytes = !step.zapNullBytes)) },
+                                label = { Text("Null Bytes") }
+                            )
+                            FilterChip(
+                                selected = step.zapNonAscii,
+                                onClick = { onUpdateStep(step.copy(zapNonAscii = !step.zapNonAscii)) },
+                                label = { Text("Non-ASCII") }
                             )
                         }
-                        FilterChip(
-                            selected = step.zapControlChars,
-                            onClick = { onUpdateStep(step.copy(zapControlChars = !step.zapControlChars)) },
-                            label = { Text("Control Chars") }
-                        )
-                        FilterChip(
-                            selected = step.zapNullBytes,
-                            onClick = { onUpdateStep(step.copy(zapNullBytes = !step.zapNullBytes)) },
-                            label = { Text("Null Bytes") }
-                        )
-                        FilterChip(
-                            selected = step.zapNonAscii,
-                            onClick = { onUpdateStep(step.copy(zapNonAscii = !step.zapNonAscii)) },
-                            label = { Text("Non-ASCII") }
-                        )
+                        if (step.zapAction == ZapGremlinsAction.REPLACE_WITH_CHAR) {
+                            OutlinedTextField(
+                                value = step.zapReplacementChar,
+                                onValueChange = { onUpdateStep(step.copy(zapReplacementChar = it.take(4))) },
+                                label = { Text("Replacement Character") },
+                                singleLine = true,
+                                modifier = Modifier.width(200.dp)
+                            )
+                        }
                     }
                 }
 
@@ -885,6 +908,15 @@ private fun TextFactoryStepCard(
                             selected = step.duplicateCaseSensitive,
                             onClick = { onUpdateStep(step.copy(duplicateCaseSensitive = !step.duplicateCaseSensitive)) },
                             label = { Text(stringResource(R.string.opt_case_sensitive)) }
+                        )
+                        FilterChip(
+                            selected = step.duplicateIgnoreLeadingWhitespace,
+                            onClick = {
+                                onUpdateStep(
+                                    step.copy(duplicateIgnoreLeadingWhitespace = !step.duplicateIgnoreLeadingWhitespace)
+                                )
+                            },
+                            label = { Text("Ignore Leading Space") }
                         )
                     }
                 }
@@ -930,6 +962,11 @@ private fun TextFactoryStepCard(
                                     label = { Text(act.label) }
                                 )
                             }
+                            FilterChip(
+                                selected = step.skipBlankLines,
+                                onClick = { onUpdateStep(step.copy(skipBlankLines = !step.skipBlankLines)) },
+                                label = { Text("Skip Blank Lines") }
+                            )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
@@ -1000,24 +1037,76 @@ private fun TextFactoryStepCard(
                                 label = { Text(mode.label) }
                             )
                         }
-                        listOf(72, 80, 100, 120).forEach { col ->
+                        if (step.wrapMode == WrapTransformMode.HARD_WRAP) {
+                            listOf(72, 80, 100, 120).forEach { col ->
+                                FilterChip(
+                                    selected = step.wrapColumnWidth == col,
+                                    onClick = { onUpdateStep(step.copy(wrapColumnWidth = col)) },
+                                    label = { Text("Col $col") }
+                                )
+                            }
+                        } else {
                             FilterChip(
-                                selected = step.wrapColumnWidth == col,
-                                onClick = { onUpdateStep(step.copy(wrapColumnWidth = col)) },
-                                label = { Text("Col $col") }
+                                selected = step.wrapPreserveParagraphs,
+                                onClick = {
+                                    onUpdateStep(step.copy(wrapPreserveParagraphs = !step.wrapPreserveParagraphs))
+                                },
+                                label = { Text("Preserve Paragraphs") }
                             )
                         }
                     }
                 }
 
                 TextOperationType.ADD_REMOVE_LINE_NUMBERS -> {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        LineNumberAction.entries.forEach { act ->
-                            FilterChip(
-                                selected = step.lineNumberAction == act,
-                                onClick = { onUpdateStep(step.copy(lineNumberAction = act)) },
-                                label = { Text(act.label) }
-                            )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            LineNumberAction.entries.forEach { act ->
+                                FilterChip(
+                                    selected = step.lineNumberAction == act,
+                                    onClick = { onUpdateStep(step.copy(lineNumberAction = act)) },
+                                    label = { Text(act.label) }
+                                )
+                            }
+                            if (step.lineNumberAction == LineNumberAction.ADD_NUMBERS) {
+                                listOf(0 to "No Pad", 2 to "Pad 2", 3 to "Pad 3", 4 to "Pad 4").forEach { (pad, lbl) ->
+                                    FilterChip(
+                                        selected = step.lineNumberZeroPadWidth == pad,
+                                        onClick = { onUpdateStep(step.copy(lineNumberZeroPadWidth = pad)) },
+                                        label = { Text(lbl) }
+                                    )
+                                }
+                            }
+                        }
+                        if (step.lineNumberAction == LineNumberAction.ADD_NUMBERS) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = step.lineNumberStart.toString(),
+                                    onValueChange = { v ->
+                                        val parsed = v.filter { it.isDigit() }.toIntOrNull() ?: 1
+                                        onUpdateStep(step.copy(lineNumberStart = parsed.coerceAtLeast(0)))
+                                    },
+                                    label = { Text("Start #") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = step.lineNumberIncrement.toString(),
+                                    onValueChange = { v ->
+                                        val parsed = v.filter { it.isDigit() }.toIntOrNull() ?: 1
+                                        onUpdateStep(step.copy(lineNumberIncrement = parsed.coerceAtLeast(1)))
+                                    },
+                                    label = { Text("Step") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = step.lineNumberSeparator,
+                                    onValueChange = { onUpdateStep(step.copy(lineNumberSeparator = it)) },
+                                    label = { Text("Separator") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }
@@ -1035,15 +1124,33 @@ private fun TextFactoryStepCard(
                 }
 
                 TextOperationType.CANONIZE_REPLACE_TABLE -> {
-                    OutlinedTextField(
-                        value = step.canonizeTableRaw,
-                        onValueChange = { onUpdateStep(step.copy(canonizeTableRaw = it)) },
-                        label = { Text("Key=Value Replacement Table") },
-                        textStyle = MaterialTheme.typography.labelMedium,
-                        minLines = 3,
-                        maxLines = 5,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = step.canonizeCaseSensitive,
+                                onClick = {
+                                    onUpdateStep(step.copy(canonizeCaseSensitive = !step.canonizeCaseSensitive))
+                                },
+                                label = { Text(stringResource(R.string.opt_case_sensitive)) }
+                            )
+                            FilterChip(
+                                selected = step.canonizeWholeWords,
+                                onClick = {
+                                    onUpdateStep(step.copy(canonizeWholeWords = !step.canonizeWholeWords))
+                                },
+                                label = { Text(stringResource(R.string.opt_match_words)) }
+                            )
+                        }
+                        OutlinedTextField(
+                            value = step.canonizeTableRaw,
+                            onValueChange = { onUpdateStep(step.copy(canonizeTableRaw = it)) },
+                            label = { Text("Key=Value Replacement Table") },
+                            textStyle = MaterialTheme.typography.labelMedium,
+                            minLines = 3,
+                            maxLines = 5,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
 
                 TextOperationType.PROCESS_LINES_CONTAINING -> {
@@ -1056,6 +1163,18 @@ private fun TextFactoryStepCard(
                                     label = { Text(act.label) }
                                 )
                             }
+                            FilterChip(
+                                selected = step.matchingUseRegex,
+                                onClick = { onUpdateStep(step.copy(matchingUseRegex = !step.matchingUseRegex)) },
+                                label = { Text(stringResource(R.string.opt_grep_regex)) }
+                            )
+                            FilterChip(
+                                selected = step.matchingCaseSensitive,
+                                onClick = {
+                                    onUpdateStep(step.copy(matchingCaseSensitive = !step.matchingCaseSensitive))
+                                },
+                                label = { Text(stringResource(R.string.opt_case_sensitive)) }
+                            )
                         }
                         OutlinedTextField(
                             value = step.matchingPattern,
@@ -1087,6 +1206,15 @@ private fun TextFactoryStepCard(
                                 onClick = { onUpdateStep(step.copy(formatTarget = target)) },
                                 label = { Text(target.label) }
                             )
+                        }
+                        if (step.formatTarget != FormatTarget.JSON_MINIFY) {
+                            listOf(2, 4, 8).forEach { sp ->
+                                FilterChip(
+                                    selected = step.formatIndentSpaces == sp,
+                                    onClick = { onUpdateStep(step.copy(formatIndentSpaces = sp)) },
+                                    label = { Text("$sp spaces") }
+                                )
+                            }
                         }
                     }
                 }

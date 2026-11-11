@@ -73,7 +73,11 @@ sealed interface GravityEditUiEvent {
     data object RequestOpenFilePicker : GravityEditUiEvent
     data class RequestSaveAsFilePicker(val documentId: String, val suggestedFileName: String) : GravityEditUiEvent
     data object RequestMountFolderPicker : GravityEditUiEvent
-    data class ScrollToLine(val documentId: String, val lineIndex: Int) : GravityEditUiEvent
+    data class ScrollToLine(
+        val documentId: String,
+        val lineIndex: Int,
+        val requestId: Long = System.nanoTime()
+    ) : GravityEditUiEvent
     data class ShowStatusToast(val message: String) : GravityEditUiEvent
 }
 
@@ -1264,7 +1268,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         _events.tryEmit(GravityEditUiEvent.RequestMountFolderPicker)
     }
 
-    fun openFileFromUri(uri: Uri) {
+    fun openFileFromUri(uri: Uri, jumpToLineNumber: Int? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val app = getApplication<Application>()
             val resolver = app.contentResolver
@@ -1279,6 +1283,9 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             if (existing != null) {
                 withContext(Dispatchers.Main) {
                     selectDocument(existing.id)
+                    if (jumpToLineNumber != null) {
+                        jumpToLine(jumpToLineNumber)
+                    }
                 }
                 return@launch
             }
@@ -1314,6 +1321,9 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 refreshAstAndFoldsForActiveDocument()
                 refreshActiveDocSearchMatches()
+                if (jumpToLineNumber != null) {
+                    jumpToLine(jumpToLineNumber)
+                }
             }
         }
     }
@@ -1539,7 +1549,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             return
         }
         val selRange = if (state.searchOptions.searchInSelectionOnly && doc.safeSelectionStart < doc.safeSelectionEnd) {
-            doc.safeSelectionStart..doc.safeSelectionEnd
+            doc.safeSelectionStart until doc.safeSelectionEnd
         } else {
             null
         }
@@ -1556,6 +1566,21 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     fun findNextMatch() {
         val state = _uiState.value
         val doc = state.focusedDocument ?: return
+        val inSelectionOnly = state.searchOptions.searchInSelectionOnly && doc.safeSelectionStart < doc.safeSelectionEnd
+        if (inSelectionOnly) {
+            val matches = state.activeDocSearchMatches
+            if (matches.isEmpty()) return
+            val nextIdx = when {
+                state.currentMatchIndex + 1 < matches.size -> state.currentMatchIndex + 1
+                state.searchOptions.wrapAround -> 0
+                else -> return
+            }
+            val match = matches[nextIdx]
+            _uiState.update { it.copy(currentMatchIndex = nextIdx) }
+            _events.tryEmit(GravityEditUiEvent.ScrollToLine(doc.id, (match.lineNumber - 1).coerceAtLeast(0)))
+            return
+        }
+
         val match = FindReplaceEngine.findNext(
             text = doc.content,
             options = state.searchOptions,
@@ -1571,6 +1596,21 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     fun findPreviousMatch() {
         val state = _uiState.value
         val doc = state.focusedDocument ?: return
+        val inSelectionOnly = state.searchOptions.searchInSelectionOnly && doc.safeSelectionStart < doc.safeSelectionEnd
+        if (inSelectionOnly) {
+            val matches = state.activeDocSearchMatches
+            if (matches.isEmpty()) return
+            val prevIdx = when {
+                state.currentMatchIndex - 1 >= 0 -> state.currentMatchIndex - 1
+                state.searchOptions.wrapAround -> matches.lastIndex
+                else -> return
+            }
+            val match = matches[prevIdx]
+            _uiState.update { it.copy(currentMatchIndex = prevIdx) }
+            _events.tryEmit(GravityEditUiEvent.ScrollToLine(doc.id, (match.lineNumber - 1).coerceAtLeast(0)))
+            return
+        }
+
         val match = FindReplaceEngine.findPrevious(
             text = doc.content,
             options = state.searchOptions,
@@ -2193,21 +2233,43 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             return
         }
 
-        val release = state.latestReleaseInfo ?: return
-        if (release.apkDownloadUrl.isNullOrBlank()) {
-            AppUpdateManagerEngine.openUrlInBrowser(context, release.htmlUrl)
-            return
-        }
-
-        _uiState.update {
-            it.copy(
-                updateCheckStatus = AppUpdateCheckStatus.DOWNLOADING,
-                updateDownloadProgress = 0,
-                updateErrorMessage = null
-            )
-        }
-
         viewModelScope.launch {
+            val release = state.latestReleaseInfo ?: run {
+                _uiState.update {
+                    it.copy(
+                        updateCheckStatus = AppUpdateCheckStatus.CHECKING,
+                        updateErrorMessage = null
+                    )
+                }
+                val fetched = AppUpdateManagerEngine.fetchLatestRelease(
+                    includePreReleases = _uiState.value.updateIncludePreReleases
+                )
+                fetched.getOrElse { err ->
+                    _uiState.update {
+                        it.copy(
+                            updateCheckStatus = AppUpdateCheckStatus.ERROR,
+                            updateErrorMessage = err.message ?: "Unable to reach HTTPS release server"
+                        )
+                    }
+                    return@launch
+                }.also { rel ->
+                    _uiState.update { it.copy(latestReleaseInfo = rel) }
+                }
+            }
+
+            if (release.apkDownloadUrl.isNullOrBlank()) {
+                AppUpdateManagerEngine.openUrlInBrowser(context, release.htmlUrl)
+                return@launch
+            }
+
+            _uiState.update {
+                it.copy(
+                    updateCheckStatus = AppUpdateCheckStatus.DOWNLOADING,
+                    updateDownloadProgress = 0,
+                    updateErrorMessage = null
+                )
+            }
+
             val downloadResult = AppUpdateManagerEngine.downloadAndVerifyReleaseApk(
                 context = context,
                 release = release,
