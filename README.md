@@ -11,7 +11,7 @@
 [![Play Protect](https://img.shields.io/badge/Play%20Protect-Policy%20Compliant-00C853?style=for-the-badge&logo=googleplay&logoColor=white)](#google-play-protect-compatible-auto-updates)
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download Latest APK (v1.1.0)</strong></a>
+  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download Latest APK (v1.1.1)</strong></a>
   &nbsp;•&nbsp;
   <a href="#screenshots">Screenshots</a>
   &nbsp;•&nbsp;
@@ -204,10 +204,10 @@ app/src/main/java/com/gravityedit/app/
 
 ## Installation
 
-1. Download **`GravityEdit-v1.1.0.apk`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
-2. *(Optional)* Verify integrity against `GravityEdit-v1.1.0.apk.sha256`:
+1. Download **`GravityEdit-v1.1.1.apk`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
+2. *(Optional)* Verify integrity against `GravityEdit-v1.1.1.apk.sha256`:
    ```bash
-   sha256sum -c GravityEdit-v1.1.0.apk.sha256
+   sha256sum -c GravityEdit-v1.1.1.apk.sha256
    ```
 3. Open the APK on your **Android 8.0+ (API 26+)** phone, tablet, or **Googlebook OS** device. Future releases can be checked and verified directly inside **Settings → GravityEdit Auto-Update Center**.
 
