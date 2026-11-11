@@ -777,13 +777,8 @@ private fun VirtualizedEditableCodeLine(
                     val nlIndex = newValue.text.indexOf('\n')
                     val currentIndent = oldText.takeWhile { it == ' ' || it == '\t' }
                     val beforeTrimmed = oldText.substring(0, nlIndex).trimEnd()
-                    val indentStep = if (document.useSpacesForTabs) {
-                        " ".repeat(tabWidth.coerceIn(2, 8))
-                    } else {
-                        "\t"
-                    }
                     val extraIndent = if (beforeTrimmed.endsWith("{") || beforeTrimmed.endsWith("(")) {
-                        indentStep
+                        " ".repeat(tabWidth.coerceIn(2, 8))
                     } else {
                         ""
                     }
@@ -824,13 +819,8 @@ private fun VirtualizedEditableCodeLine(
                         val before = textFieldValue.text.substring(0, selMin)
                         val after = textFieldValue.text.substring(selMax)
                         val currentIndent = before.takeWhile { it == ' ' || it == '\t' }
-                        val indentStep = if (document.useSpacesForTabs) {
-                            " ".repeat(tabWidth.coerceIn(2, 8))
-                        } else {
-                            "\t"
-                        }
                         val extraIndent = if (before.trimEnd().endsWith("{") || before.trimEnd().endsWith("(")) {
-                            indentStep
+                            " ".repeat(tabWidth.coerceIn(2, 8))
                         } else {
                             ""
                         }
@@ -854,11 +844,7 @@ private fun VirtualizedEditableCodeLine(
                             onAcceptTopCompletion(topCompletionItem)
                             true
                         } else {
-                            val indentStr = if (document.useSpacesForTabs) {
-                                " ".repeat(tabWidth.coerceIn(1, 8))
-                            } else {
-                                "\t"
-                            }
+                            val indentStr = " ".repeat(tabWidth.coerceIn(1, 8))
                             val selMin = textFieldValue.selection.min.coerceIn(0, textFieldValue.text.length)
                             val selMax = textFieldValue.selection.max.coerceIn(selMin, textFieldValue.text.length)
                             val updated = textFieldValue.text.substring(0, selMin) +

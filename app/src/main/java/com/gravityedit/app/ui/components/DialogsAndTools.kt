@@ -1207,14 +1207,12 @@ private fun TextFactoryStepCard(
                                 label = { Text(target.label) }
                             )
                         }
-                        if (step.formatTarget != FormatTarget.JSON_MINIFY) {
-                            listOf(2, 4, 8).forEach { sp ->
-                                FilterChip(
-                                    selected = step.formatIndentSpaces == sp,
-                                    onClick = { onUpdateStep(step.copy(formatIndentSpaces = sp)) },
-                                    label = { Text("$sp spaces") }
-                                )
-                            }
+                        listOf(2, 4, 8).forEach { sp ->
+                            FilterChip(
+                                selected = step.formatIndentSpaces == sp,
+                                onClick = { onUpdateStep(step.copy(formatIndentSpaces = sp)) },
+                                label = { Text("$sp spaces") }
+                            )
                         }
                     }
                 }
