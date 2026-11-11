@@ -1971,8 +1971,11 @@ object PowerShellEngine {
                             val lowerToken = token.text.lowercase()
                             // Note: 'foreach' is a statement keyword when followed by '(', or an alias after '|'
                             val isPipeAliasContext = line.substring(0, token.start).trimEnd().endsWith("|")
+                            val isHashtableKeyAssignment = line.substring(token.end).trimStart().let {
+                                it.startsWith("=") && !it.startsWith("==")
+                            }
                             val canonical = ALIAS_TO_CANONICAL_CMDLET[lowerToken]
-                            if (canonical != null && (lowerToken != "foreach" || isPipeAliasContext)) {
+                            if (canonical != null && !isHashtableKeyAssignment && (lowerToken != "foreach" || isPipeAliasContext)) {
                                 diagnostics.add(
                                     PowerShellDiagnostic(
                                         id = "alias_${lineNum}_${token.start}",
@@ -1991,11 +1994,91 @@ object PowerShellEngine {
                         }
                     }
 
+                    PowerShellTokenType.HASHTABLE_PREFIX -> {
+                        when (token.text) {
+                            "@{" -> {
+                                openCurlyCount++
+                                lastOpenCurlyLine = lineNum
+                                expectCommandPosition = false
+                            }
+                            "@(" -> {
+                                openParenCount++
+                                lastOpenParenLine = lineNum
+                                expectCommandPosition = true
+                            }
+                            else -> {
+                                expectCommandPosition = false
+                            }
+                        }
+                    }
+
+                    PowerShellTokenType.STRING_INTERPOLATION -> {
+                        if (token.text.startsWith("\$(") && token.text.endsWith(")") && token.text.length > 3) {
+                            val innerExpr = token.text.substring(2, token.text.length - 1)
+                            val innerBaseCol = token.start + 2
+                            val innerTokens = tokenizePowerShellLine(innerExpr, LineLexState.NORMAL)
+                            var innerExpectCmd = true
+                            for (innerToken in innerTokens) {
+                                when (innerToken.type) {
+                                    PowerShellTokenType.WHITESPACE,
+                                    PowerShellTokenType.COMMENT,
+                                    PowerShellTokenType.COMMENT_HELP_TAG,
+                                    PowerShellTokenType.REGION_DIRECTIVE -> Unit
+                                    PowerShellTokenType.CMDLET,
+                                    PowerShellTokenType.IDENTIFIER -> {
+                                        if (innerExpectCmd) {
+                                            val lowerInner = innerToken.text.lowercase()
+                                            val isPipe = innerExpr.substring(0, innerToken.start).trimEnd().endsWith("|")
+                                            val canonical = ALIAS_TO_CANONICAL_CMDLET[lowerInner]
+                                            if (canonical != null && (lowerInner != "foreach" || isPipe)) {
+                                                diagnostics.add(
+                                                    PowerShellDiagnostic(
+                                                        id = "alias_${lineNum}_${innerBaseCol + innerToken.start}",
+                                                        ruleId = "PSAvoidUsingCmdletAliases",
+                                                        severity = DiagnosticSeverity.INFO,
+                                                        message = "'${innerToken.text}' is an alias for '$canonical'. Expand aliases in scripts for readability and portability.",
+                                                        lineNumber = lineNum,
+                                                        column = innerBaseCol + innerToken.start + 1,
+                                                        quickFixLabel = "Expand to '$canonical'",
+                                                        quickFixTarget = innerToken.text,
+                                                        quickFixReplacement = canonical
+                                                    )
+                                                )
+                                            }
+                                            innerExpectCmd = false
+                                        }
+                                    }
+                                    PowerShellTokenType.PUNCTUATION -> {
+                                        innerExpectCmd = innerToken.text.any { it == '{' || it == '(' || it == '|' || it == ';' || it == '=' }
+                                    }
+                                    PowerShellTokenType.OPERATOR -> {
+                                        innerExpectCmd = innerToken.text == "|" ||
+                                            innerToken.text == "=" ||
+                                            innerToken.text == "+=" ||
+                                            innerToken.text == "\$("
+                                    }
+                                    PowerShellTokenType.HASHTABLE_PREFIX -> {
+                                        innerExpectCmd = innerToken.text == "@("
+                                    }
+                                    else -> {
+                                        innerExpectCmd = false
+                                    }
+                                }
+                            }
+                        }
+                        expectCommandPosition = false
+                    }
+
                     PowerShellTokenType.OPERATOR -> {
-                        expectCommandPosition = token.text == "|" ||
-                            token.text == "=" ||
-                            token.text == "+=" ||
-                            token.text == "\$("
+                        if (token.text == "\$(") {
+                            openParenCount++
+                            lastOpenParenLine = lineNum
+                            expectCommandPosition = true
+                        } else {
+                            expectCommandPosition = token.text == "|" ||
+                                token.text == "=" ||
+                                token.text == "+="
+                        }
                     }
 
                     else -> {

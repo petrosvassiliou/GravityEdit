@@ -229,7 +229,7 @@ object ClippingsManager {
             category = ClippingCategory.POWERSHELL_FUNCTIONS,
             description = "PowerShell 5+ class definition with typed properties, constructor, and method",
             templateBody = """
-                class #SELSTART# GravityResource #SELEND# {
+                class #SELSTART#GravityResource#SELEND# {
                     [string]${'$'}Name
                     [datetime]${'$'}CreatedAt
                     hidden [string]${'$'}InternalId

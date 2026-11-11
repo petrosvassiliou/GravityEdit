@@ -472,22 +472,29 @@ class GravityEditEnginesTest {
 
         val script = """
             ${'$'}files = ls -Path .
+            ${'$'}arr = @(dir -Path .)
+            ${'$'}meta = @{ ls = 'key_not_alias' }
             gci -Path . | where { ${'$'}_.Length -gt 0 } | select Name
             foreach (${'$'}f in ${'$'}files) {
                 Write-Output "${'$'}(cat ${'$'}f)"
+                ${'$'}raw = ${'$'}(gc ${'$'}f)
             }
         """.trimIndent()
 
         val diags = PowerShellEngine.analyzeScriptDiagnostics(script)
+        assertTrue(diags.none { it.severity == DiagnosticSeverity.ERROR })
+
         val aliasTargets = diags
             .filter { it.ruleId == "PSAvoidUsingCmdletAliases" }
             .mapNotNull { it.quickFixTarget }
 
-        assertTrue(aliasTargets.contains("ls"))
+        assertEquals(1, aliasTargets.count { it == "ls" }) // only '$files = ls', NOT hashtable key 'ls ='
+        assertTrue(aliasTargets.contains("dir"))
         assertTrue(aliasTargets.contains("gci"))
         assertTrue(aliasTargets.contains("where"))
         assertTrue(aliasTargets.contains("select"))
         assertTrue(aliasTargets.contains("cat"))
+        assertTrue(aliasTargets.contains("gc"))
         // Statement keyword 'foreach ($f in $files)' must NOT be flagged as an alias
         assertFalse(aliasTargets.contains("foreach"))
     }
@@ -508,8 +515,24 @@ class GravityEditEnginesTest {
         assertTrue(expanded.textToInsert.contains("\$(\$MyInvocation.MyCommand.Name)"))
         assertFalse(expanded.textToInsert.contains("\$({MyInvocation"))
 
-        val diagnostics = PowerShellEngine.analyzeScriptDiagnostics(expanded.textToInsert)
-        assertTrue(diagnostics.none { it.severity == DiagnosticSeverity.ERROR })
+        // Verify ALL built-in PowerShell clippings (including @{...}, @(...), $(...)) have zero syntax errors
+        for (clip in ClippingsManager.BUILT_IN_CLIPPINGS.filter { it.id.startsWith("ps_") }) {
+            val exp = ClippingsManager.expandTemplate(
+                templateBody = clip.templateBody,
+                context = ClippingExpansionContext(
+                    selectedText = "Write-Verbose 'ok'",
+                    fileName = "Sample.ps1",
+                    userName = "Tester"
+                ),
+                nowDate = "2026-11-11",
+                nowTime = "15:00:00"
+            )
+            val diagnostics = PowerShellEngine.analyzeScriptDiagnostics(exp.textToInsert)
+            assertTrue(
+                "Expected no syntax errors in built-in clipping ${clip.id}, got: $diagnostics",
+                diagnostics.none { it.severity == DiagnosticSeverity.ERROR }
+            )
+        }
     }
 
     @Test
@@ -534,7 +557,7 @@ class GravityEditEnginesTest {
         val selEnd = 15
         val selMatches = FindReplaceEngine.findAllMatches(
             text = sample,
-            options = SearchOptions(query = "foo", grepRegex = false),
+            options = SearchOptions(query = "foo", grepRegex = false, searchInSelectionOnly = true),
             selectionRange = selStart until selEnd
         )
         assertEquals(1, selMatches.size)
@@ -542,7 +565,7 @@ class GravityEditEnginesTest {
 
         val (replaced, count) = FindReplaceEngine.replaceAll(
             text = sample,
-            options = SearchOptions(query = "foo", replacement = "FOO", grepRegex = false),
+            options = SearchOptions(query = "foo", replacement = "FOO", grepRegex = false, searchInSelectionOnly = true),
             selectionRange = selStart until selEnd
         )
         assertEquals(1, count)
