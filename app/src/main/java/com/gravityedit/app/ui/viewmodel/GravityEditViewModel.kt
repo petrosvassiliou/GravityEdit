@@ -711,6 +711,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
         refreshAstAndFoldsForActiveDocument()
+        refreshActiveDocSearchMatches()
     }
 
     fun moveTab(fromIndex: Int, toIndex: Int) {
@@ -750,6 +751,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
         refreshAstAndFoldsForActiveDocument()
+        refreshActiveDocSearchMatches()
     }
 
     // =========================================================================
@@ -1250,13 +1252,18 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         _events.tryEmit(GravityEditUiEvent.RequestOpenFilePicker)
     }
 
-    fun requestSaveActiveDocument() {
-        val doc = _uiState.value.focusedDocument ?: return
+    fun requestSaveDocument(documentId: String) {
+        val doc = _uiState.value.documents.firstOrNull { it.id == documentId } ?: return
         if (doc.uriString != null) {
             saveDocumentToUri(doc.id, Uri.parse(doc.uriString))
         } else {
             _events.tryEmit(GravityEditUiEvent.RequestSaveAsFilePicker(doc.id, doc.title))
         }
+    }
+
+    fun requestSaveActiveDocument() {
+        val doc = _uiState.value.focusedDocument ?: return
+        requestSaveDocument(doc.id)
     }
 
     fun requestSaveAsActiveDocument() {

@@ -128,11 +128,11 @@
 
     <!-- Settings, Themes & Localization -->
     <string name="settings_title">Einstellungen &amp; Darstellung</string>
-    <string name="settings_theme_section">Editor-Farbschema</string>
-    <string name="theme_dynamic">Material 3 Dynamisch (Monet)</string>
-    <string name="theme_light">M3 Entwickler Hell</string>
-    <string name="theme_dark">M3 Entwickler Dunkel</string>
-    <string name="theme_amoled">AMOLED Tiefschwarz (#000000)</string>
+    <string name="settings_theme_section">Material 3 Expressive Farbschema</string>
+    <string name="theme_dynamic">M3 Expressive Dynamisch (Monet)</string>
+    <string name="theme_light">M3 Expressive Hell</string>
+    <string name="theme_dark">M3 Expressive Dunkel</string>
+    <string name="theme_amoled">M3 Expressive AMOLED (#000000)</string>
     <string name="settings_language_section">Oberflächensprache</string>
     <string name="lang_en">English</string>
     <string name="lang_de">Deutsch (German)</string>
@@ -144,4 +144,13 @@
     <string name="settings_font_size">Schriftgröße (%1$d sp)</string>
     <string name="settings_tab_width">Tabulatorbreite (%1$d Leerzeichen)</string>
     <string name="aux_row_description">PowerShell-Sonderzeichenleiste</string>
+
+    <!-- Expressive Context Menus & Workspace Overflow Actions -->
+    <string name="action_rename_document">Dokument umbenennen…</string>
+    <string name="action_move_tab_left">← Tab nach links verschieben</string>
+    <string name="action_move_tab_right">Tab nach rechts verschieben →</string>
+    <string name="action_more_options">Weitere Optionen</string>
+    <string name="action_diagnostics">PowerShell-Diagnose</string>
+    <string name="action_command_palette">Befehlspalette</string>
+    <string name="action_check_updates">App-Version &amp; Updates</string>
 </resources>

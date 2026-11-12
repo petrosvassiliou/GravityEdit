@@ -2,9 +2,14 @@ package com.gravityedit.app.ui.theme
 
 import android.app.Activity
 import android.os.Build
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -17,7 +22,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
@@ -26,6 +31,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.googlefonts.Font
 import androidx.compose.ui.text.googlefonts.GoogleFont
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.gravityedit.app.R
@@ -36,6 +42,53 @@ enum class GravityThemeMode {
     DARK,
     AMOLED
 }
+
+/**
+ * Material 3 Expressive Motion Physics (`MotionScheme.expressive()` alignment).
+ *
+ * - **Spatial** springs use underdamped curves (`dampingRatio = 0.62f..0.65f`) for tactile,
+ *   responsive shape morphing, pill expansion, and interactive bounce.
+ * - **Effects** springs use critically damped curves (`dampingRatio = 1.0f`) so color and alpha
+ *   interpolations remain crisp and never overshoot gamut bounds.
+ */
+object GravityExpressiveMotion {
+    fun <T> spatialFast(): SpringSpec<T> = spring(
+        dampingRatio = 0.62f,
+        stiffness = 700f
+    )
+
+    fun <T> spatialDefault(): SpringSpec<T> = spring(
+        dampingRatio = 0.65f,
+        stiffness = 380f
+    )
+
+    fun <T> spatialSlow(): SpringSpec<T> = spring(
+        dampingRatio = 0.68f,
+        stiffness = 220f
+    )
+
+    fun <T> effectsFast(): SpringSpec<T> = spring(
+        dampingRatio = 1.0f,
+        stiffness = 1600f
+    )
+
+    fun <T> effectsDefault(): SpringSpec<T> = spring(
+        dampingRatio = 1.0f,
+        stiffness = 800f
+    )
+}
+
+/**
+ * Material 3 Expressive Shape Scale: generous squircle radii paired with full-pill (`CircleShape`)
+ * interactive controls and morphing connected button groups.
+ */
+val GravityExpressiveShapes = Shapes(
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(26.dp),
+    extraLarge = RoundedCornerShape(32.dp)
+)
 
 @Immutable
 data class EditorSyntaxPalette(
@@ -75,109 +128,109 @@ data class EditorSyntaxPalette(
 )
 
 private val LightDeveloperColorScheme: ColorScheme = lightColorScheme(
-    primary = Color(0xFF005AC1),
+    primary = Color(0xFF0057CE),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD8E2FF),
-    onPrimaryContainer = Color(0xFF001A41),
-    secondary = Color(0xFF535E78),
+    primaryContainer = Color(0xFFD6E3FF),
+    onPrimaryContainer = Color(0xFF001945),
+    secondary = Color(0xFF3E5AA9),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFD8E2FF),
-    onSecondaryContainer = Color(0xFF0F1B32),
-    tertiary = Color(0xFF705574),
+    secondaryContainer = Color(0xFFDBE1FF),
+    onSecondaryContainer = Color(0xFF00174B),
+    tertiary = Color(0xFF7B418F),
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFFAD8FD),
-    onTertiaryContainer = Color(0xFF29132E),
+    tertiaryContainer = Color(0xFFFBD7FF),
+    onTertiaryContainer = Color(0xFF310044),
     error = Color(0xFFBA1A1A),
     onError = Color(0xFFFFFFFF),
     errorContainer = Color(0xFFFFDAD6),
     onErrorContainer = Color(0xFF410002),
-    background = Color(0xFFF8F9FF),
-    onBackground = Color(0xFF191C20),
-    surface = Color(0xFFF8F9FF),
-    onSurface = Color(0xFF191C20),
-    surfaceVariant = Color(0xFFE0E2EC),
-    onSurfaceVariant = Color(0xFF44474E),
-    outline = Color(0xFF74777F),
-    outlineVariant = Color(0xFFC4C6D0),
+    background = Color(0xFFF6F8FE),
+    onBackground = Color(0xFF171C23),
+    surface = Color(0xFFF6F8FE),
+    onSurface = Color(0xFF171C23),
+    surfaceVariant = Color(0xFFDDE2EE),
+    onSurfaceVariant = Color(0xFF414753),
+    outline = Color(0xFF717785),
+    outlineVariant = Color(0xFFC1C6D4),
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF2F3FA),
-    surfaceContainer = Color(0xFFECEEF4),
-    surfaceContainerHigh = Color(0xFFE6E8EE),
-    surfaceContainerHighest = Color(0xFFE1E2E9)
+    surfaceContainerLow = Color(0xFFEEF1FA),
+    surfaceContainer = Color(0xFFE7ECF6),
+    surfaceContainerHigh = Color(0xFFE0E6F1),
+    surfaceContainerHighest = Color(0xFFD8DFEC)
 )
 
 private val DarkDeveloperColorScheme: ColorScheme = darkColorScheme(
-    primary = Color(0xFFADC6FF),
-    onPrimary = Color(0xFF002E69),
-    primaryContainer = Color(0xFF004494),
-    onPrimaryContainer = Color(0xFFD8E2FF),
-    secondary = Color(0xFFBBC6E4),
-    onSecondary = Color(0xFF253048),
-    secondaryContainer = Color(0xFF3B475F),
-    onSecondaryContainer = Color(0xFFD8E2FF),
-    tertiary = Color(0xFFDDBCE0),
-    onTertiary = Color(0xFF3F2844),
-    tertiaryContainer = Color(0xFF573E5C),
-    onTertiaryContainer = Color(0xFFFAD8FD),
+    primary = Color(0xFFA8C7FA),
+    onPrimary = Color(0xFF002F67),
+    primaryContainer = Color(0xFF084696),
+    onPrimaryContainer = Color(0xFFD6E3FF),
+    secondary = Color(0xFFB4C5FF),
+    onSecondary = Color(0xFF092978),
+    secondaryContainer = Color(0xFF254190),
+    onSecondaryContainer = Color(0xFFDBE1FF),
+    tertiary = Color(0xFFEEB2FF),
+    onTertiary = Color(0xFF490E5D),
+    tertiaryContainer = Color(0xFF622875),
+    onTertiaryContainer = Color(0xFFFBD7FF),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
-    background = Color(0xFF111318),
-    onBackground = Color(0xFFE2E2E9),
-    surface = Color(0xFF111318),
-    onSurface = Color(0xFFE2E2E9),
-    surfaceVariant = Color(0xFF44474E),
-    onSurfaceVariant = Color(0xFFC4C6D0),
-    outline = Color(0xFF8E9099),
-    outlineVariant = Color(0xFF33363E),
-    surfaceContainerLowest = Color(0xFF0C0E13),
-    surfaceContainerLow = Color(0xFF191C20),
-    surfaceContainer = Color(0xFF1D2024),
-    surfaceContainerHigh = Color(0xFF282A2F),
-    surfaceContainerHighest = Color(0xFF33353A)
+    background = Color(0xFF0E1117),
+    onBackground = Color(0xFFE2E6F0),
+    surface = Color(0xFF0E1117),
+    onSurface = Color(0xFFE2E6F0),
+    surfaceVariant = Color(0xFF3E4553),
+    onSurfaceVariant = Color(0xFFC1C6D4),
+    outline = Color(0xFF8B91A0),
+    outlineVariant = Color(0xFF2C323F),
+    surfaceContainerLowest = Color(0xFF090B10),
+    surfaceContainerLow = Color(0xFF151922),
+    surfaceContainer = Color(0xFF1B202B),
+    surfaceContainerHigh = Color(0xFF242A37),
+    surfaceContainerHighest = Color(0xFF2F3646)
 )
 
 private val AmoledPitchBlackColorScheme: ColorScheme = darkColorScheme(
-    primary = Color(0xFF82B1FF),
-    onPrimary = Color(0xFF002253),
-    primaryContainer = Color(0xFF003B82),
-    onPrimaryContainer = Color(0xFFD8E2FF),
-    secondary = Color(0xFFB0BEC5),
-    onSecondary = Color(0xFF1C262B),
-    secondaryContainer = Color(0xFF263238),
-    onSecondaryContainer = Color(0xFFCFD8DC),
-    tertiary = Color(0xFFCE93D8),
-    onTertiary = Color(0xFF381E40),
-    tertiaryContainer = Color(0xFF4A2754),
-    onTertiaryContainer = Color(0xFFF3E5F5),
+    primary = Color(0xFF8AB4F8),
+    onPrimary = Color(0xFF002456),
+    primaryContainer = Color(0xFF003E8C),
+    onPrimaryContainer = Color(0xFFD6E3FF),
+    secondary = Color(0xFFA7C8FF),
+    onSecondary = Color(0xFF06275B),
+    secondaryContainer = Color(0xFF1A3768),
+    onSecondaryContainer = Color(0xFFD6E4FF),
+    tertiary = Color(0xFFE5A4FF),
+    onTertiary = Color(0xFF420A56),
+    tertiaryContainer = Color(0xFF5A216F),
+    onTertiaryContainer = Color(0xFFFAD7FF),
     error = Color(0xFFFF8A80),
     onError = Color(0xFF600004),
     errorContainer = Color(0xFF8C0009),
     onErrorContainer = Color(0xFFFFDAD6),
     background = Color(0xFF000000),
-    onBackground = Color(0xFFECEFF1),
+    onBackground = Color(0xFFEDF1F8),
     surface = Color(0xFF000000),
-    onSurface = Color(0xFFECEFF1),
-    surfaceVariant = Color(0xFF16181D),
-    onSurfaceVariant = Color(0xFFB0B5C0),
-    outline = Color(0xFF5C626E),
-    outlineVariant = Color(0xFF20232A),
+    onSurface = Color(0xFFEDF1F8),
+    surfaceVariant = Color(0xFF161A23),
+    onSurfaceVariant = Color(0xFFB3BAC8),
+    outline = Color(0xFF5D6474),
+    outlineVariant = Color(0xFF1E232E),
     surfaceContainerLowest = Color(0xFF000000),
-    surfaceContainerLow = Color(0xFF07080B),
-    surfaceContainer = Color(0xFF0D0F14),
-    surfaceContainerHigh = Color(0xFF151820),
-    surfaceContainerHighest = Color(0xFF1E222B)
+    surfaceContainerLow = Color(0xFF080A0F),
+    surfaceContainer = Color(0xFF10141D),
+    surfaceContainerHigh = Color(0xFF181D29),
+    surfaceContainerHighest = Color(0xFF222938)
 )
 
 val LightSyntaxPalette = EditorSyntaxPalette(
     isDark = false,
     editorBackground = Color(0xFFFFFFFF),
-    editorForeground = Color(0xFF1E232A),
-    gutterBackground = Color(0xFFF3F5FA),
-    gutterText = Color(0xFF7B8391),
-    gutterActiveLineText = Color(0xFF005AC1),
-    activeLineBackground = Color(0xFFEFF4FF),
+    editorForeground = Color(0xFF1A1F28),
+    gutterBackground = Color(0xFFF2F5FC),
+    gutterText = Color(0xFF757E8F),
+    gutterActiveLineText = Color(0xFF0057CE),
+    activeLineBackground = Color(0xFFEBF2FF),
     selectionBackground = Color(0x554D90FE),
     pageGuideColor = Color(0xFFD8DEE9),
     invisibleGlyphColor = Color(0xFFB0B8C8),
@@ -196,7 +249,7 @@ val LightSyntaxPalette = EditorSyntaxPalette(
     commentDocTag = Color(0xFF3E5F8A),
     punctuation = Color(0xFF4B5362),
     propertyKey = Color(0xFF0550AE),
-    markdownHeading = Color(0xFF005AC1),
+    markdownHeading = Color(0xFF0057CE),
     searchMatchBackground = Color(0x66FFE066),
     searchActiveMatchBackground = Color(0xAAFF9800),
     diffAddedBackground = Color(0xFFE6FFEC),
@@ -208,14 +261,14 @@ val LightSyntaxPalette = EditorSyntaxPalette(
 
 val DarkSyntaxPalette = EditorSyntaxPalette(
     isDark = true,
-    editorBackground = Color(0xFF13161C),
-    editorForeground = Color(0xFFE3E7F0),
-    gutterBackground = Color(0xFF181C24),
-    gutterText = Color(0xFF697284),
-    gutterActiveLineText = Color(0xFFADC6FF),
-    activeLineBackground = Color(0xFF1C222E),
+    editorBackground = Color(0xFF10141C),
+    editorForeground = Color(0xFFE5E9F2),
+    gutterBackground = Color(0xFF151A24),
+    gutterText = Color(0xFF6B7588),
+    gutterActiveLineText = Color(0xFFA8C7FA),
+    activeLineBackground = Color(0xFF1A2130),
     selectionBackground = Color(0x553B78E7),
-    pageGuideColor = Color(0xFF282E3A),
+    pageGuideColor = Color(0xFF282F3D),
     invisibleGlyphColor = Color(0xFF454E5E),
     keyword = Color(0xFFC792EA),
     cmdlet = Color(0xFF82AAFF),
@@ -232,7 +285,7 @@ val DarkSyntaxPalette = EditorSyntaxPalette(
     commentDocTag = Color(0xFF90CAF9),
     punctuation = Color(0xFFA6B2C5),
     propertyKey = Color(0xFF82AAFF),
-    markdownHeading = Color(0xFF82B1FF),
+    markdownHeading = Color(0xFF8AB4F8),
     searchMatchBackground = Color(0x55FFD54F),
     searchActiveMatchBackground = Color(0x99FF9800),
     diffAddedBackground = Color(0xFF122D1F),
@@ -245,9 +298,9 @@ val DarkSyntaxPalette = EditorSyntaxPalette(
 val AmoledSyntaxPalette = DarkSyntaxPalette.copy(
     editorBackground = Color(0xFF000000),
     editorForeground = Color(0xFFF1F5F9),
-    gutterBackground = Color(0xFF050608),
+    gutterBackground = Color(0xFF05070B),
     gutterText = Color(0xFF5A6373),
-    activeLineBackground = Color(0xFF0E121A),
+    activeLineBackground = Color(0xFF0D121C),
     pageGuideColor = Color(0xFF1A1E26),
     invisibleGlyphColor = Color(0xFF333A48),
     diffAddedBackground = Color(0xFF0A1F14),
@@ -311,28 +364,40 @@ fun editorCodeTextStyle(fontSizeSp: Float = 13.5f, lineHeightMultiplier: Float =
     )
 }
 
+/**
+ * Material 3 Expressive Typography with emphasized display/title weights and crisp monospace telemetry.
+ */
 val GravityTypography = Typography(
+    headlineMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Bold,
+        fontSize = 26.sp,
+        lineHeight = 32.sp,
+        letterSpacing = (-0.25).sp
+    ),
     headlineSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Bold,
         fontSize = 22.sp,
-        lineHeight = 28.sp
+        lineHeight = 28.sp,
+        letterSpacing = (-0.15).sp
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Bold,
         fontSize = 18.sp,
-        lineHeight = 24.sp
+        lineHeight = 24.sp,
+        letterSpacing = (-0.1).sp
     ),
     titleMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 15.sp,
         lineHeight = 20.sp
     ),
     titleSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 13.sp,
         lineHeight = 18.sp
     ),
@@ -356,9 +421,10 @@ val GravityTypography = Typography(
     ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 13.sp,
-        lineHeight = 18.sp
+        lineHeight = 18.sp,
+        letterSpacing = 0.1.sp
     ),
     labelMedium = TextStyle(
         fontFamily = JetBrainsMonoFontFamily,
@@ -369,7 +435,7 @@ val GravityTypography = Typography(
     ),
     labelSmall = TextStyle(
         fontFamily = JetBrainsMonoFontFamily,
-        fontWeight = FontWeight.Normal,
+        fontWeight = FontWeight.Medium,
         fontSize = 10.5.sp,
         lineHeight = 14.sp,
         fontFeatureSettings = EDITOR_FONT_LIGATURES
@@ -381,6 +447,10 @@ object GravityEditThemeDefaults {
         @Composable
         @ReadOnlyComposable
         get() = LocalEditorSyntaxPalette.current
+
+    val pillShape: Shape = CircleShape
+    val dialogShape: Shape = RoundedCornerShape(28.dp)
+    val sheetShape: Shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 }
 
 @Composable
@@ -436,8 +506,6 @@ fun GravityEditTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as? Activity)?.window ?: return@SideEffect
-            window.statusBarColor = colorScheme.surface.toArgb()
-            window.navigationBarColor = colorScheme.surfaceContainerLow.toArgb()
             val insetsController = WindowCompat.getInsetsController(window, view)
             insetsController.isAppearanceLightStatusBars = !isDark
             insetsController.isAppearanceLightNavigationBars = !isDark
@@ -447,6 +515,7 @@ fun GravityEditTheme(
     CompositionLocalProvider(LocalEditorSyntaxPalette provides syntaxPalette) {
         MaterialTheme(
             colorScheme = colorScheme,
+            shapes = GravityExpressiveShapes,
             typography = GravityTypography,
             content = content
         )

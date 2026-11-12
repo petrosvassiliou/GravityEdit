@@ -590,5 +590,58 @@ class GravityEditEnginesTest {
         assertEquals(2, stats.wordCount)
         assertEquals(1, stats.lineCount)
     }
+
+    @Test
+    fun localizationResources_allSixLocalesHaveCompleteStringKeyParity() {
+        val resRoot = java.io.File("src/main/res").takeIf { it.isDirectory }
+            ?: java.io.File("app/src/main/res")
+        assertTrue("Expected Android res directory to exist at ${resRoot.absolutePath}", resRoot.isDirectory)
+
+        val stringNameRegex = Regex("""<string\s+name="([^"]+)"""")
+        fun extractKeys(folderName: String): Set<String> {
+            val xmlFile = java.io.File(resRoot, "$folderName/strings.xml")
+            assertTrue("Missing $folderName/strings.xml", xmlFile.isFile)
+            val content = xmlFile.readText(Charsets.UTF_8)
+            return stringNameRegex.findAll(content).map { it.groupValues[1] }.toSet()
+        }
+
+        val baseKeys = extractKeys("values")
+        assertTrue("Expected at least 115 localized string keys, got ${baseKeys.size}", baseKeys.size >= 115)
+
+        val requiredNewKeys = setOf(
+            "action_rename_document",
+            "action_move_tab_left",
+            "action_move_tab_right",
+            "action_more_options",
+            "action_diagnostics",
+            "action_command_palette",
+            "action_check_updates"
+        )
+        assertTrue("Base strings.xml missing new Expressive menu keys", baseKeys.containsAll(requiredNewKeys))
+
+        val locales = listOf("values-de", "values-el", "values-es", "values-fr", "values-it")
+        for (localeDir in locales) {
+            val localeKeys = extractKeys(localeDir)
+            val missingInLocale = baseKeys - localeKeys
+            val extraInLocale = localeKeys - baseKeys
+            assertTrue(
+                "Locale $localeDir is missing keys: $missingInLocale",
+                missingInLocale.isEmpty()
+            )
+            assertTrue(
+                "Locale $localeDir has unexpected extra keys: $extraInLocale",
+                extraInLocale.isEmpty()
+            )
+        }
+    }
+
+    @Test
+    fun appUpdateEngine_handlesVersion120AndDebugSuffixCleanly() {
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.0-debug", "v1.2.0"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.0", "v1.1.1"))
+        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.1.1", "v1.2.0"))
+        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.0-debug", "v1.2.1"))
+    }
 }
+
 

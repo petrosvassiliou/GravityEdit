@@ -188,7 +188,9 @@ fun FindReplaceModal(
     if (isCompactMobile) {
         ModalBottomSheet(
             onDismissRequest = onDismiss,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = GravityEditThemeDefaults.sheetShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ) {
             Box(modifier = Modifier.fillMaxHeight(0.90f)) {
                 content()
@@ -200,7 +202,8 @@ fun FindReplaceModal(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = GravityEditThemeDefaults.dialogShape,
+                color = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 6.dp,
                 modifier = Modifier
                     .fillMaxWidth(0.84f)
@@ -656,7 +659,9 @@ fun TextFactoryModal(
     if (isCompactMobile) {
         ModalBottomSheet(
             onDismissRequest = onDismiss,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = GravityEditThemeDefaults.sheetShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ) {
             Box(modifier = Modifier.fillMaxHeight(0.90f)) {
                 content()
@@ -668,7 +673,8 @@ fun TextFactoryModal(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = GravityEditThemeDefaults.dialogShape,
+                color = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 6.dp,
                 modifier = Modifier
                     .fillMaxWidth(0.82f)
@@ -1252,7 +1258,9 @@ fun SideBySideDiffModal(
     if (isCompactMobile) {
         ModalBottomSheet(
             onDismissRequest = onDismiss,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = GravityEditThemeDefaults.sheetShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ) {
             Box(modifier = Modifier.fillMaxHeight(0.92f)) {
                 content()
@@ -1264,7 +1272,8 @@ fun SideBySideDiffModal(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = GravityEditThemeDefaults.dialogShape,
+                color = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 6.dp,
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
@@ -1740,7 +1749,9 @@ fun ClippingsModal(
     if (isCompactMobile) {
         ModalBottomSheet(
             onDismissRequest = onDismiss,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = GravityEditThemeDefaults.sheetShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ) {
             Box(modifier = Modifier.fillMaxHeight(0.88f)) {
                 content()
@@ -1752,7 +1763,8 @@ fun ClippingsModal(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = GravityEditThemeDefaults.dialogShape,
+                color = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 6.dp,
                 modifier = Modifier
                     .fillMaxWidth(0.76f)
@@ -1779,6 +1791,8 @@ fun GoToLineDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = GravityEditThemeDefaults.dialogShape,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         title = { Text(stringResource(R.string.go_to_line_title)) },
         text = {
             OutlinedTextField(
@@ -1786,6 +1800,7 @@ fun GoToLineDialog(
                 onValueChange = { inputText = it.filter { ch -> ch.isDigit() } },
                 label = { Text(stringResource(R.string.go_to_line_hint, maxLineCount)) },
                 singleLine = true,
+                shape = RoundedCornerShape(16.dp),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number,
                     imeAction = ImeAction.Done
@@ -1804,7 +1819,8 @@ fun GoToLineDialog(
                 onClick = {
                     val parsed = inputText.toIntOrNull() ?: currentLine
                     onGoToLine(parsed)
-                }
+                },
+                shape = GravityEditThemeDefaults.pillShape
             ) {
                 Text(stringResource(R.string.action_go))
             }
@@ -1818,10 +1834,10 @@ fun GoToLineDialog(
 }
 
 // =========================================================================
-// 6. SETTINGS, MATERIAL 3 THEMES & 6-LANGUAGE RUNTIME LOCALIZATION DIALOG
+// 6. SETTINGS, MATERIAL 3 EXPRESSIVE THEMES & 6-LANGUAGE LOCALIZATION MODAL
 // =========================================================================
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsModal(
     themeMode: GravityThemeMode,
@@ -1846,191 +1862,214 @@ fun SettingsModal(
     onCodeFoldingChange: (Boolean) -> Unit,
     onAutoCheckUpdatesChange: (Boolean) -> Unit,
     onOpenUpdateModal: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    isCompactMobile: Boolean = false
 ) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            tonalElevation = 6.dp,
+    val content: @Composable () -> Unit = {
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.75f)
-                .heightIn(max = 680.dp)
+                .fillMaxWidth()
+                .padding(20.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_title),
-                        style = MaterialTheme.typography.titleLarge
+                Text(
+                    text = stringResource(R.string.settings_title),
+                    style = MaterialTheme.typography.titleLarge
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
+                }
+            }
+
+            // 1. Material 3 Expressive Color Schemes (Dynamic, Light, Dark, AMOLED Pitch Black)
+            Text(
+                text = stringResource(R.string.settings_theme_section),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val themeItems = listOf(
+                    GravityThemeMode.DYNAMIC to R.string.theme_dynamic,
+                    GravityThemeMode.LIGHT to R.string.theme_light,
+                    GravityThemeMode.DARK to R.string.theme_dark,
+                    GravityThemeMode.AMOLED to R.string.theme_amoled
+                )
+                themeItems.forEach { (mode, labelRes) ->
+                    FilterChip(
+                        selected = themeMode == mode,
+                        onClick = { onSelectTheme(mode) },
+                        shape = GravityEditThemeDefaults.pillShape,
+                        leadingIcon = if (themeMode == mode) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        } else null,
+                        label = { Text(stringResource(labelRes)) }
                     )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
-                    }
                 }
+            }
 
-                // 1. Material 3 Color Schemes (Dynamic, Light, Dark, AMOLED Pitch Black)
-                Text(
-                    text = stringResource(R.string.settings_theme_section),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
+            HorizontalDivider()
+
+            // 2. Runtime 6-Language Localization Switcher
+            Text(
+                text = stringResource(R.string.settings_language_section),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val locales = listOf(
+                    "en" to R.string.lang_en,
+                    "de" to R.string.lang_de,
+                    "it" to R.string.lang_it,
+                    "es" to R.string.lang_es,
+                    "fr" to R.string.lang_fr,
+                    "el" to R.string.lang_el
                 )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val themeItems = listOf(
-                        GravityThemeMode.DYNAMIC to R.string.theme_dynamic,
-                        GravityThemeMode.LIGHT to R.string.theme_light,
-                        GravityThemeMode.DARK to R.string.theme_dark,
-                        GravityThemeMode.AMOLED to R.string.theme_amoled
+                locales.forEach { (tag, labelRes) ->
+                    val isSelected = appLocaleTag.startsWith(tag, ignoreCase = true)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onSelectLanguage(tag) },
+                        shape = GravityEditThemeDefaults.pillShape,
+                        leadingIcon = if (isSelected) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        } else null,
+                        label = { Text(stringResource(labelRes)) }
                     )
-                    themeItems.forEach { (mode, labelRes) ->
-                        FilterChip(
-                            selected = themeMode == mode,
-                            onClick = { onSelectTheme(mode) },
-                            leadingIcon = if (themeMode == mode) {
-                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                            } else null,
-                            label = { Text(stringResource(labelRes)) }
-                        )
-                    }
                 }
+            }
 
-                HorizontalDivider()
+            HorizontalDivider()
 
-                // 2. Runtime 6-Language Localization Switcher
+            // 3. Editor Typography & Canvas Behavior
+            Text(
+                text = stringResource(R.string.settings_editor_section),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Text(
+                text = stringResource(R.string.settings_font_size, fontSizeSp.roundToInt()),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Slider(
+                value = fontSizeSp,
+                onValueChange = onFontSizeChange,
+                valueRange = 10f..24f,
+                steps = 13
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Text(
-                    text = stringResource(R.string.settings_language_section),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    text = stringResource(R.string.settings_tab_width, tabWidth),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
                 )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val locales = listOf(
-                        "en" to R.string.lang_en,
-                        "de" to R.string.lang_de,
-                        "it" to R.string.lang_it,
-                        "es" to R.string.lang_es,
-                        "fr" to R.string.lang_fr,
-                        "el" to R.string.lang_el
+                listOf(2, 4, 8).forEach { w ->
+                    FilterChip(
+                        selected = tabWidth == w,
+                        onClick = { onTabWidthChange(w) },
+                        shape = GravityEditThemeDefaults.pillShape,
+                        label = { Text("$w") }
                     )
-                    locales.forEach { (tag, labelRes) ->
-                        val isSelected = appLocaleTag.startsWith(tag, ignoreCase = true)
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { onSelectLanguage(tag) },
-                            leadingIcon = if (isSelected) {
-                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                            } else null,
-                            label = { Text(stringResource(labelRes)) }
-                        )
-                    }
                 }
+            }
 
-                HorizontalDivider()
+            SettingSwitchRow(
+                label = stringResource(R.string.soft_wrap),
+                checked = softWrap,
+                onCheckedChange = onSoftWrapChange
+            )
+            SettingSwitchRow(
+                label = stringResource(R.string.show_invisibles),
+                checked = showInvisibles,
+                onCheckedChange = onShowInvisiblesChange
+            )
+            SettingSwitchRow(
+                label = stringResource(R.string.page_guide_80),
+                checked = showPageGuide80,
+                onCheckedChange = onPageGuide80Change
+            )
+            SettingSwitchRow(
+                label = stringResource(R.string.page_guide_120),
+                checked = showPageGuide120,
+                onCheckedChange = onPageGuide120Change
+            )
+            SettingSwitchRow(
+                label = stringResource(R.string.code_folding),
+                checked = enableCodeFolding,
+                onCheckedChange = onCodeFoldingChange
+            )
 
-                // 3. Editor Typography & Canvas Behavior
-                Text(
-                    text = stringResource(R.string.settings_editor_section),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+            HorizontalDivider()
 
-                Text(
-                    text = stringResource(R.string.settings_font_size, fontSizeSp.roundToInt()),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Slider(
-                    value = fontSizeSp,
-                    onValueChange = onFontSizeChange,
-                    valueRange = 10f..24f,
-                    steps = 13
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // 4. App Updates (Google Play Protect & Play Store Policy Compliant)
+            Text(
+                text = "App Updates • Google Play Protect Verified (v$installedVersionName)",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            SettingSwitchRow(
+                label = "Check for Updates Automatically on Startup",
+                checked = autoCheckUpdates,
+                onCheckedChange = onAutoCheckUpdatesChange
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Button(
+                    onClick = {
+                        onDismiss()
+                        onOpenUpdateModal()
+                    },
+                    shape = GravityEditThemeDefaults.pillShape
                 ) {
-                    Text(
-                        text = stringResource(R.string.settings_tab_width, tabWidth),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    listOf(2, 4, 8).forEach { w ->
-                        FilterChip(
-                            selected = tabWidth == w,
-                            onClick = { onTabWidthChange(w) },
-                            label = { Text("$w") }
-                        )
-                    }
+                    Text("Check for Updates / Open Update Center…")
                 }
+            }
+        }
+    }
 
-                SettingSwitchRow(
-                    label = stringResource(R.string.soft_wrap),
-                    checked = softWrap,
-                    onCheckedChange = onSoftWrapChange
-                )
-                SettingSwitchRow(
-                    label = stringResource(R.string.show_invisibles),
-                    checked = showInvisibles,
-                    onCheckedChange = onShowInvisiblesChange
-                )
-                SettingSwitchRow(
-                    label = stringResource(R.string.page_guide_80),
-                    checked = showPageGuide80,
-                    onCheckedChange = onPageGuide80Change
-                )
-                SettingSwitchRow(
-                    label = stringResource(R.string.page_guide_120),
-                    checked = showPageGuide120,
-                    onCheckedChange = onPageGuide120Change
-                )
-                SettingSwitchRow(
-                    label = stringResource(R.string.code_folding),
-                    checked = enableCodeFolding,
-                    onCheckedChange = onCodeFoldingChange
-                )
-
-                HorizontalDivider()
-
-                // 4. App Updates (Google Play Protect & Play Store Policy Compliant)
-                Text(
-                    text = "App Updates • Google Play Protect Verified (v$installedVersionName)",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                SettingSwitchRow(
-                    label = "Check for Updates Automatically on Startup",
-                    checked = autoCheckUpdates,
-                    onCheckedChange = onAutoCheckUpdatesChange
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Button(
-                        onClick = {
-                            onDismiss()
-                            onOpenUpdateModal()
-                        }
-                    ) {
-                        Text("Check for Updates / Open Update Center…")
-                    }
-                }
+    if (isCompactMobile) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = GravityEditThemeDefaults.sheetShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
+            Box(modifier = Modifier.fillMaxHeight(0.90f)) {
+                content()
+            }
+        }
+    } else {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                shape = GravityEditThemeDefaults.dialogShape,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth(0.75f)
+                    .heightIn(max = 680.dp)
+            ) {
+                content()
             }
         }
     }
@@ -2262,7 +2301,12 @@ fun PowerShellDiagnosticsModal(
 
     if (isCompactMobile) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            shape = GravityEditThemeDefaults.sheetShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
             content()
         }
     } else {
@@ -2271,7 +2315,7 @@ fun PowerShellDiagnosticsModal(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = GravityEditThemeDefaults.dialogShape,
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 6.dp,
                 modifier = Modifier
@@ -2367,7 +2411,7 @@ fun CommandPaletteModal(
             )
         }
 
-        // 4. Workspace Modals & Tools
+        // 4. Workspace Modals & Tools (Complete Coverage)
         list.add(
             CommandPaletteEntry(
                 id = "tool_newdoc",
@@ -2383,25 +2427,14 @@ fun CommandPaletteModal(
         )
         list.add(
             CommandPaletteEntry(
-                id = "tool_update",
-                categoryBadge = "UPDATE",
-                title = "App: Check for Updates (Google Play Protect Verified)",
-                subtitle = "Check GitHub Releases / Google Play channel with SHA-256 verification & System PackageInstaller",
+                id = "tool_gotoline",
+                categoryBadge = "GOTO",
+                title = "Navigate: Go to Line…",
+                subtitle = "Jump cursor directly to a 1-based line number in the active document",
+                shortcutHint = "Ctrl+G",
                 action = {
                     onDismiss()
-                    onOpenToolModal("update")
-                }
-            )
-        )
-        list.add(
-            CommandPaletteEntry(
-                id = "tool_diagnostics",
-                categoryBadge = "LINTER",
-                title = "Open PSScriptAnalyzer Live Diagnostics",
-                subtitle = "Inspect warnings, errors, and apply one-click Quick Fixes",
-                action = {
-                    onDismiss()
-                    onOpenToolModal("diagnostics")
+                    onOpenToolModal("gotoline")
                 }
             )
         )
@@ -2415,6 +2448,19 @@ fun CommandPaletteModal(
                 action = {
                     onDismiss()
                     onOpenToolModal("find")
+                }
+            )
+        )
+        list.add(
+            CommandPaletteEntry(
+                id = "tool_multifind",
+                categoryBadge = "SEARCH",
+                title = "Open Multi-File Project Search & Batch Replace",
+                subtitle = "Search across mounted SAF project directory files with glob filters",
+                shortcutHint = "Ctrl+Shift+F",
+                action = {
+                    onDismiss()
+                    onOpenToolModal("multifind")
                 }
             )
         )
@@ -2442,6 +2488,54 @@ fun CommandPaletteModal(
                 }
             )
         )
+        list.add(
+            CommandPaletteEntry(
+                id = "tool_clippings",
+                categoryBadge = "SNIPPETS",
+                title = "Open Clippings & PowerShell Snippets Library",
+                subtitle = "Browse, search, and create custom #INSERTION# / #SELECTION# templates",
+                action = {
+                    onDismiss()
+                    onOpenToolModal("clippings")
+                }
+            )
+        )
+        list.add(
+            CommandPaletteEntry(
+                id = "tool_diagnostics",
+                categoryBadge = "LINTER",
+                title = "Open PSScriptAnalyzer Live Diagnostics",
+                subtitle = "Inspect warnings, errors, and apply one-click Quick Fixes",
+                action = {
+                    onDismiss()
+                    onOpenToolModal("diagnostics")
+                }
+            )
+        )
+        list.add(
+            CommandPaletteEntry(
+                id = "tool_settings",
+                categoryBadge = "PREFS",
+                title = "Open Preferences & Material 3 Expressive Appearance",
+                subtitle = "Configure themes, 6 UI languages, font size, tab width, soft wrap, and guides",
+                action = {
+                    onDismiss()
+                    onOpenToolModal("settings")
+                }
+            )
+        )
+        list.add(
+            CommandPaletteEntry(
+                id = "tool_update",
+                categoryBadge = "UPDATE",
+                title = "App: Check for Updates (Google Play Protect Verified)",
+                subtitle = "Check GitHub Releases / Google Play channel with SHA-256 verification & System PackageInstaller",
+                action = {
+                    onDismiss()
+                    onOpenToolModal("update")
+                }
+            )
+        )
 
         // 5. PowerShell Clippings
         clippings.forEach { clip ->
@@ -2466,7 +2560,7 @@ fun CommandPaletteModal(
                     id = "theme_${mode.name}",
                     categoryBadge = "THEME",
                     title = "Switch Editor Theme: ${mode.name}",
-                    subtitle = "Material 3 Adaptive Developer Color Scheme",
+                    subtitle = "Material 3 Expressive Color Scheme",
                     action = {
                         onSelectTheme(mode)
                         onDismiss()
@@ -2516,7 +2610,7 @@ fun CommandPaletteModal(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
@@ -2525,7 +2619,7 @@ fun CommandPaletteModal(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Command Palette & Quick Switcher (Ctrl+Shift+P)",
+                    text = "Command Palette & Quick Switcher (Ctrl+P)",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -2541,6 +2635,7 @@ fun CommandPaletteModal(
                     Text("Type a command, file name, AST function, BBEdit transform, clipping, or language...")
                 },
                 singleLine = true,
+                shape = GravityEditThemeDefaults.pillShape,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(
                     onDone = {
@@ -2558,7 +2653,7 @@ fun CommandPaletteModal(
             ) {
                 items(filteredEntries, key = { it.id }) { item ->
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2572,7 +2667,7 @@ fun CommandPaletteModal(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Surface(
-                                shape = RoundedCornerShape(4.dp),
+                                shape = GravityEditThemeDefaults.pillShape,
                                 color = MaterialTheme.colorScheme.primaryContainer
                             ) {
                                 Text(
@@ -2581,7 +2676,7 @@ fun CommandPaletteModal(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                                 )
                             }
 
@@ -2619,7 +2714,12 @@ fun CommandPaletteModal(
 
     if (isCompactMobile) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            shape = GravityEditThemeDefaults.sheetShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
             content()
         }
     } else {
@@ -2628,7 +2728,7 @@ fun CommandPaletteModal(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = GravityEditThemeDefaults.dialogShape,
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 6.dp,
                 modifier = Modifier
@@ -2912,7 +3012,12 @@ fun NewDocumentDialog(
 
     if (isCompactMobile) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            shape = GravityEditThemeDefaults.sheetShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
             content()
         }
     } else {
@@ -2921,7 +3026,7 @@ fun NewDocumentDialog(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = GravityEditThemeDefaults.dialogShape,
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 6.dp,
                 modifier = Modifier
@@ -2963,7 +3068,7 @@ fun AppUpdateModal(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(18.dp),
+                .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
@@ -2990,13 +3095,14 @@ fun AppUpdateModal(
 
             // 1. Distribution Channel & Play Protect Security Card
             Card(
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Row(
@@ -3010,7 +3116,7 @@ fun AppUpdateModal(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
+                            shape = GravityEditThemeDefaults.pillShape,
                             color = MaterialTheme.colorScheme.primaryContainer
                         ) {
                             Text(
@@ -3019,7 +3125,7 @@ fun AppUpdateModal(
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
                     }
@@ -3038,13 +3144,14 @@ fun AppUpdateModal(
 
             // 2. Installed vs. Latest Version Status Card
             Card(
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
@@ -3142,7 +3249,7 @@ fun AppUpdateModal(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLowest,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3153,7 +3260,7 @@ fun AppUpdateModal(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 11.sp,
                         modifier = Modifier
-                            .padding(10.dp)
+                            .padding(12.dp)
                             .verticalScroll(rememberScrollState())
                     )
                 }
@@ -3186,6 +3293,7 @@ fun AppUpdateModal(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = onCheckNow,
+                        shape = GravityEditThemeDefaults.pillShape,
                         enabled = updateStatus != AppUpdateCheckStatus.CHECKING &&
                             updateStatus != AppUpdateCheckStatus.DOWNLOADING
                     ) {
@@ -3194,6 +3302,7 @@ fun AppUpdateModal(
 
                     Button(
                         onClick = onDownloadAndInstall,
+                        shape = GravityEditThemeDefaults.pillShape,
                         enabled = updateStatus != AppUpdateCheckStatus.DOWNLOADING
                     ) {
                         Text(
@@ -3216,7 +3325,12 @@ fun AppUpdateModal(
 
     if (isCompactMobile) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            shape = GravityEditThemeDefaults.sheetShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
             content()
         }
     } else {
@@ -3225,7 +3339,7 @@ fun AppUpdateModal(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = GravityEditThemeDefaults.dialogShape,
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 6.dp,
                 modifier = Modifier
@@ -3237,3 +3351,4 @@ fun AppUpdateModal(
         }
     }
 }
+

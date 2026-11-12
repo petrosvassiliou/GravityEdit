@@ -1,9 +1,13 @@
 package com.gravityedit.app.ui.components
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,8 +26,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -57,6 +63,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -96,6 +103,7 @@ import com.gravityedit.app.domain.model.SearchMatch
 import com.gravityedit.app.domain.model.SyntaxLanguage
 import com.gravityedit.app.ui.theme.EditorSyntaxPalette
 import com.gravityedit.app.ui.theme.GravityEditThemeDefaults
+import com.gravityedit.app.ui.theme.GravityExpressiveMotion
 import com.gravityedit.app.ui.theme.JetBrainsMonoFontFamily
 import com.gravityedit.app.ui.theme.editorCodeTextStyle
 
@@ -203,7 +211,7 @@ fun EditorCanvas(
                     isFolded = isCollapsed
                 )
             )
-            if (isCollapsed && fold != null && fold.endLine > i) {
+            if (isCollapsed && fold.endLine > i) {
                 i = fold.endLine + 1
             } else {
                 i++
@@ -535,13 +543,13 @@ private fun PowerShellInlineCompletionPopup(
         modifier = Modifier
             .fillMaxWidth()
             .background(palette.activeLineBackground)
-            .padding(start = gutterWidth + 8.dp, end = 8.dp, top = 2.dp, bottom = 4.dp),
+            .padding(start = gutterWidth + 8.dp, end = 8.dp, top = 3.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Surface(
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(16.dp),
             tonalElevation = 6.dp,
-            shadowElevation = 4.dp,
+            shadowElevation = 6.dp,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             border = androidx.compose.foundation.BorderStroke(
                 width = 1.dp,
@@ -549,12 +557,13 @@ private fun PowerShellInlineCompletionPopup(
             ),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(vertical = 4.dp, horizontal = 6.dp)) {
+            Column(modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp)) {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(completions, key = { it.label }) { item ->
+                    itemsIndexed(completions, key = { _, it -> it.label }) { index, item ->
+                        val isPrimaryCandidate = index == 0
                         val badgeColor = when (item.kind) {
                             CompletionKind.CMDLET -> palette.cmdlet
                             CompletionKind.VARIABLE -> palette.variableNormal
@@ -564,32 +573,50 @@ private fun PowerShellInlineCompletionPopup(
                             CompletionKind.KEYWORD -> palette.keyword
                         }
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            shape = CircleShape,
+                            color = if (isPrimaryCandidate) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerLowest
+                            },
                             border = androidx.compose.foundation.BorderStroke(
                                 width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant
+                                color = if (isPrimaryCandidate) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outlineVariant
+                                }
                             ),
                             modifier = Modifier.clickable { onSelectCompletion(item) }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(
-                                    text = item.kind.badge,
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = badgeColor
-                                )
+                                Surface(
+                                    shape = CircleShape,
+                                    color = badgeColor.copy(alpha = 0.16f)
+                                ) {
+                                    Text(
+                                        text = item.kind.badge,
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = badgeColor,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
                                 Text(
                                     text = item.label,
                                     fontFamily = JetBrainsMonoFontFamily,
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = palette.editorForeground
+                                    fontWeight = if (isPrimaryCandidate) FontWeight.Bold else FontWeight.SemiBold,
+                                    color = if (isPrimaryCandidate) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        palette.editorForeground
+                                    }
                                 )
                             }
                         }
@@ -602,7 +629,7 @@ private fun PowerShellInlineCompletionPopup(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        modifier = Modifier.padding(top = 3.dp, start = 2.dp)
+                        modifier = Modifier.padding(top = 4.dp, start = 4.dp)
                     )
                 }
             }
@@ -884,30 +911,30 @@ private fun FoldedRegionPill(
     onUnfold: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
         border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
         ),
         modifier = Modifier.clickable(onClick = onUnfold)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = Icons.Default.UnfoldMore,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(12.dp)
+                modifier = Modifier.size(13.dp)
             )
-            Spacer(modifier = Modifier.width(3.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "${foldRegion.label} (${foldRegion.lineSpan} lines)",
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = (fontSizeSp * 0.80f).sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
                 color = palette.editorForeground
             )
         }
@@ -919,9 +946,9 @@ private val POWERSHELL_AUX_SYMBOLS: List<String> = listOf(
 )
 
 /**
- * Sticky PowerShell Auxiliary Symbol Row for Android Mobile Mode (and touch tablets):
- * Docked directly above the soft keyboard (`Modifier.imePadding()`) providing one-tap
- * insertion for PowerShell-critical tokens plus quick Undo, Redo, Tab/Indent, and Unindent buttons.
+ * Sticky Material 3 Expressive PowerShell Auxiliary Symbol Row for Android Mobile Mode:
+ * Provides one-tap insertion for PowerShell-critical tokens with spring-morphing key pills
+ * plus a connected tonal action cluster for Undo, Redo, Indent, and Unindent.
  */
 @Composable
 fun PowerShellAuxiliarySymbolRow(
@@ -932,16 +959,17 @@ fun PowerShellAuxiliarySymbolRow(
     onRedo: () -> Unit,
     onIndent: () -> Unit,
     onUnindent: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    applyImePadding: Boolean = false
 ) {
     val auxRowDescription = stringResource(R.string.aux_row_description)
     Surface(
         tonalElevation = 4.dp,
-        shadowElevation = 6.dp,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier
             .fillMaxWidth()
-            .imePadding()
+            .then(if (applyImePadding) Modifier.imePadding() else Modifier)
             .semantics { contentDescription = auxRowDescription }
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -949,96 +977,150 @@ fun PowerShellAuxiliarySymbolRow(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(42.dp)
-                    .padding(horizontal = 4.dp),
+                    .height(46.dp)
+                    .padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Quick Action Controls: Undo, Redo, Indent, Unindent
-                IconButton(
-                    onClick = onUndo,
-                    enabled = canUndo,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Undo,
-                        contentDescription = stringResource(R.string.action_undo),
-                        modifier = Modifier.size(18.dp)
+                // Connected Expressive Action Cluster: Undo, Redo, Indent, Unindent
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = androidx.compose.foundation.BorderStroke(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant
                     )
-                }
-                IconButton(
-                    onClick = onRedo,
-                    enabled = canRedo,
-                    modifier = Modifier.size(34.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Redo,
-                        contentDescription = stringResource(R.string.action_redo),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                IconButton(
-                    onClick = onIndent,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.FormatIndentIncrease,
-                        contentDescription = stringResource(R.string.action_indent),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                IconButton(
-                    onClick = onUnindent,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.FormatIndentDecrease,
-                        contentDescription = stringResource(R.string.action_unindent),
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 1.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = onUndo,
+                            enabled = canUndo,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Undo,
+                                contentDescription = stringResource(R.string.action_undo),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onRedo,
+                            enabled = canRedo,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Redo,
+                                contentDescription = stringResource(R.string.action_redo),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onIndent,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.FormatIndentIncrease,
+                                contentDescription = stringResource(R.string.action_indent),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onUnindent,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.FormatIndentDecrease,
+                                contentDescription = stringResource(R.string.action_unindent),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                    }
                 }
 
-                VerticalDivider(
-                    modifier = Modifier
-                        .fillMaxHeight(0.65f)
-                        .padding(horizontal = 4.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant
-                )
+                Spacer(modifier = Modifier.width(6.dp))
 
-                // Scrollable PowerShell Symbol Keys
+                // Scrollable Expressive PowerShell Symbol Key Pills with Spring Morphing
                 LazyRow(
                     modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                     contentPadding = PaddingValues(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(POWERSHELL_AUX_SYMBOLS) { symbol ->
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant
-                            ),
-                            modifier = Modifier
-                                .height(32.dp)
-                                .clickable { onInsertToken(symbol) }
-                        ) {
-                            Box(
-                                modifier = Modifier.padding(horizontal = 11.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = symbol,
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
+                    items(POWERSHELL_AUX_SYMBOLS, key = { it }) { symbol ->
+                        ExpressiveAuxSymbolKey(
+                            symbol = symbol,
+                            onClick = { onInsertToken(symbol) }
+                        )
                     }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun ExpressiveAuxSymbolKey(
+    symbol: String,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val cornerRadius by animateDpAsState(
+        targetValue = if (isPressed) 10.dp else 17.dp,
+        animationSpec = GravityExpressiveMotion.spatialFast(),
+        label = "auxSymbolCorner"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.92f else 1f,
+        animationSpec = GravityExpressiveMotion.spatialFast(),
+        label = "auxSymbolScale"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(cornerRadius),
+        color = if (isPressed) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = if (isPressed) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            }
+        ),
+        modifier = Modifier
+            .height(34.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = symbol,
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = if (isPressed) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.primary
+                }
+            )
+        }
+    }
+}
+

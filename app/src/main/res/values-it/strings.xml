@@ -128,11 +128,11 @@
 
     <!-- Settings, Themes & Localization -->
     <string name="settings_title">Preferenze e aspetto</string>
-    <string name="settings_theme_section">Schema colori dell\'editor</string>
-    <string name="theme_dynamic">Material 3 Dinamico (Monet)</string>
-    <string name="theme_light">M3 Sviluppatore Chiaro</string>
-    <string name="theme_dark">M3 Sviluppatore Scuro</string>
-    <string name="theme_amoled">Nero assoluto AMOLED (#000000)</string>
+    <string name="settings_theme_section">Schema colori Material 3 Expressive</string>
+    <string name="theme_dynamic">M3 Expressive Dinamico (Monet)</string>
+    <string name="theme_light">M3 Expressive Chiaro</string>
+    <string name="theme_dark">M3 Expressive Scuro</string>
+    <string name="theme_amoled">M3 Expressive AMOLED (#000000)</string>
     <string name="settings_language_section">Lingua dell\'interfaccia</string>
     <string name="lang_en">English</string>
     <string name="lang_de">Deutsch (German)</string>
@@ -144,4 +144,13 @@
     <string name="settings_font_size">Dimensione carattere (%1$d sp)</string>
     <string name="settings_tab_width">Ampiezza tabulazione (%1$d spazi)</string>
     <string name="aux_row_description">Barra simboli ausiliari PowerShell</string>
+
+    <!-- Expressive Context Menus & Workspace Overflow Actions -->
+    <string name="action_rename_document">Rinomina documento…</string>
+    <string name="action_move_tab_left">← Sposta scheda a sinistra</string>
+    <string name="action_move_tab_right">Sposta scheda a destra →</string>
+    <string name="action_more_options">Altre opzioni</string>
+    <string name="action_diagnostics">Diagnostica PowerShell</string>
+    <string name="action_command_palette">Tavolozza comandi</string>
+    <string name="action_check_updates">Versione e aggiornamenti</string>
 </resources>

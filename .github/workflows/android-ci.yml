@@ -54,17 +54,16 @@ jobs:
           APK_SHA256=$(sha256sum "$APK_FILE" | awk '{print $1}')
           echo "$APK_SHA256  $APK_FILE" > "${APK_FILE}.sha256"
           cat <<EOF > release-notes.md
-          ### GravityEdit ${TAG_NAME} — Quality Assurance & Reliability Update
-          - **Editor Cursor, Selection & Hardware Keys:** Fixed real-time \`Ln/Col\` & Selection Statistics sync, \`Enter\` key smart \`{\`/\`(\` auto-indent when \`softWrap\` is off, \`Tab\`/\`Shift+Tab\` completion & block indentation, and \`Up\`/\`Down\` arrow cross-line navigation
-          - **Split-View, Mobile Ergonomics & Edge-to-Edge Insets:** Isolated per-pane folds/diagnostics/matches in Split View, added Android edge-to-edge \`systemBarsPadding()\`, made the bottom Status Bar horizontally scrollable on compact phones, selected filename stems on inline tab rename, and added \`Ctrl++\` / \`Ctrl+-\` / \`Ctrl+0\` zoom shortcuts
-          - **PowerShell Diagnostics & Clippings Engine:** Tracked \`@{\`, \`@(\`, and \`\$(\` delimiters without false-positive brace/paren errors, detected aliases after pipes/assignments and inside \`"\$(...)"\` interpolations while ignoring hashtable keys, fixed \`\$sender\`, and fixed \`\$(\$MyInvocation.MyCommand.Name)\` in \`ps_cmdlet_binding\`
-          - **Complete Find/Replace & BBEdit Text Factory Controls:** Added \`Multi-Line (^\$)\` and \`Dot Matches All (?s)\` chips, fixed \`Selection Only\` range exclusivity & Multi-File jump-to-line on unopened SAF files, exposed all 8 remaining Text Factory step controls, and added automatic release metadata pre-fetch to the Play Protect Auto-Update Center
+          ### GravityEdit ${TAG_NAME} — Material 3 Expressive Design & Comprehensive QS Update
+          - **Material 3 Expressive Design System:** High-chroma Light/Dark/AMOLED/Dynamic color containers (\`surfaceContainerLowest\`..\`Highest\`), \`GravityExpressiveShapes\` (\`10dp\`–\`32dp\` + full-pill \`CircleShape\`), spring-physics \`GravityExpressiveMotion\` (\`spatialFast\` / \`spatialDefault\` / \`effectsDefault\`), morphing pill tabs & auxiliary symbol keys, connected \`Single | Vertical | Horizontal\` Split-Mode button group, and \`28dp\` Expressive dialogs & adaptive mobile \`ModalBottomSheet\`s
+          - **Pinned Bottom-Left App Version Badge:** Always-visible \`v1.2.0\` version pill anchored at the true bottom-left corner of the screen across both Googlebook OS Desktop and Android Compact Mobile layouts (retaining \`v1.2.0 • ⬆ vX.Y.Z\` when updates are available and opening the Play Protect Update Center on tap)
+          - **100% UI Action & Menu Parity (Round 2 QS):** Added \`WorkspaceOverflowDropdownMenu\` on Desktop & Mobile exposing every File, Edit, Navigation, Tool, Settings, and Update action; unified Expressive tab bar with localized context menus on both Desktop & Mobile; fixed background-tab \`Save\` focus preservation (\`requestSaveDocument\`) and search-match cleanup; completed Command Palette entries; and verified 132/132 string key parity across all 6 languages (\`en\`, \`de\`, \`es\`, \`fr\`, \`it\`, \`el\`)
 
           ### Cryptographic Integrity (Play Protect Auto-Update Verification)
           - **APK Asset:** \`${APK_FILE}\`
           - **SHA-256:** \`${APK_SHA256}\`
           EOF
           gh release create "$TAG_NAME" "$APK_FILE" "${APK_FILE}.sha256" \
-            --title "GravityEdit ${TAG_NAME} — Quality & Reliability Update (Play Protect Verified)" \
+            --title "GravityEdit ${TAG_NAME} — Material 3 Expressive Design & QS Update" \
             --notes-file release-notes.md
 
