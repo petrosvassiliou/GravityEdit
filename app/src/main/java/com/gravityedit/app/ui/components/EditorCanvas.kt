@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -575,7 +577,7 @@ private fun PowerShellInlineCompletionPopup(
                         Surface(
                             shape = CircleShape,
                             color = if (isPrimaryCandidate) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+                                MaterialTheme.colorScheme.primaryContainer
                             } else {
                                 MaterialTheme.colorScheme.surfaceContainerLowest
                             },
@@ -587,7 +589,9 @@ private fun PowerShellInlineCompletionPopup(
                                     MaterialTheme.colorScheme.outlineVariant
                                 }
                             ),
-                            modifier = Modifier.clickable { onSelectCompletion(item) }
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable { onSelectCompletion(item) }
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -669,6 +673,7 @@ private fun EditorLineGutterCell(
                 modifier = Modifier
                     .size(6.dp)
                     .background(dotColor, RoundedCornerShape(3.dp))
+                    .clip(CircleShape)
                     .clickable(onClick = onSelectLine)
             )
             Spacer(modifier = Modifier.width(3.dp))
@@ -692,7 +697,9 @@ private fun EditorLineGutterCell(
                     .size(16.dp)
                     .then(
                         if (foldRegion != null) {
-                            Modifier.clickable(onClick = onToggleFold)
+                            Modifier
+                                .clip(CircleShape)
+                                .clickable(onClick = onToggleFold)
                         } else {
                             Modifier
                         }
@@ -912,12 +919,14 @@ private fun FoldedRegionPill(
 ) {
     Surface(
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+        color = MaterialTheme.colorScheme.secondaryContainer,
         border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
         ),
-        modifier = Modifier.clickable(onClick = onUnfold)
+        modifier = Modifier
+            .clip(CircleShape)
+            .clickable(onClick = onUnfold)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 2.dp),
@@ -1067,6 +1076,7 @@ private fun ExpressiveAuxSymbolKey(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val isHovered by interactionSource.collectIsHoveredAsState()
     val cornerRadius by animateDpAsState(
         targetValue = if (isPressed) 10.dp else 17.dp,
         animationSpec = GravityExpressiveMotion.spatialFast(),
@@ -1077,20 +1087,21 @@ private fun ExpressiveAuxSymbolKey(
         animationSpec = GravityExpressiveMotion.spatialFast(),
         label = "auxSymbolScale"
     )
+    val keyShape = RoundedCornerShape(cornerRadius)
 
     Surface(
-        shape = RoundedCornerShape(cornerRadius),
-        color = if (isPressed) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
+        shape = keyShape,
+        color = when {
+            isPressed -> MaterialTheme.colorScheme.primaryContainer
+            isHovered -> MaterialTheme.colorScheme.surfaceContainerHighest
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh
         },
         border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,
-            color = if (isPressed) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.outlineVariant
+            color = when {
+                isPressed -> MaterialTheme.colorScheme.primary
+                isHovered -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                else -> MaterialTheme.colorScheme.outlineVariant
             }
         ),
         modifier = Modifier
@@ -1099,6 +1110,7 @@ private fun ExpressiveAuxSymbolKey(
                 scaleX = scale
                 scaleY = scale
             }
+            .clip(keyShape)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,

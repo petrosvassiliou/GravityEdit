@@ -628,10 +628,10 @@ class GravityEditEnginesTest {
 
     @Test
     fun appUpdateEngine_enforcesPlayProtectZeroInstallPermissionHygiene() {
-        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.2", "v1.2.1"))
-        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.2", "v1.2.2"))
-        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.1", "v1.2.2"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.3", "v1.2.2"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.3", "v1.2.3"))
         assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.2", "v1.2.3"))
+        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.3", "v1.2.4"))
 
         val manifestFile = java.io.File("src/main/AndroidManifest.xml").takeIf { it.isFile }
             ?: java.io.File("app/src/main/AndroidManifest.xml")
@@ -659,6 +659,50 @@ class GravityEditEnginesTest {
             engineSrc.contains("ACTION_MANAGE_UNKNOWN_APP_SOURCES")
         )
     }
+
+    @Test
+    fun expressiveControls_enforceZeroHoverShadowElevationHygiene() {
+        val controlsFile = java.io.File("src/main/java/com/gravityedit/app/ui/components/GravityExpressiveControls.kt").takeIf { it.isFile }
+            ?: java.io.File("app/src/main/java/com/gravityedit/app/ui/components/GravityExpressiveControls.kt")
+        assertTrue("Expected GravityExpressiveControls.kt at ${controlsFile.absolutePath}", controlsFile.isFile)
+        val controlsSrc = controlsFile.readText(Charsets.UTF_8)
+
+        // All 5 elevation helper defaults (button, tonalButton, filterChip, assistChip, card) must set hoveredElevation = 0.dp
+        val zeroHoverCount = Regex("""hoveredElevation\s*=\s*0\.dp""").findAll(controlsSrc).count()
+        assertEquals(
+            "All 5 Material 3 Expressive control elevation defaults must force hoveredElevation = 0.dp to prevent HWUI ShadowTessellator hover slit artifacts",
+            5,
+            zeroHoverCount
+        )
+
+        val uiFilesToAudit = listOf(
+            "ui/components/DialogsAndTools.kt",
+            "ui/GravityEditScaffold.kt",
+            "ui/components/EditorCanvas.kt"
+        )
+        val forbiddenRawImports = listOf(
+            "import androidx.compose.material3.FilterChip",
+            "import androidx.compose.material3.AssistChip",
+            "import androidx.compose.material3.Button",
+            "import androidx.compose.material3.FilledTonalButton",
+            "import androidx.compose.material3.OutlinedButton",
+            "import androidx.compose.material3.TextButton",
+            "import androidx.compose.material3.Card"
+        )
+        for (relPath in uiFilesToAudit) {
+            val file = java.io.File("src/main/java/com/gravityedit/app/$relPath").takeIf { it.isFile }
+                ?: java.io.File("app/src/main/java/com/gravityedit/app/$relPath")
+            assertTrue("Expected UI file at ${file.absolutePath}", file.isFile)
+            val lines = file.readLines(Charsets.UTF_8).map { it.trim() }
+            for (forbidden in forbiddenRawImports) {
+                assertFalse(
+                    "$relPath must use zero-hover-shadow wrapper in com.gravityedit.app.ui.components instead of '$forbidden'",
+                    lines.contains(forbidden)
+                )
+            }
+        }
+    }
 }
+
 
 

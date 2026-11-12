@@ -75,7 +75,6 @@ import androidx.compose.material.icons.filled.ViewColumn
 import androidx.compose.material.icons.filled.ViewStream
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
@@ -90,7 +89,6 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
@@ -106,6 +104,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -146,12 +145,14 @@ import com.gravityedit.app.domain.model.SplitViewMode
 import com.gravityedit.app.domain.model.SyntaxLanguage
 import com.gravityedit.app.domain.model.WorkspaceToolPanel
 import com.gravityedit.app.ui.components.AppUpdateModal
+import com.gravityedit.app.ui.components.AssistChip
 import com.gravityedit.app.ui.components.ClippingsModal
 import com.gravityedit.app.ui.components.CommandPaletteModal
 import com.gravityedit.app.ui.components.EditorCanvas
 import com.gravityedit.app.ui.components.FindReplaceModal
 import com.gravityedit.app.ui.components.GoToLineDialog
 import com.gravityedit.app.ui.components.NewDocumentDialog
+import com.gravityedit.app.ui.components.OutlinedButton
 import com.gravityedit.app.ui.components.PowerShellAuxiliarySymbolRow
 import com.gravityedit.app.ui.components.PowerShellDiagnosticsModal
 import com.gravityedit.app.ui.components.SettingsModal
@@ -999,6 +1000,7 @@ private fun LeftSidebarContent(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
                             .combinedClickable(
                                 onClick = {
                                     if (isSelected && !doc.isScratchpad) {
@@ -1066,6 +1068,7 @@ private fun LeftSidebarContent(
                                     contentDescription = stringResource(R.string.action_close_tab),
                                     modifier = Modifier
                                         .size(15.dp)
+                                        .clip(CircleShape)
                                         .clickable { onCloseDocument(doc.id) }
                                 )
                             }
@@ -1265,6 +1268,7 @@ private fun LeftSidebarContent(
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
                             .clickable { onToggleDirectoryNode(node) }
                     ) {
                         Row(
@@ -1360,11 +1364,12 @@ private fun MobileTopActionBar(
             Box(modifier = Modifier.weight(1f)) {
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(34.dp)
+                        .clip(CircleShape)
                         .clickable { onFunctionMenuExpandedChange(true) }
                 ) {
                     Row(
@@ -1561,10 +1566,11 @@ private fun DesktopTopActionBar(
             Box {
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.75f),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier
                         .height(34.dp)
+                        .clip(CircleShape)
                         .clickable { onFunctionMenuExpandedChange(true) }
                 ) {
                     Row(
@@ -1689,6 +1695,7 @@ private fun ExpressiveToolbarPillButton(
         color = bgColor,
         modifier = Modifier
             .height(32.dp)
+            .clip(CircleShape)
             .clickable(onClick = onClick)
     ) {
         Row(
@@ -1760,18 +1767,20 @@ private fun ExpressiveSplitModeButtonGroup(
                 animationSpec = GravityExpressiveMotion.effectsDefault(),
                 label = "splitContainerColor_$index"
             )
+            val segmentShape = RoundedCornerShape(
+                topStart = startRadius,
+                bottomStart = startRadius,
+                topEnd = endRadius,
+                bottomEnd = endRadius
+            )
 
             Surface(
-                shape = RoundedCornerShape(
-                    topStart = startRadius,
-                    bottomStart = startRadius,
-                    topEnd = endRadius,
-                    bottomEnd = endRadius
-                ),
+                shape = segmentShape,
                 color = containerColor,
                 modifier = Modifier
                     .height(32.dp)
                     .width(if (selected) 38.dp else 32.dp)
+                    .clip(segmentShape)
                     .clickable { onSelectMode(mode) }
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -2098,8 +2107,9 @@ private fun MultiDocumentTabBar(
                 )
 
                 Box {
+                    val tabShape = RoundedCornerShape(cornerRadius)
                     Surface(
-                        shape = RoundedCornerShape(cornerRadius),
+                        shape = tabShape,
                         color = tabContainerColor,
                         border = BorderStroke(
                             width = 1.dp,
@@ -2111,6 +2121,7 @@ private fun MultiDocumentTabBar(
                         ),
                         modifier = Modifier
                             .height(33.dp)
+                            .clip(tabShape)
                             .combinedClickable(
                                 onClick = {
                                     if (isSelected && !doc.isScratchpad) {
@@ -2172,6 +2183,7 @@ private fun MultiDocumentTabBar(
                                     },
                                     modifier = Modifier
                                         .size(14.dp)
+                                        .clip(CircleShape)
                                         .clickable { onCloseTab(doc.id) }
                                 )
                             }
@@ -2354,7 +2366,9 @@ private fun InlineEditableDocumentTitle(
             } else {
                 MaterialTheme.colorScheme.onSurface
             },
-            modifier = Modifier.clickable { onStartEditing() }
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable { onStartEditing() }
         )
     }
 }
@@ -2639,7 +2653,7 @@ private fun ExpressiveBottomStatusBar(
                 color = if (updateAvailable) {
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
-                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
+                    MaterialTheme.colorScheme.secondaryContainer
                 },
                 border = BorderStroke(
                     width = 1.dp,
@@ -2652,6 +2666,7 @@ private fun ExpressiveBottomStatusBar(
                 modifier = Modifier
                     .height(22.dp)
                     .semantics { contentDescription = "$checkUpdatesLabel v$versionClean" }
+                    .clip(CircleShape)
                     .clickable(onClick = onOpenUpdateModal)
             ) {
                 Row(
@@ -2720,6 +2735,7 @@ private fun ExpressiveBottomStatusBar(
                             },
                             modifier = Modifier
                                 .height(22.dp)
+                                .clip(CircleShape)
                                 .clickable(onClick = onOpenDiagnostics)
                         ) {
                             Box(
@@ -2876,13 +2892,16 @@ private fun ExpressiveBottomStatusBar(
                                 contentDescription = "Zoom Out",
                                 modifier = Modifier
                                     .size(14.dp)
+                                    .clip(CircleShape)
                                     .clickable { onAdjustZoom(-10) }
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                             Text(
                                 text = stringResource(R.string.status_zoom, uiState.zoomPercent),
                                 style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.clickable(onClick = onResetZoom)
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable(onClick = onResetZoom)
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                             Icon(
@@ -2890,6 +2909,7 @@ private fun ExpressiveBottomStatusBar(
                                 contentDescription = "Zoom In",
                                 modifier = Modifier
                                     .size(14.dp)
+                                    .clip(CircleShape)
                                     .clickable { onAdjustZoom(10) }
                             )
                         }
@@ -2911,6 +2931,7 @@ private fun StatusInteractivePill(
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier
             .height(22.dp)
+            .clip(CircleShape)
             .clickable(onClick = onClick)
     ) {
         Box(

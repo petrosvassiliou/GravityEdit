@@ -7,8 +7,12 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.ripple.RippleAlpha
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RippleConfiguration
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -453,6 +457,17 @@ object GravityEditThemeDefaults {
     val sheetShape: Shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+private val GravityExpressiveRippleConfiguration = RippleConfiguration(
+    rippleAlpha = RippleAlpha(
+        pressedAlpha = 0.10f,
+        focusedAlpha = 0.08f,
+        draggedAlpha = 0.12f,
+        hoveredAlpha = 0.05f
+    )
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GravityEditTheme(
     themeMode: GravityThemeMode = GravityThemeMode.DARK,
@@ -516,8 +531,12 @@ fun GravityEditTheme(
         MaterialTheme(
             colorScheme = colorScheme,
             shapes = GravityExpressiveShapes,
-            typography = GravityTypography,
-            content = content
-        )
+            typography = GravityTypography
+        ) {
+            CompositionLocalProvider(
+                LocalRippleConfiguration provides GravityExpressiveRippleConfiguration,
+                content = content
+            )
+        }
     }
 }
