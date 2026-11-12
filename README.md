@@ -11,9 +11,9 @@
 [![Play Protect](https://img.shields.io/badge/Play%20Protect-Policy%20Compliant-00C853?style=for-the-badge&logo=googleplay&logoColor=white)](#4-google-play-protectcompatible-auto-updates)
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download Latest APK (v1.2.0)</strong></a>
+  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download Latest Signed APK (v1.2.1)</strong></a>
   &nbsp;•&nbsp;
-  <a href="#whats-new-in-v120">What's New in v1.2.0</a>
+  <a href="#whats-new-in-v121">What's New in v1.2.1</a>
   &nbsp;•&nbsp;
   <a href="#screenshots">Screenshots</a>
   &nbsp;•&nbsp;
@@ -36,16 +36,18 @@ Built from the ground up in **100% Kotlin** and **Jetpack Compose (Material 3 Ex
 
 ---
 
-## What's New in v1.2.0
+## What's New in v1.2.1
 
+- **Signed Production Release APK (`v1 + v2 + v3` Signature Schemes):**
+  - Published releases are now R8-shrunk production `release` APKs (`com.gravityedit.app`) signed with a persistent X.509 certificate (`CN=GravityEdit Release`) across **APK Signature Schemes v1, v2, and v3** — eliminating ephemeral CI debug-key conflicts (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`) and Google Play Protect `debuggable` warnings, while enabling seamless in-place upgrades via the Auto-Update Center.
 - **Material 3 Expressive Design Upgrade:**
   - High-chroma Expressive **Dark**, **Light**, **AMOLED Pitch-Black (`#000000`)**, and **Android 12+ Dynamic Color** themes with 5-step tonal containment (`surfaceContainerLowest`..`surfaceContainerHighest`), `GravityExpressiveShapes` (`10dp`–`32dp` + full-pill `CircleShape`), and physics-driven `GravityExpressiveMotion` spatial & color springs.
   - **Connected Split-Mode Button Group (`Single | Vertical | Horizontal`)** with spring-morphing active pill geometry, **morphing pill tabs** across Desktop & Mobile, tactile spring-scaled **PowerShell auxiliary symbol keys**, and **`28dp` Expressive dialogs & adaptive mobile `ModalBottomSheet`s**.
-- **Permanent Bottom-Left App Version Badge (`v1.2.0`):**
-  - Full-width `ExpressiveBottomStatusBar` anchored at the true bottom-left corner of the screen (`x = 0, y = bottom`) in both Googlebook OS Desktop and Android Compact Mobile modes — tap anytime to open the Play Protect Update Center (displays `v1.2.0 • ⬆ vX.Y.Z` when an update is available without hiding the installed version).
+- **Permanent Bottom-Left App Version Badge (`v1.2.1`):**
+  - Full-width `ExpressiveBottomStatusBar` anchored at the true bottom-left corner of the screen (`x = 0, y = bottom`) in both Googlebook OS Desktop and Android Compact Mobile modes — tap anytime to open the Play Protect Update Center (displays `v1.2.1 • ⬆ vX.Y.Z` when an update is available without hiding the installed version).
 - **100% UI Action Parity & Comprehensive QS Audit:**
   - Added the **Workspace Overflow Menu (`⋮`)** on both Desktop and Mobile so every File, Edit (`Duplicate Line`, `Select Line`, `Toggle Comment`, `Indent`/`Unindent`), Navigation (`Go to Line`), Tool, Settings, and Update action is clickable via UI as well as hardware shortcuts.
-  - Unified Desktop & Mobile tab context menus (preserving active editor focus when saving unfocused tabs), completed Command Palette tool triggers, and verified **132/132 string keys** across all 6 supported languages (`en`, `de`, `it`, `es`, `fr`, `el`) with 19 automated JUnit 4 tests.
+  - Unified Desktop & Mobile tab context menus (preserving active editor focus when saving unfocused tabs), completed Command Palette tool triggers, and verified **132/132 string keys** across all 6 supported languages (`en`, `de`, `it`, `es`, `fr`, `el`) with automated JUnit 4 tests.
 
 ---
 
@@ -225,12 +227,12 @@ app/src/main/java/com/gravityedit/app/
 
 ## Installation
 
-1. Download **`GravityEdit-v1.2.0.apk`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
-2. *(Optional)* Verify cryptographic integrity against `GravityEdit-v1.2.0.apk.sha256`:
+1. Download **`GravityEdit-v1.2.1.apk`** (`com.gravityedit.app`, signed with APK Signature Schemes `v1 + v2 + v3`) from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
+2. *(Optional)* Verify cryptographic integrity against `GravityEdit-v1.2.1.apk.sha256`:
    ```bash
-   sha256sum -c GravityEdit-v1.2.0.apk.sha256
+   sha256sum -c GravityEdit-v1.2.1.apk.sha256
    ```
-3. Open the APK on your **Android 8.0+ (API 26+)** phone, tablet, or **Googlebook OS** device. Future releases can be checked and verified directly by tapping **`v1.2.0`** at the bottom-left corner of the screen.
+3. Open the APK on your **Android 8.0+ (API 26+)** phone, tablet, or **Googlebook OS** device. *(If you previously installed an older `v1.0.0`–`v1.1.1` `.debug` build, you can safely uninstall that older copy; `v1.2.1` and all future releases share a permanent release certificate so updates install seamlessly in-place by tapping **`v1.2.1`** at the bottom-left corner of the screen.)*
 
 ---
 

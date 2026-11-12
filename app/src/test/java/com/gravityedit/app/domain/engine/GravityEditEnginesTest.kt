@@ -636,11 +636,20 @@ class GravityEditEnginesTest {
     }
 
     @Test
-    fun appUpdateEngine_handlesVersion120AndDebugSuffixCleanly() {
+    fun appUpdateEngine_handlesVersion121AndReleaseKeystorePresence() {
         assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.0-debug", "v1.2.0"))
-        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.0", "v1.1.1"))
-        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.1.1", "v1.2.0"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.1", "v1.2.0"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.1", "v1.2.1"))
+        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.1.1", "v1.2.1"))
         assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.0-debug", "v1.2.1"))
+        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.1", "v1.2.2"))
+
+        val keystoreFile = java.io.File("keystore/gravityedit-release.jks").takeIf { it.isFile }
+            ?: java.io.File("app/keystore/gravityedit-release.jks")
+        assertTrue(
+            "Expected persistent release signing keystore at ${keystoreFile.absolutePath}",
+            keystoreFile.isFile && keystoreFile.length() > 0L
+        )
     }
 }
 
