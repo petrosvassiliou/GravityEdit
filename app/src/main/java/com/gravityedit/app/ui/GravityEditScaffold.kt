@@ -259,10 +259,10 @@ fun GravityEditScaffold(
                 onFindNext = viewModel::findNextMatch,
                 onFindPrev = viewModel::findPreviousMatch,
                 onReplaceCurrent = viewModel::replaceCurrentMatch,
-                onReplaceAll = viewModel::replaceAllMatchesInActiveDocument,
-                onExtractToNewFile = viewModel::extractRegexMatchesToNewDocument,
+                onReplaceAll = viewModel::replaceAllInActiveDocument,
+                onExtractToNewFile = viewModel::extractMatchesToNewDocument,
                 onRunMultiFileSearch = viewModel::runMultiFileSearch,
-                onRunMultiFileReplace = viewModel::runMultiFileReplaceAll,
+                onRunMultiFileReplace = viewModel::runMultiFileReplace,
                 onOpenMultiFileMatch = { uriStr, lineNum ->
                     viewModel.openFileFromUri(android.net.Uri.parse(uriStr), jumpToLineNumber = lineNum)
                     viewModel.setFindReplaceModalVisible(false)
@@ -282,9 +282,9 @@ fun GravityEditScaffold(
                 onAddStep = viewModel::addTextFactoryStep,
                 onUpdateStep = viewModel::updateTextFactoryStep,
                 onRemoveStep = viewModel::removeTextFactoryStep,
-                onMoveStepUp = { id -> viewModel.moveTextFactoryStep(id, -1) },
-                onMoveStepDown = { id -> viewModel.moveTextFactoryStep(id, 1) },
-                onRunPipeline = viewModel::executeTextFactoryPipelineOnActiveDocument,
+                onMoveStepUp = viewModel::moveTextFactoryStepUp,
+                onMoveStepDown = viewModel::moveTextFactoryStepDown,
+                onRunPipeline = viewModel::runTextFactoryPipelineOnActiveDocument,
                 onDismiss = { viewModel.setTextFactoryModalVisible(false) }
             )
         }
