@@ -63,7 +63,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
-import java.io.File
 
 private val Application.gravityDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "gravity_edit_preferences"
@@ -138,7 +137,7 @@ data class GravityEditUiState(
     // Google Play Protect–Compatible Auto-Update State
     val showUpdateModal: Boolean = false,
     val installedVersionName: String = BuildConfig.VERSION_NAME,
-    val updateDistributionChannel: UpdateDistributionChannel = UpdateDistributionChannel.GITHUB_HTTPS_PACKAGE_INSTALLER,
+    val updateDistributionChannel: UpdateDistributionChannel = UpdateDistributionChannel.GITHUB_HTTPS_BROWSER_HANDOFF,
     val updateCheckStatus: AppUpdateCheckStatus = AppUpdateCheckStatus.IDLE,
     val latestReleaseInfo: AppReleaseInfo? = null,
     val updateDownloadProgress: Int = 0,
@@ -335,7 +334,6 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
 
     private var astParseJob: Job? = null
     private var scratchpadSaveJob: Job? = null
-    private var downloadedUpdateApkFile: File? = null
     private var untitledCounter = 2
 
     init {
@@ -2215,12 +2213,10 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
-     * Executes a Google Play Protect–compliant update:
-     * - If installed via Google Play Store (`com.android.vending`), opens the official Google Play
-     *   update flow without downloading any external code.
-     * - If installed directly / sideloaded, downloads the signed release APK over HTTPS into the
-     *   app-private cache, verifies its ZIP header & SHA-256 cryptographic digest, and launches the
-     *   system `PackageInstaller` via a scoped `FileProvider` URI for user-consented installation.
+     * Executes a Google Play Protect–clean update handoff:
+     * - If installed via Google Play Store (`com.android.vending`), opens Google Play Store.
+     * - Otherwise hands off the official HTTPS release URL to the user's trusted system browser
+     *   without declaring `REQUEST_INSTALL_PACKAGES` or downloading `.apk` files inside the app.
      */
     fun downloadAndInstallUpdate() {
         val context = getApplication<Application>()
@@ -2228,15 +2224,6 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
 
         if (state.updateDistributionChannel == UpdateDistributionChannel.GOOGLE_PLAY_STORE) {
             AppUpdateManagerEngine.launchGooglePlayStorePage(context)
-            return
-        }
-
-        val existingApk = downloadedUpdateApkFile
-        if (state.updateCheckStatus == AppUpdateCheckStatus.READY_TO_INSTALL &&
-            existingApk != null &&
-            existingApk.exists()
-        ) {
-            AppUpdateManagerEngine.launchPlayProtectCompliantUpdate(context, existingApk)
             return
         }
 
@@ -2264,48 +2251,13 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
 
-            if (release.apkDownloadUrl.isNullOrBlank()) {
-                AppUpdateManagerEngine.openUrlInBrowser(context, release.htmlUrl)
-                return@launch
-            }
-
             _uiState.update {
                 it.copy(
-                    updateCheckStatus = AppUpdateCheckStatus.DOWNLOADING,
-                    updateDownloadProgress = 0,
-                    updateErrorMessage = null
+                    verifiedApkSha256 = release.expectedSha256,
+                    statusBannerMessage = "Opening ${release.tagName} in trusted system browser…"
                 )
             }
-
-            val downloadResult = AppUpdateManagerEngine.downloadAndVerifyReleaseApk(
-                context = context,
-                release = release,
-                onProgressPercent = { pct ->
-                    _uiState.update { it.copy(updateDownloadProgress = pct) }
-                }
-            )
-            downloadResult.fold(
-                onSuccess = { (verifiedFile, sha256) ->
-                    downloadedUpdateApkFile = verifiedFile
-                    _uiState.update {
-                        it.copy(
-                            updateCheckStatus = AppUpdateCheckStatus.READY_TO_INSTALL,
-                            updateDownloadProgress = 100,
-                            verifiedApkSha256 = sha256,
-                            statusBannerMessage = "Verified ${release.tagName} APK (SHA-256: ${sha256.take(12)}…) — Launching System PackageInstaller"
-                        )
-                    }
-                    AppUpdateManagerEngine.launchPlayProtectCompliantUpdate(context, verifiedFile)
-                },
-                onFailure = { err ->
-                    _uiState.update {
-                        it.copy(
-                            updateCheckStatus = AppUpdateCheckStatus.ERROR,
-                            updateErrorMessage = err.message ?: "APK verification or download failed"
-                        )
-                    }
-                }
-            )
+            AppUpdateManagerEngine.launchSystemVerifiedUpdate(context, release)
         }
     }
 

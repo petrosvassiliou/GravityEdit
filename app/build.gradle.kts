@@ -12,8 +12,8 @@ android {
         applicationId = "com.gravityedit.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.2.1"
+        versionCode = 6
+        versionName = "1.2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -22,25 +22,28 @@ android {
         resourceConfigurations += listOf("en", "de", "it", "es", "fr", "el")
     }
 
+    val releaseKeystorePath = System.getenv("GRAVITY_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+    val hasReleaseSigning = releaseKeystorePath != null && file(releaseKeystorePath).exists()
+
     signingConfigs {
-        create("release") {
-            val envKeystorePath = System.getenv("GRAVITY_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
-            storeFile = if (envKeystorePath != null) file(envKeystorePath) else file("keystore/gravityedit-release.jks")
-            storePassword = System.getenv("GRAVITY_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
-                ?: "gravityedit-release-key-2026"
-            keyAlias = System.getenv("GRAVITY_KEY_ALIAS")?.takeIf { it.isNotBlank() }
-                ?: "gravityedit-release"
-            keyPassword = System.getenv("GRAVITY_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
-                ?: "gravityedit-release-key-2026"
-            enableV1Signing = true
-            enableV2Signing = true
-            enableV3Signing = true
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = System.getenv("GRAVITY_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("GRAVITY_KEY_ALIAS")
+                keyPassword = System.getenv("GRAVITY_KEY_PASSWORD")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

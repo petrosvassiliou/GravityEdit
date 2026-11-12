@@ -3309,11 +3309,11 @@ fun AppUpdateModal(
                             when (distributionChannel) {
                                 UpdateDistributionChannel.GOOGLE_PLAY_STORE ->
                                     "Update via Google Play"
-                                UpdateDistributionChannel.GITHUB_HTTPS_PACKAGE_INSTALLER ->
+                                UpdateDistributionChannel.GITHUB_HTTPS_BROWSER_HANDOFF ->
                                     if (updateStatus == AppUpdateCheckStatus.UPDATE_AVAILABLE) {
-                                        "Verify & Install (${latestRelease?.tagName ?: "Update"})"
+                                        "Download Update (${latestRelease?.tagName ?: "Latest"})"
                                     } else {
-                                        "Verify & Reinstall APK"
+                                        "Open Latest Release"
                                     }
                             }
                         )

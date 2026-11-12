@@ -11,9 +11,9 @@
 [![Play Protect](https://img.shields.io/badge/Play%20Protect-Policy%20Compliant-00C853?style=for-the-badge&logo=googleplay&logoColor=white)](#4-google-play-protectcompatible-auto-updates)
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download Latest Signed APK (v1.2.1)</strong></a>
+  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download Latest Signed APK (v1.2.2)</strong></a>
   &nbsp;•&nbsp;
-  <a href="#whats-new-in-v121">What's New in v1.2.1</a>
+  <a href="#whats-new-in-v122">What's New in v1.2.2</a>
   &nbsp;•&nbsp;
   <a href="#screenshots">Screenshots</a>
   &nbsp;•&nbsp;
@@ -36,18 +36,17 @@ Built from the ground up in **100% Kotlin** and **Jetpack Compose (Material 3 Ex
 
 ---
 
-## What's New in v1.2.1
+## What's New in v1.2.2
 
-- **Signed Production Release APK (`v1 + v2 + v3` Signature Schemes):**
-  - Published releases are now R8-shrunk production `release` APKs (`com.gravityedit.app`) signed with a persistent X.509 certificate (`CN=GravityEdit Release`) across **APK Signature Schemes v1, v2, and v3** — eliminating ephemeral CI debug-key conflicts (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`) and Google Play Protect `debuggable` warnings, while enabling seamless in-place upgrades via the Auto-Update Center.
+- **Google Play Protect Zero-Risk Hardening (`0` Sensitive Permissions):**
+  - Removed `android.permission.REQUEST_INSTALL_PACKAGES`, the `apk_updates` `FileProvider`, and all in-app `.apk` download / `PackageInstaller` bytecode so Google Play Protect never classifies GravityEdit as an APK dropper. Updates now check read-only JSON metadata over HTTPS and delegate downloads strictly to Google Play Store or the user's trusted system browser, signed via encrypted GitHub Actions Secrets (`v1 + v2 + v3` APK Signature Schemes).
 - **Material 3 Expressive Design Upgrade:**
   - High-chroma Expressive **Dark**, **Light**, **AMOLED Pitch-Black (`#000000`)**, and **Android 12+ Dynamic Color** themes with 5-step tonal containment (`surfaceContainerLowest`..`surfaceContainerHighest`), `GravityExpressiveShapes` (`10dp`–`32dp` + full-pill `CircleShape`), and physics-driven `GravityExpressiveMotion` spatial & color springs.
   - **Connected Split-Mode Button Group (`Single | Vertical | Horizontal`)** with spring-morphing active pill geometry, **morphing pill tabs** across Desktop & Mobile, tactile spring-scaled **PowerShell auxiliary symbol keys**, and **`28dp` Expressive dialogs & adaptive mobile `ModalBottomSheet`s**.
-- **Permanent Bottom-Left App Version Badge (`v1.2.1`):**
-  - Full-width `ExpressiveBottomStatusBar` anchored at the true bottom-left corner of the screen (`x = 0, y = bottom`) in both Googlebook OS Desktop and Android Compact Mobile modes — tap anytime to open the Play Protect Update Center (displays `v1.2.1 • ⬆ vX.Y.Z` when an update is available without hiding the installed version).
+- **Permanent Bottom-Left App Version Badge (`v1.2.2`):**
+  - Full-width `ExpressiveBottomStatusBar` anchored at the true bottom-left corner of the screen (`x = 0, y = bottom`) in both Googlebook OS Desktop and Android Compact Mobile modes — tap anytime to open the Update Center.
 - **100% UI Action Parity & Comprehensive QS Audit:**
-  - Added the **Workspace Overflow Menu (`⋮`)** on both Desktop and Mobile so every File, Edit (`Duplicate Line`, `Select Line`, `Toggle Comment`, `Indent`/`Unindent`), Navigation (`Go to Line`), Tool, Settings, and Update action is clickable via UI as well as hardware shortcuts.
-  - Unified Desktop & Mobile tab context menus (preserving active editor focus when saving unfocused tabs), completed Command Palette tool triggers, and verified **132/132 string keys** across all 6 supported languages (`en`, `de`, `it`, `es`, `fr`, `el`) with automated JUnit 4 tests.
+  - Added the **Workspace Overflow Menu (`⋮`)** on both Desktop and Mobile so every File, Edit (`Duplicate Line`, `Select Line`, `Toggle Comment`, `Indent`/`Unindent`), Navigation (`Go to Line`), Tool, Settings, and Update action is clickable via UI as well as hardware shortcuts, with **132/132 string keys** verified across all 6 languages (`en`, `de`, `it`, `es`, `fr`, `el`).
 
 ---
 
@@ -167,11 +166,11 @@ Line- and character-level **Myers Diff** with directional `←` / `→` merges a
 - **Clippings & Snippets (`ClippingsManager.kt`):** Expand dynamic placeholders (`#DATE#`, `#TIME#`, `#FILENAME#`, `#SELECTION#`, `#INSERTION#`) with a pre-loaded PowerShell snippet library.
 - **Persistent Scratchpad & Crash-Safe Auto-Save:** Instant DataStore-backed scratch buffer across restarts.
 
-### 4. Google Play Protect–Compatible Auto-Updates
-Implemented in [`AppUpdateManagerEngine.kt`](app/src/main/java/com/gravityedit/app/domain/engine/AppUpdateManagerEngine.kt) in strict compliance with Google Play Developer Policy & Google Play Protect:
-- **Source-Aware Routing:** Inspects `PackageManager.getInstallSourceInfo()` — installs originating from Google Play (`com.android.vending`) never download external APKs and route strictly through Google Play.
-- **Cryptographic Verification:** Direct GitHub installs check `releases/latest` over **HTTPS (TLS 1.3)**, stream the APK into private `cacheDir/updates/`, and validate both the APK ZIP magic header and the **SHA-256 cryptographic digest** against the published `.sha256` release asset.
-- **User-Consented System Handoff:** Hands off installation exclusively to Android's native `PackageInstaller` (`ACTION_VIEW` + scoped `FileProvider` URI) so Google Play Protect scans every update normally — zero silent installs, zero dynamic Dex/code loading.
+### 4. Google Play Protect–Compatible Auto-Updates (`0` Sensitive Permissions)
+Implemented in [`AppUpdateManagerEngine.kt`](app/src/main/java/com/gravityedit/app/domain/engine/AppUpdateManagerEngine.kt) in strict compliance with Google Play Developer Policy & Google Play Protect real-time scanning:
+- **Zero Install Permissions (`REQUEST_INSTALL_PACKAGES` Absent):** GravityEdit never declares `REQUEST_INSTALL_PACKAGES` and never downloads `.apk` binaries inside the app process, avoiding Play Protect's sideloaded dropper heuristic.
+- **Source-Aware Routing:** Inspects `PackageManager.getInstallSourceInfo()` — installs originating from Google Play (`com.android.vending`) route strictly through Google Play Store.
+- **Read-Only HTTPS Check & Trusted Browser Handoff:** Direct GitHub installs check read-only JSON metadata at `releases/latest` over **HTTPS (TLS 1.3)**, display the published **SHA-256 cryptographic digest**, and delegate downloads exclusively to the user's trusted system browser.
 
 ### 5. 6-Language Runtime Localization (`132/132` Keys)
 100% string parity verified by automated JUnit XML tests, with instant runtime switching via `AppCompatDelegate.setApplicationLocales()`:

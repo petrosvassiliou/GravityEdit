@@ -435,20 +435,11 @@ class GravityEditEnginesTest {
         assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer(currentVersion = "1.2.0", remoteVersion = "v1.2.0"))
         assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer(currentVersion = "1.2.0", remoteVersion = "v1.1.9"))
 
-        // Verify SHA-256 digest calculation and ZIP magic header check on a temporary file
-        val tempApk = java.io.File.createTempFile("gravityedit_test_", ".apk")
-        try {
-            // Write valid ZIP local file header magic bytes (PK\x03\x04) + payload
-            val payload = byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x47, 0x72, 0x61, 0x76, 0x69, 0x74, 0x79)
-            tempApk.writeBytes(payload)
-
-            assertTrue(AppUpdateManagerEngine.hasValidApkZipHeader(tempApk))
-            val sha256 = AppUpdateManagerEngine.computeSha256Hex(tempApk)
-            assertEquals(64, sha256.length)
-            assertEquals(sha256, AppUpdateManagerEngine.computeSha256Hex(tempApk))
-        } finally {
-            tempApk.delete()
-        }
+        // Verify SHA-256 cryptographic digest helper
+        val payload = "GravityEdit-PlayProtect-Clean".toByteArray(Charsets.UTF_8)
+        val sha256 = AppUpdateManagerEngine.computeSha256Hex(payload)
+        assertEquals(64, sha256.length)
+        assertEquals(sha256, AppUpdateManagerEngine.computeSha256Hex(payload))
 
         // Verify file type detection across supported extensions for New Document & Rename
         assertEquals(SyntaxLanguage.PLAIN_TEXT, SyntaxLanguage.fromFileName("Untitled-1.txt"))
@@ -636,19 +627,36 @@ class GravityEditEnginesTest {
     }
 
     @Test
-    fun appUpdateEngine_handlesVersion121AndReleaseKeystorePresence() {
-        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.0-debug", "v1.2.0"))
-        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.1", "v1.2.0"))
-        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.1", "v1.2.1"))
-        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.1.1", "v1.2.1"))
-        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.0-debug", "v1.2.1"))
+    fun appUpdateEngine_enforcesPlayProtectZeroInstallPermissionHygiene() {
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.2", "v1.2.1"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.2", "v1.2.2"))
         assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.1", "v1.2.2"))
+        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.2", "v1.2.3"))
 
-        val keystoreFile = java.io.File("keystore/gravityedit-release.jks").takeIf { it.isFile }
-            ?: java.io.File("app/keystore/gravityedit-release.jks")
-        assertTrue(
-            "Expected persistent release signing keystore at ${keystoreFile.absolutePath}",
-            keystoreFile.isFile && keystoreFile.length() > 0L
+        val manifestFile = java.io.File("src/main/AndroidManifest.xml").takeIf { it.isFile }
+            ?: java.io.File("app/src/main/AndroidManifest.xml")
+        assertTrue("Expected AndroidManifest.xml at ${manifestFile.absolutePath}", manifestFile.isFile)
+        val manifestXml = manifestFile.readText(Charsets.UTF_8)
+        assertFalse(
+            "AndroidManifest.xml must NEVER declare REQUEST_INSTALL_PACKAGES (triggers Play Protect dropper risk warning)",
+            manifestXml.contains("REQUEST_INSTALL_PACKAGES")
+        )
+        assertFalse(
+            "AndroidManifest.xml must not expose apk_updates FileProvider",
+            manifestXml.contains("file_provider_paths")
+        )
+
+        val engineFile = java.io.File("src/main/java/com/gravityedit/app/domain/engine/AppUpdateManagerEngine.kt").takeIf { it.isFile }
+            ?: java.io.File("app/src/main/java/com/gravityedit/app/domain/engine/AppUpdateManagerEngine.kt")
+        assertTrue("Expected AppUpdateManagerEngine.kt at ${engineFile.absolutePath}", engineFile.isFile)
+        val engineSrc = engineFile.readText(Charsets.UTF_8)
+        assertFalse(
+            "AppUpdateManagerEngine must not invoke package-archive installer intents",
+            engineSrc.contains("application/vnd.android.package-archive")
+        )
+        assertFalse(
+            "AppUpdateManagerEngine must not request unknown app sources settings",
+            engineSrc.contains("ACTION_MANAGE_UNKNOWN_APP_SOURCES")
         )
     }
 }
