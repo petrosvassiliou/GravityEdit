@@ -184,7 +184,7 @@ object PowerShellEngine {
     )
 
     private val SCALAR_VAR_ASSIGN_REGEX = Regex(
-        """^\s*(?:\[[A-Za-z0-9_.\[\],\s]+\]\s*)*(\$(?:(?:global|script|private|local):)?[\p{L}_][\p{L}\p{N}_]*)\s*=\s*\S"""
+        """^\s*(?:\[[A-Za-z0-9_.\[\],\s]+\]\s*)*(\$(?:(?:global|script|private|local):)?[\p{L}_][\p{L}\p{N}_]*)\s*=(?!=)"""
     )
 
     private val CONTROL_BLOCK_HEAD_REGEX = Regex(
@@ -1588,7 +1588,7 @@ object PowerShellEngine {
                 PIPELINE_FOREACH_HEAD_REGEX.containsMatchIn(codeOnly)
             if (isControlHead && (braceDelta > 0 || opensBraceOnNextCodeLine(lines, lineStates, lineIdx))) {
                 flushVarGroup()
-                val cleanSig = formatControlBlockSignature(codeOnly)
+                val cleanSig = formatControlBlockSignature(stripCommentsPreserveStrings(line))
                 landmarks.add(
                     AstSymbol(
                         name = cleanSig,
@@ -2147,7 +2147,7 @@ object PowerShellEngine {
                             } else if (CONTROL_BLOCK_HEAD_REGEX.containsMatchIn(stripped) ||
                                 PIPELINE_FOREACH_HEAD_REGEX.containsMatchIn(stripped)
                             ) {
-                                val cleanHdr = formatControlBlockSignature(stripped).removeSuffix(" { … }")
+                                val cleanHdr = formatControlBlockSignature(stripCommentsPreserveStrings(line)).removeSuffix(" { … }")
                                 pendingDecl = Triple(lineIdx, "$cleanHdr { … }", FoldKind.BLOCK)
                             }
                         }
@@ -2252,12 +2252,57 @@ object PowerShellEngine {
             if (ch == '#') break
             if (ch == '\'' || ch == '"') {
                 val q = ch
+                sb.append(q)
                 i++
                 while (i < len && line[i] != q) {
                     if (q == '"' && line[i] == '`' && i + 1 < len) i++
                     i++
                 }
+                sb.append(q)
                 i++
+                continue
+            }
+            sb.append(ch)
+            i++
+        }
+        return sb.toString()
+    }
+
+    private fun stripCommentsPreserveStrings(line: String): String {
+        val sb = StringBuilder(line.length)
+        var i = 0
+        val len = line.length
+        while (i < len) {
+            val ch = line[i]
+            if (ch == '<' && i + 1 < len && line[i + 1] == '#') {
+                val closeIdx = line.indexOf("#>", i + 2)
+                if (closeIdx >= 0) {
+                    i = closeIdx + 2
+                    continue
+                } else {
+                    break
+                }
+            }
+            if (ch == '#') break
+            if (ch == '\'' || ch == '"') {
+                val q = ch
+                sb.append(q)
+                i++
+                while (i < len) {
+                    val inner = line[i]
+                    sb.append(inner)
+                    if (q == '"' && inner == '`' && i + 1 < len) {
+                        i++
+                        sb.append(line[i])
+                        i++
+                        continue
+                    }
+                    if (inner == q) {
+                        i++
+                        break
+                    }
+                    i++
+                }
                 continue
             }
             sb.append(ch)
