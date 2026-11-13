@@ -363,8 +363,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             encoding = DocumentEncoding.UTF_8,
             lineEnding = LineEnding.LF
         )
-        val symbols = PowerShellEngine.extractAstSymbols(mainDoc.content)
-        val folds = PowerShellEngine.extractFoldRegions(mainDoc.content)
+        val symbols = PowerShellEngine.extractAstSymbols(mainDoc.content, mainDoc.language)
+        val folds = PowerShellEngine.extractFoldRegions(mainDoc.content, mainDoc.language)
         val channel = AppUpdateManagerEngine.detectDistributionChannel(getApplication())
         return GravityEditUiState(
             documents = listOf(mainDoc, scratchpadDoc),
@@ -1088,8 +1088,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         val contentSnapshot = doc.content
         val languageSnapshot = doc.language
         astParseJob = viewModelScope.launch(Dispatchers.Default) {
-            val symbols = PowerShellEngine.extractAstSymbols(contentSnapshot)
-            val folds = PowerShellEngine.extractFoldRegions(contentSnapshot)
+            val symbols = PowerShellEngine.extractAstSymbols(contentSnapshot, languageSnapshot)
+            val folds = PowerShellEngine.extractFoldRegions(contentSnapshot, languageSnapshot)
             val diags = if (languageSnapshot == SyntaxLanguage.POWERSHELL) {
                 PowerShellEngine.analyzeScriptDiagnostics(contentSnapshot)
             } else {

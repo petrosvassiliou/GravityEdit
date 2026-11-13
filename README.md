@@ -11,9 +11,9 @@
 [![Play Protect](https://img.shields.io/badge/Play%20Protect-Policy%20Compliant-00C853?style=for-the-badge&logo=googleplay&logoColor=white)](#4-google-play-protectcompatible-auto-updates)
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download Latest Signed APK (v1.2.3)</strong></a>
+  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download Latest Signed APK (v1.2.4)</strong></a>
   &nbsp;•&nbsp;
-  <a href="#whats-new-in-v123">What's New in v1.2.3</a>
+  <a href="#whats-new-in-v124">What's New in v1.2.4</a>
   &nbsp;•&nbsp;
   <a href="#screenshots">Screenshots</a>
   &nbsp;•&nbsp;
@@ -36,19 +36,17 @@ Built from the ground up in **100% Kotlin** and **Jetpack Compose (Material 3 Ex
 
 ---
 
-## What's New in v1.2.3
+## What's New in v1.2.4
 
+- **Enhanced PowerShell Function & Procedural Script Navigator (`Funktionsnavigator`):**
+  - **Advanced PowerShell Declarations:** Extracts multi-line `param(...)` parameter signatures inside `function` / `filter` / `workflow` / `configuration` bodies (even after `<# .SYNOPSIS #>` help blocks and `[CmdletBinding(...)]` attributes), supports full Unicode / German umlaut identifiers, indexes `$Var = { ... }` scriptblock definitions (`$sb`), top-level `param(...)` (`prm`) and `begin`/`process`/`end`/`clean` pipeline blocks (`pipe`), and recognizes `# === ... ===`, 3-line comment boxes, and `# Step N:` / `# Schritt N:` section headers (`#sec`) while strictly ignoring `<# ... #>` block comments and `@"..."@` here-strings.
+  - **Procedural Admin Script Outline Fallback:** For linear administration & migration `.ps1` scripts without `function` blocks (e.g., Robocopy / DFS cutover scripts), automatically populates the navigator with top-level configuration variable groups (`var`), multi-line `@(` / `@{` data tables (`tbl`), and top-level `if` / `foreach` / `ForEach-Object` / `switch` / `try` blocks (`blk`) — plus code folding for all multi-line collections, scriptblocks, and control blocks, and symbol extraction for Python, Kotlin, Shell/Bash, and Markdown.
 - **Googlebook OS & Desktop Mouse-Hover Rendering Fix:**
-  - Eliminated the Material 3 `1.3.x` hardware shadow tessellation artifact (`hoveredElevation = 1.dp` over transparent/non-opaque surfaces) that drew an inner dark-gray shadow ring and horizontal slit across buttons and chips on mouse hover. All Material 3 Expressive controls (`Button`, `FilledTonalButton`, `OutlinedButton`, `TextButton`, `FilterChip`, `AssistChip`, `Card`) and custom pill surfaces now use strictly `0.dp` hover shadow elevation, opaque tonal container fills, shape-clipped state layers, and a subtle 5% `LocalRippleConfiguration` hover tint.
+  - Eliminated the Material 3 `1.3.x` hardware shadow tessellation artifact (`hoveredElevation = 1.dp` over transparent/non-opaque surfaces) across all Material 3 Expressive controls (`Button`, `FilledTonalButton`, `OutlinedButton`, `TextButton`, `FilterChip`, `AssistChip`, `Card`) and custom pill surfaces via `0.dp` hover shadow elevation, opaque tonal fills, shape-clipped state layers, and a uniform 5% `LocalRippleConfiguration` hover tint.
 - **Google Play Protect Zero-Risk Hardening (`0` Sensitive Permissions):**
-  - Removed `android.permission.REQUEST_INSTALL_PACKAGES`, the `apk_updates` `FileProvider`, and all in-app `.apk` download / `PackageInstaller` bytecode so Google Play Protect never classifies GravityEdit as an APK dropper. Updates check read-only JSON metadata over HTTPS and delegate downloads strictly to Google Play Store or the user's trusted system browser, signed via encrypted GitHub Actions Secrets (`v1 + v2 + v3` APK Signature Schemes).
-- **Material 3 Expressive Design Upgrade:**
-  - High-chroma Expressive **Dark**, **Light**, **AMOLED Pitch-Black (`#000000`)**, and **Android 12+ Dynamic Color** themes with 5-step tonal containment (`surfaceContainerLowest`..`surfaceContainerHighest`), `GravityExpressiveShapes` (`10dp`–`32dp` + full-pill `CircleShape`), and physics-driven `GravityExpressiveMotion` spatial & color springs.
-  - **Connected Split-Mode Button Group (`Single | Vertical | Horizontal`)** with spring-morphing active pill geometry, **morphing pill tabs** across Desktop & Mobile, tactile spring-scaled **PowerShell auxiliary symbol keys**, and **`28dp` Expressive dialogs & adaptive mobile `ModalBottomSheet`s**.
-- **Permanent Bottom-Left App Version Badge (`v1.2.3`):**
-  - Full-width `ExpressiveBottomStatusBar` anchored at the true bottom-left corner of the screen (`x = 0, y = bottom`) in both Googlebook OS Desktop and Android Compact Mobile modes — tap anytime to open the Update Center.
-- **100% UI Action Parity & Comprehensive QS Audit:**
-  - Added the **Workspace Overflow Menu (`⋮`)** on both Desktop and Mobile so every File, Edit (`Duplicate Line`, `Select Line`, `Toggle Comment`, `Indent`/`Unindent`), Navigation (`Go to Line`), Tool, Settings, and Update action is clickable via UI as well as hardware shortcuts, with **132/132 string keys** verified across all 6 languages (`en`, `de`, `it`, `es`, `fr`, `el`).
+  - Requests zero sensitive or special permissions (`REQUEST_INSTALL_PACKAGES` and `FileProvider` absent), checks read-only JSON release metadata over HTTPS, and delegates downloads strictly to Google Play Store or the user's trusted system browser, signed via encrypted GitHub Actions Secrets (`v1 + v2 + v3`).
+- **Material 3 Expressive Design & Permanent Bottom-Left Version Badge (`v1.2.4`):**
+  - High-chroma Dark/Light/AMOLED (`#000000`)/Dynamic themes, Connected Split-Mode Button Group (`Single | Vertical | Horizontal`), morphing pill tabs, Workspace Overflow Menu (`⋮`), **132/132 localized string keys** across 6 languages, and **`v1.2.4`** permanently anchored at the bottom-left corner.
 
 ---
 
@@ -143,7 +141,7 @@ Line- and character-level **Myers Diff** with directional `←` / `→` merges a
 
 ### 2. First-Class PowerShell Engine (`PowerShellEngine.kt`)
 - **Rich PowerShell Tokenization:** Approved-verb dictionary & alias highlighting (`Verb-Noun`), scoped/drive/automatic variable distinction (`$myVar`, `$script:x`, `$env:PATH`, `$_`, `$PSItem`, `$sender`, `$true`), cmdlet parameters (`-Path`, `-ErrorAction`), operators (`-eq`, `-match`, `-replace`), expandable string interpolation (`"$var"`, `"$(Get-Date)"`), `@{} / @()` hashtable & array subexpressions, Here-Strings (`@"..."@`), and Comment-Based Help tags (`.SYNOPSIS`, `.PARAMETER`, `.EXAMPLE`).
-- **Code Folding & AST Function Navigator:** Fold `function`, `filter`, `workflow`, `class`, `#region ... #endregion`, and `<# ... #>` blocks; jump directly to any symbol from the top bar.
+- **Code Folding & AST / Procedural Script Navigator:** Fold and jump directly to `function`, `filter`, `workflow`, `configuration` (with multi-line `param(...)` extraction & Unicode identifier support), `class`/`enum`, `$Var = { ... }` scriptblocks, top-level `param(...)` & `begin`/`process`/`end`/`clean` blocks, `#region` & `# === ... ===` / `# Step N:` section banners, plus automatic top-level config variable, `@(`/`@{` table, and `if`/`foreach`/`switch`/`try` landmarks for linear PowerShell scripts (and Python, Kotlin, Shell/Bash, and Markdown outlines).
 - **Inline Auto-Completion:** Context-aware completions for built-in PowerShell cmdlets, approved verbs, automatic variables, and functions/variables declared in the active script (`Tab` to accept).
 - **Live `PSScriptAnalyzer`-Style Linter:** Detects `PSAvoidUsingCmdletAliases` (including after `|`, `=`, and inside `"$(...)"`), `PSUseApprovedVerbs`, `PSAvoidEmptyCatchBlock`, `PSAvoidUsingPlainTextForPassword`, `PSAvoidUsingInvokeExpression`, and unbalanced delimiters with instant one-click Quick Fixes.
 
@@ -228,12 +226,12 @@ app/src/main/java/com/gravityedit/app/
 
 ## Installation
 
-1. Download **`GravityEdit-v1.2.3.apk`** (`com.gravityedit.app`, signed with APK Signature Schemes `v1 + v2 + v3`) from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
-2. *(Optional)* Verify cryptographic integrity against `GravityEdit-v1.2.3.apk.sha256`:
+1. Download **`GravityEdit-v1.2.4.apk`** (`com.gravityedit.app`, signed with APK Signature Schemes `v1 + v2 + v3`) from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
+2. *(Optional)* Verify cryptographic integrity against `GravityEdit-v1.2.4.apk.sha256`:
    ```bash
-   sha256sum -c GravityEdit-v1.2.3.apk.sha256
+   sha256sum -c GravityEdit-v1.2.4.apk.sha256
    ```
-3. Open the APK on your **Android 8.0+ (API 26+)** phone, tablet, or **Googlebook OS** device. *(If you previously installed `v1.2.1` or `v1.2.2`, `v1.2.3` shares the same permanent release certificate and upgrades seamlessly in-place while preserving all documents and settings.)*
+3. Open the APK on your **Android 8.0+ (API 26+)** phone, tablet, or **Googlebook OS** device. *(If you previously installed `v1.2.1`–`v1.2.3`, `v1.2.4` shares the same permanent release certificate and upgrades seamlessly in-place while preserving all documents and settings.)*
 
 ---
 
@@ -245,7 +243,7 @@ app/src/main/java/com/gravityedit/app/
 
 ### Run Unit Tests & Assemble APK
 ```bash
-# Run the full 20-test JUnit 4 engine, UI hygiene & localization parity suite
+# Run the full 23-test JUnit 4 engine, UI hygiene & localization parity suite
 ./gradlew testDebugUnitTest
 
 # Build Debug & Release APKs

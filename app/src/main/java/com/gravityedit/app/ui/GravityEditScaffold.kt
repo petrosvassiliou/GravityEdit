@@ -22,11 +22,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -1384,8 +1386,7 @@ private fun MobileTopActionBar(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = uiState.astSymbols.firstOrNull()?.name
-                                ?: "${stringResource(R.string.function_navigator)} (${uiState.astSymbols.size})",
+                            text = "${stringResource(R.string.function_navigator)} (${uiState.astSymbols.size})",
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.labelMedium,
@@ -2012,6 +2013,7 @@ private fun FunctionNavigatorDropdownMenu(
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
+        modifier = Modifier.heightIn(max = 420.dp),
         shape = RoundedCornerShape(18.dp)
     ) {
         if (symbols.isEmpty()) {
@@ -2043,7 +2045,10 @@ private fun FunctionNavigatorDropdownMenu(
                             Text(
                                 text = sym.signature,
                                 fontFamily = JetBrainsMonoFontFamily,
-                                fontSize = 12.sp
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 340.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
@@ -2391,12 +2396,16 @@ private fun AdaptiveEditorSplitWorkspace(
     val primaryFolds = if (primaryIsFocusedDoc) {
         uiState.foldRegions
     } else {
-        remember(primaryDoc.content) { PowerShellEngine.extractFoldRegions(primaryDoc.content) }
+        remember(primaryDoc.content, primaryDoc.language) {
+            PowerShellEngine.extractFoldRegions(primaryDoc.content, primaryDoc.language)
+        }
     }
     val primarySymbols = if (primaryIsFocusedDoc) {
         uiState.astSymbols
     } else {
-        remember(primaryDoc.content) { PowerShellEngine.extractAstSymbols(primaryDoc.content) }
+        remember(primaryDoc.content, primaryDoc.language) {
+            PowerShellEngine.extractAstSymbols(primaryDoc.content, primaryDoc.language)
+        }
     }
     val primaryDiags = if (primaryIsFocusedDoc) {
         uiState.diagnostics
@@ -2414,12 +2423,16 @@ private fun AdaptiveEditorSplitWorkspace(
     val secondaryFolds = if (secondaryIsFocusedDoc) {
         uiState.foldRegions
     } else {
-        remember(secondaryDoc.content) { PowerShellEngine.extractFoldRegions(secondaryDoc.content) }
+        remember(secondaryDoc.content, secondaryDoc.language) {
+            PowerShellEngine.extractFoldRegions(secondaryDoc.content, secondaryDoc.language)
+        }
     }
     val secondarySymbols = if (secondaryIsFocusedDoc) {
         uiState.astSymbols
     } else {
-        remember(secondaryDoc.content) { PowerShellEngine.extractAstSymbols(secondaryDoc.content) }
+        remember(secondaryDoc.content, secondaryDoc.language) {
+            PowerShellEngine.extractAstSymbols(secondaryDoc.content, secondaryDoc.language)
+        }
     }
     val secondaryDiags = if (secondaryIsFocusedDoc) {
         uiState.diagnostics

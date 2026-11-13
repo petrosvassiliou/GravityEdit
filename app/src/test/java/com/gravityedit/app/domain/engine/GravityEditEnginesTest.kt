@@ -95,6 +95,188 @@ class GravityEditEnginesTest {
     }
 
     @Test
+    fun powerShellEngine_extractsMultiLineParamUnicodeFunctionsScriptBlocksAndSectionHeaders() {
+        val script = """
+            <#
+                function Fake-InsideBlockComment { }
+                # === Fake Banner Inside Comment ===
+            #>
+            # =====================================================================
+            # RBS School Migration Toolkit
+            # =====================================================================
+            param(
+                [Parameter(Mandatory = ${'$'}true)]
+                [string]${'$'}Environment = "Prod",
+                [switch]${'$'}DryRun
+            )
+
+            ${'$'}hereDoc = @"
+            function Fake-InsideHereString { }
+            # === Fake HereString Banner ===
+            "@
+
+            # === Phase 1: Validation Helpers ===
+            function Prüfe-SchulOrdner {
+                <#
+                .SYNOPSIS
+                    Validates school share directory
+                #>
+                [CmdletBinding(SupportsShouldProcess = ${'$'}true)]
+                param(
+                    [Parameter(Mandatory = ${'$'}true)]
+                    [string]${'$'}SourcePath,
+                    [ValidateSet('Full', 'Pilot')]
+                    [string]${'$'}Mode = "Pilot", # trailing comment with ${'$'}ignoredVar
+                    [switch]${'$'}EnablePurge
+                )
+                Write-Verbose ${'$'}SourcePath
+            }
+
+            [scriptblock]${'$'}SyncWorker = {
+                param(${'$'}Folder)
+                Write-Output ${'$'}Folder
+            }
+        """.trimIndent()
+
+        val symbols = PowerShellEngine.extractAstSymbols(script)
+        assertFalse(symbols.any { it.name.contains("Fake") })
+
+        assertTrue(symbols.any { it.kind == SymbolKind.SECTION && it.name == "RBS School Migration Toolkit" })
+        assertTrue(symbols.any { it.kind == SymbolKind.PARAM_BLOCK && it.parameters == listOf("\$Environment", "\$DryRun") })
+        assertTrue(symbols.any { it.kind == SymbolKind.SECTION && it.name == "Phase 1: Validation Helpers" })
+
+        val umlautFn = symbols.firstOrNull { it.kind == SymbolKind.FUNCTION && it.name == "Prüfe-SchulOrdner" }
+        assertNotNull("Expected Unicode function Prüfe-SchulOrdner to be extracted", umlautFn)
+        assertEquals(listOf("\$SourcePath", "\$Mode", "\$EnablePurge"), umlautFn!!.parameters)
+        assertEquals("Prüfe-SchulOrdner(\$SourcePath, \$Mode, \$EnablePurge)", umlautFn.signature)
+
+        assertTrue(symbols.any { it.kind == SymbolKind.SCRIPTBLOCK && it.name == "\$SyncWorker" })
+
+        val folds = PowerShellEngine.extractFoldRegions(script)
+        assertTrue(folds.any { it.label.contains("Prüfe-SchulOrdner") })
+        assertTrue(folds.any { it.label.contains("\$SyncWorker") })
+
+        // Verify bare-identifier completion offers callable functions but NOT #sec / prm / $sb landmarks
+        val fnCompletions = PowerShellEngine.computeCompletions(
+            line = "    Prüfe-",
+            cursorColumn = 10,
+            documentContent = script,
+            astSymbols = symbols
+        )
+        assertTrue(fnCompletions.any { it.insertText == "Prüfe-SchulOrdner" && it.kind == CompletionKind.FUNCTION })
+
+        val nonCallableCompletions = PowerShellEngine.computeCompletions(
+            line = "    Phase",
+            cursorColumn = 9,
+            documentContent = script,
+            astSymbols = symbols
+        )
+        assertFalse(nonCallableCompletions.any { it.insertText.contains("Phase 1") })
+    }
+
+    @Test
+    fun powerShellEngine_extractsProceduralLandmarksForLinearAdminScriptsLikeDfsMigration() {
+        val dfsMigrationScript = """
+            <#
+                DFS-Migration.ps1
+                100% reines ASCII (ohne Non-Breaking Spaces) + Single-Quotes fuer '~${'$'}*'.
+            #>
+
+            ${'$'}SourceRoot = "D:\Data\Schulen"
+            ${'$'}DomainFQDN = "rbs.lokal"
+            ${'$'}TimeStamp = Get-Date -Format "yyyyMMdd_HHmmss"
+            ${'$'}LogDir = "C:\MigrationLogs\Schulen_${'$'}TimeStamp"
+
+            # ${'$'}true = Wenn auf filesrv01 selbst ausgefuehrt (nutzt direkte lokale Pfade -> viel schneller!)
+            # ${'$'}false = Nutzt UNC-Pfade (\\filesrv01.rbs.lokal\...)
+            ${'$'}UseLocalPaths = ${'$'}true
+
+            # Optionaler Filter fuer den Pilotbetrieb / gezielten Cutover einzelner Schulen:
+            ${'$'}EnablePurge = ${'$'}true
+
+            # Leer lassen @() = ALLE Ordner unter D:\Data\Schulen synchronisieren
+            ${'$'}OnlyFolders = @()
+
+            if (-not (Test-Path -LiteralPath ${'$'}LogDir)) {
+                New-Item -Path ${'$'}LogDir -ItemType Directory -Force | Out-Null
+            }
+
+            # === Phase 1: Ziel-Freigaben definieren ===
+            ${'$'}PilotSchools = @(
+                'Gymnasium-Nord',
+                'Realschule-West'
+            )
+
+            # Schritt 2: Robocopy Synchronisation
+            foreach (${'$'}School in ${'$'}PilotSchools) {
+                Write-Output "Syncing ${'$'}School"
+            }
+        """.trimIndent()
+
+        val symbols = PowerShellEngine.extractAstSymbols(dfsMigrationScript)
+        assertTrue("Expected procedural landmarks for linear .ps1 script, got empty", symbols.size >= 5)
+
+        // Ordinary prose comments must NEVER be misclassified as #sec section headers
+        assertFalse(symbols.any { it.name.contains("Wenn auf filesrv01") })
+        assertFalse(symbols.any { it.name.contains("Optionaler Filter") })
+        assertFalse(symbols.any { it.name.contains("Leer lassen") })
+
+        // Top-level configuration variables grouped cleanly into a single var landmark
+        val configVars = symbols.firstOrNull { it.kind == SymbolKind.CONFIG_VARS }
+        assertNotNull("Expected initial top-level variable block to be grouped as CONFIG_VARS", configVars)
+        assertEquals("\$SourceRoot, \$DomainFQDN, \$TimeStamp (+4)", configVars!!.signature)
+        assertEquals(7, configVars.parameters.size)
+
+        // Control blocks, multi-line data tables, and explicit section banners
+        assertTrue(symbols.any { it.kind == SymbolKind.CONTROL_BLOCK && it.signature.startsWith("if (-not (Test-Path -LiteralPath \$LogDir))") })
+        assertTrue(symbols.any { it.kind == SymbolKind.SECTION && it.name == "Phase 1: Ziel-Freigaben definieren" })
+        assertTrue(symbols.any { it.kind == SymbolKind.DATA_TABLE && it.signature == "\$PilotSchools = @( … )" })
+        assertTrue(symbols.any { it.kind == SymbolKind.SECTION && it.name == "Schritt 2: Robocopy Synchronisation" })
+        assertTrue(symbols.any { it.kind == SymbolKind.CONTROL_BLOCK && it.signature == "foreach (\$School in \$PilotSchools)" })
+
+        // Multi-line <#...#>, if {...}, @(...), and foreach {...} are all foldable
+        val folds = PowerShellEngine.extractFoldRegions(dfsMigrationScript)
+        assertTrue(folds.size >= 4)
+        assertTrue(folds.any { it.label.contains("\$PilotSchools = @( … )") })
+        assertTrue(folds.any { it.label.contains("foreach (\$School in \$PilotSchools)") })
+    }
+
+    @Test
+    fun powerShellEngine_extractsSecondaryLanguageSymbolsForPythonKotlinBashAndMarkdown() {
+        val pySymbols = PowerShellEngine.extractAstSymbols(
+            content = "class DfsRunner:\n    async def sync_folder(self, src, dst):\n        pass",
+            language = SyntaxLanguage.PYTHON
+        )
+        assertEquals(2, pySymbols.size)
+        assertTrue(pySymbols.any { it.kind == SymbolKind.CLASS && it.name == "DfsRunner" })
+        assertTrue(pySymbols.any { it.kind == SymbolKind.FUNCTION && it.name == "sync_folder" })
+
+        val ktSymbols = PowerShellEngine.extractAstSymbols(
+            content = "data class SyncPlan(val host: String)\nsuspend fun executePlan(plan: SyncPlan, retries: Int) {}",
+            language = SyntaxLanguage.KOTLIN
+        )
+        assertEquals(2, ktSymbols.size)
+        assertTrue(ktSymbols.any { it.kind == SymbolKind.CLASS && it.name == "SyncPlan" })
+        assertTrue(ktSymbols.any { it.kind == SymbolKind.FUNCTION && it.name == "executePlan" })
+
+        val shSymbols = PowerShellEngine.extractAstSymbols(
+            content = "# === Backup Stage ===\nrun_backup() {\n  echo ok\n}",
+            language = SyntaxLanguage.SHELL_BASH
+        )
+        assertEquals(2, shSymbols.size)
+        assertTrue(shSymbols.any { it.kind == SymbolKind.SECTION && it.name == "Backup Stage" })
+        assertTrue(shSymbols.any { it.kind == SymbolKind.FUNCTION && it.name == "run_backup" })
+
+        val mdSymbols = PowerShellEngine.extractAstSymbols(
+            content = "# Migration Guide\n```powershell\n# not a markdown heading\n```\n## Cutover Checklist",
+            language = SyntaxLanguage.MARKDOWN
+        )
+        assertEquals(2, mdSymbols.size)
+        assertEquals("Migration Guide", mdSymbols[0].name)
+        assertEquals("Cutover Checklist", mdSymbols[1].name)
+    }
+
+    @Test
     fun powerShellEngine_computesInlineCompletionsForCmdletsVarsParamsAndTypes() {
         val script = """
             ${'$'}clusterTargetNodes = @('node-01', 'node-02')
@@ -628,10 +810,10 @@ class GravityEditEnginesTest {
 
     @Test
     fun appUpdateEngine_enforcesPlayProtectZeroInstallPermissionHygiene() {
-        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.3", "v1.2.2"))
-        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.3", "v1.2.3"))
-        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.2", "v1.2.3"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.4", "v1.2.3"))
+        assertFalse(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.4", "v1.2.4"))
         assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.3", "v1.2.4"))
+        assertTrue(AppUpdateManagerEngine.isRemoteVersionNewer("1.2.4", "v1.2.5"))
 
         val manifestFile = java.io.File("src/main/AndroidManifest.xml").takeIf { it.isFile }
             ?: java.io.File("app/src/main/AndroidManifest.xml")

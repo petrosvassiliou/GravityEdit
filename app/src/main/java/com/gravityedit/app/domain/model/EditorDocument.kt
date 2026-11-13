@@ -129,7 +129,17 @@ enum class SymbolKind(val badge: String) {
     WORKFLOW("wf"),
     CLASS("cls"),
     CONFIGURATION("cfg"),
-    REGION("#reg")
+    SCRIPTBLOCK("\$sb"),
+    PARAM_BLOCK("prm"),
+    PIPELINE_BLOCK("pipe"),
+    SECTION("#sec"),
+    REGION("#reg"),
+    CONFIG_VARS("var"),
+    DATA_TABLE("tbl"),
+    CONTROL_BLOCK("blk");
+
+    val isCallableCommand: Boolean
+        get() = this == FUNCTION || this == FILTER || this == WORKFLOW || this == CONFIGURATION
 }
 
 @Immutable

@@ -147,14 +147,85 @@ object PowerShellEngine {
     )
 
     private val FUNCTION_DECL_REGEX = Regex(
-        """^\s*(function|filter|workflow|configuration)\s+([A-Za-z0-9_\-:]+)\s*(\(([^)]*)\))?""",
+        """^\s*(function|filter|workflow|configuration)\s+([\p{L}\p{N}_\-:.]+)\s*(\(([^)]*)\))?""",
         RegexOption.IGNORE_CASE
     )
 
     private val CLASS_DECL_REGEX = Regex(
-        """^\s*(class|enum)\s+([A-Za-z0-9_]+)""",
+        """^\s*(class|enum)\s+([\p{L}\p{N}_\-]+)""",
         RegexOption.IGNORE_CASE
     )
+
+    private val SCRIPTBLOCK_DECL_REGEX = Regex(
+        """^\s*(?:\[\s*scriptblock\s*\]\s*)?(\$(?:(?:global|script|private|local):)?[\p{L}_][\p{L}\p{N}_]*)\s*=\s*\{""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val PARAM_BLOCK_START_REGEX = Regex(
+        """^\s*param\s*\(""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val PIPELINE_BLOCK_REGEX = Regex(
+        """^\s*(begin|process|end|clean)\s*(?:\{|$)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val PARAM_VARIABLE_NAME_REGEX = Regex(
+        """\$(?:(?:global|script|private|local):)?[\p{L}_][\p{L}\p{N}_]*"""
+    )
+
+    private val COLLECTION_PAREN_DECL_REGEX = Regex(
+        """^\s*(\$(?:(?:global|script|private|local):)?[\p{L}_][\p{L}\p{N}_]*)\s*=\s*@\("""
+    )
+
+    private val COLLECTION_BRACE_DECL_REGEX = Regex(
+        """^\s*(\$(?:(?:global|script|private|local):)?[\p{L}_][\p{L}\p{N}_]*)\s*=\s*@\{"""
+    )
+
+    private val SCALAR_VAR_ASSIGN_REGEX = Regex(
+        """^\s*(?:\[[A-Za-z0-9_.\[\],\s]+\]\s*)*(\$(?:(?:global|script|private|local):)?[\p{L}_][\p{L}\p{N}_]*)\s*=\s*\S"""
+    )
+
+    private val CONTROL_BLOCK_HEAD_REGEX = Regex(
+        """^\s*(?:(foreach|for|while|do|switch|try)\b|(if)\s*\().*$""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val PIPELINE_FOREACH_HEAD_REGEX = Regex(
+        """^.+\|\s*(?:ForEach-Object|%)(?:\s+-Process)?\s*\{?\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val PURE_DIVIDER_COMMENT_REGEX = Regex(
+        """^\s*#+\s*([=\-*~_])\1{3,}\s*#*\s*$"""
+    )
+
+    private val BANNER_SECTION_COMMENT_REGEX = Regex(
+        """^\s*#+\s*[=\-*~_]{3,}\s*([^\s#=\-*~_].*?)\s*[=\-*~_]*\s*#*\s*$"""
+    )
+
+    private val COMMENT_BOX_TITLE_LINE_REGEX = Regex(
+        """^\s*#+\s*([^\s#=\-*~_].*?)\s*#*\s*$"""
+    )
+
+    private val STEP_SECTION_COMMENT_REGEX = Regex(
+        """^\s*#+\s*((?:(?:Step|Phase|Stage|Part|Section|Schritt|Abschnitt|Teil|Kapitel)\s+\d+\b|\[\d+(?:/\d+)?\])\s*[:\-–—.]?\s*\S.*?)\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val PYTHON_DEF_REGEX = Regex("""^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)""")
+    private val PYTHON_CLASS_REGEX = Regex("""^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)""")
+    private val KOTLIN_FUN_REGEX = Regex(
+        """^\s*(?:(?:public|private|protected|internal|override|suspend|inline|operator|infix|tailrec|open|abstract)\s+)*fun\s+(?:<[^>]+>\s+)?(?:[A-Za-z0-9_<>?.*]+\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)"""
+    )
+    private val KOTLIN_TYPE_REGEX = Regex(
+        """^\s*(?:(?:public|private|protected|internal|data|sealed|abstract|open|value|enum|annotation|inner)\s+)*(class|interface|object)\s+([A-Za-z_][A-Za-z0-9_]*)"""
+    )
+    private val BASH_FUNCTION_REGEX = Regex(
+        """^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_\-]*)\s*(?:\(\s*\))?|([A-Za-z_][A-Za-z0-9_\-]*)\s*\(\s*\))\s*\{?"""
+    )
+    private val MARKDOWN_HEADING_REGEX = Regex("""^(#{1,4})\s+(.+?)\s*#*$""")
 
     private val REGION_START_REGEX = Regex(
         """^\s*#region\b(.*)$""",
@@ -1174,59 +1245,49 @@ object PowerShellEngine {
     // =========================================================================
 
     /**
-     * Extracts all declared PowerShell functions, filters, workflows, classes, configurations,
-     * and `#region` markers for the top-bar Function Navigator dropdown.
+     * Extracts declared symbols and structural landmarks for the top-bar Function Navigator (`Ctrl+J`).
+     *
+     * For PowerShell (`.ps1` / `.psm1` / `.psd1`):
+     * - Skips `<# ... #>` block comments and `@" ... "@` / `@' ... '@` here-strings via [computeLineStates].
+     * - Extracts `function`, `filter`, `workflow`, and `configuration` declarations (including Unicode/German
+     *   identifiers and multi-line body `param(...)` signatures), `class`/`enum` types, `$Var = { ... }`
+     *   scriptblock variables, top-level `param(...)` & `begin`/`process`/`end`/`clean` blocks, `#region`
+     *   directives, and `# === ... ===` / box / `# Step N:` section headers.
+     * - When a procedural PowerShell script declares zero callable functions, classes, or scriptblocks
+     *   (such as linear administration/migration scripts), falls back to extracting top-level configuration
+     *   variable groups, multi-line `@(` / `@{` data tables, and top-level `foreach`/`for`/`while`/`switch`/`try`/`if`
+     *   blocks so the Function Navigator always provides structured navigation.
      */
-    fun extractAstSymbols(content: String): List<AstSymbol> {
+    fun extractAstSymbols(
+        content: String,
+        language: SyntaxLanguage = SyntaxLanguage.POWERSHELL
+    ): List<AstSymbol> {
         if (content.isBlank()) return emptyList()
-        val lines = content.split('\n')
+        val lines = content.split('\n').map { it.trimEnd('\r') }
+        if (language != SyntaxLanguage.POWERSHELL) {
+            return extractSecondaryLanguageAstSymbols(lines, language)
+        }
+        return extractPowerShellAstSymbols(lines)
+    }
+
+    private fun extractPowerShellAstSymbols(lines: List<String>): List<AstSymbol> {
+        val lineStates = computeLineStates(lines, SyntaxLanguage.POWERSHELL)
         val symbols = ArrayList<AstSymbol>()
+        var hasPrimaryCallableOrTypeDecls = false
+        var currentBraceDepth = 0
+        var currentParenDepth = 0
 
         for (lineIdx in lines.indices) {
+            if (lineStates[lineIdx] != LineLexState.NORMAL) continue
             val line = lines[lineIdx]
-            val fnMatch = FUNCTION_DECL_REGEX.find(line)
-            if (fnMatch != null) {
-                val keyword = fnMatch.groupValues[1].lowercase()
-                val name = fnMatch.groupValues[2]
-                val rawParams = fnMatch.groupValues[4].trim()
-                val paramsList = if (rawParams.isEmpty()) {
-                    emptyList()
-                } else {
-                    rawParams.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-                }
-                val kind = when (keyword) {
-                    "filter" -> SymbolKind.FILTER
-                    "workflow" -> SymbolKind.WORKFLOW
-                    "configuration" -> SymbolKind.CONFIGURATION
-                    else -> SymbolKind.FUNCTION
-                }
-                val sig = if (rawParams.isNotEmpty()) "$name($rawParams)" else "$name()"
-                symbols.add(
-                    AstSymbol(
-                        name = name,
-                        kind = kind,
-                        lineIndex = lineIdx,
-                        lineNumber = lineIdx + 1,
-                        signature = sig,
-                        parameters = paramsList
-                    )
-                )
-                continue
-            }
+            val trimmedStart = line.trimStart()
+            if (trimmedStart.isEmpty()) continue
 
-            val clsMatch = CLASS_DECL_REGEX.find(line)
-            if (clsMatch != null) {
-                val name = clsMatch.groupValues[2]
-                symbols.add(
-                    AstSymbol(
-                        name = name,
-                        kind = SymbolKind.CLASS,
-                        lineIndex = lineIdx,
-                        lineNumber = lineIdx + 1,
-                        signature = "class $name"
-                    )
-                )
-                continue
+            if (trimmedStart.startsWith("<#")) {
+                val afterComments = stripStringsAndCommentsFromLine(line)
+                if (!trimmedStart.contains("#>") || afterComments.isBlank()) {
+                    continue
+                }
             }
 
             val regionMatch = REGION_START_REGEX.find(line)
@@ -1241,54 +1302,783 @@ object PowerShellEngine {
                         signature = "#region $label"
                     )
                 )
+                continue
+            }
+            if (REGION_END_REGEX.containsMatchIn(line)) continue
+
+            if (trimmedStart.startsWith("#")) {
+                val sectionTitle = detectSectionHeaderTitle(lines, lineStates, lineIdx)
+                if (sectionTitle != null) {
+                    symbols.add(
+                        AstSymbol(
+                            name = sectionTitle,
+                            kind = SymbolKind.SECTION,
+                            lineIndex = lineIdx,
+                            lineNumber = lineIdx + 1,
+                            signature = sectionTitle
+                        )
+                    )
+                }
+                continue
+            }
+
+            val codeOnly = stripStringsAndCommentsFromLine(line)
+            if (codeOnly.isBlank()) continue
+
+            val braceBefore = currentBraceDepth
+            val parenBefore = currentParenDepth
+            fun advanceDepths() {
+                for (ch in codeOnly) {
+                    when (ch) {
+                        '{' -> currentBraceDepth++
+                        '}' -> currentBraceDepth = (currentBraceDepth - 1).coerceAtLeast(0)
+                        '(' -> currentParenDepth++
+                        ')' -> currentParenDepth = (currentParenDepth - 1).coerceAtLeast(0)
+                    }
+                }
+            }
+
+            val fnMatch = FUNCTION_DECL_REGEX.find(codeOnly)
+            if (fnMatch != null) {
+                hasPrimaryCallableOrTypeDecls = true
+                val keyword = fnMatch.groupValues[1].lowercase()
+                val name = fnMatch.groupValues[2]
+                val hasInlineParens = fnMatch.groups[3] != null
+                val rawParams = fnMatch.groupValues[4].trim()
+                val kind = when (keyword) {
+                    "filter" -> SymbolKind.FILTER
+                    "workflow" -> SymbolKind.WORKFLOW
+                    "configuration" -> SymbolKind.CONFIGURATION
+                    else -> SymbolKind.FUNCTION
+                }
+                val paramsList: List<String>
+                val sig: String
+                if (hasInlineParens) {
+                    paramsList = if (rawParams.isEmpty()) {
+                        emptyList()
+                    } else {
+                        rawParams.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                    }
+                    sig = if (rawParams.isNotEmpty()) "$name($rawParams)" else "$name()"
+                } else {
+                    paramsList = extractFunctionBodyParamNames(lines, lineStates, lineIdx)
+                    sig = formatCallSignature(name, paramsList)
+                }
+                symbols.add(
+                    AstSymbol(
+                        name = name,
+                        kind = kind,
+                        lineIndex = lineIdx,
+                        lineNumber = lineIdx + 1,
+                        signature = sig,
+                        parameters = paramsList
+                    )
+                )
+                advanceDepths()
+                continue
+            }
+
+            val clsMatch = CLASS_DECL_REGEX.find(codeOnly)
+            if (clsMatch != null) {
+                hasPrimaryCallableOrTypeDecls = true
+                val kw = clsMatch.groupValues[1].lowercase()
+                val name = clsMatch.groupValues[2]
+                symbols.add(
+                    AstSymbol(
+                        name = name,
+                        kind = SymbolKind.CLASS,
+                        lineIndex = lineIdx,
+                        lineNumber = lineIdx + 1,
+                        signature = "$kw $name"
+                    )
+                )
+                advanceDepths()
+                continue
+            }
+
+            val sbMatch = SCRIPTBLOCK_DECL_REGEX.find(codeOnly)
+            if (sbMatch != null) {
+                hasPrimaryCallableOrTypeDecls = true
+                val varName = sbMatch.groupValues[1]
+                symbols.add(
+                    AstSymbol(
+                        name = varName,
+                        kind = SymbolKind.SCRIPTBLOCK,
+                        lineIndex = lineIdx,
+                        lineNumber = lineIdx + 1,
+                        signature = "$varName = { … }"
+                    )
+                )
+                advanceDepths()
+                continue
+            }
+
+            if (braceBefore == 0 && parenBefore == 0) {
+                val paramMatch = PARAM_BLOCK_START_REGEX.find(codeOnly)
+                if (paramMatch != null) {
+                    val openParenInLine = findUnquotedParamOpenParen(line)
+                    val paramVars = if (openParenInLine >= 0) {
+                        extractParamNamesFromParenthesizedList(lines, lineStates, lineIdx, openParenInLine)
+                    } else {
+                        emptyList()
+                    }
+                    symbols.add(
+                        AstSymbol(
+                            name = "param",
+                            kind = SymbolKind.PARAM_BLOCK,
+                            lineIndex = lineIdx,
+                            lineNumber = lineIdx + 1,
+                            signature = formatCallSignature("param", paramVars),
+                            parameters = paramVars
+                        )
+                    )
+                    advanceDepths()
+                    continue
+                }
+
+                val pipeMatch = PIPELINE_BLOCK_REGEX.find(codeOnly)
+                if (pipeMatch != null && (codeOnly.contains('{') || opensBraceOnNextCodeLine(lines, lineStates, lineIdx))) {
+                    val kw = pipeMatch.groupValues[1].lowercase()
+                    symbols.add(
+                        AstSymbol(
+                            name = kw,
+                            kind = SymbolKind.PIPELINE_BLOCK,
+                            lineIndex = lineIdx,
+                            lineNumber = lineIdx + 1,
+                            signature = "$kw { … }"
+                        )
+                    )
+                    advanceDepths()
+                    continue
+                }
+            }
+
+            advanceDepths()
+        }
+
+        if (!hasPrimaryCallableOrTypeDecls) {
+            val procedural = extractProceduralPowerShellLandmarks(lines, lineStates)
+            if (procedural.isNotEmpty()) {
+                symbols.addAll(procedural)
+                symbols.sortBy { it.lineIndex }
             }
         }
+
         return symbols
+    }
+
+    private fun extractProceduralPowerShellLandmarks(
+        lines: List<String>,
+        lineStates: List<LineLexState>
+    ): List<AstSymbol> {
+        val landmarks = ArrayList<AstSymbol>()
+        var currentBraceDepth = 0
+        var currentParenDepth = 0
+
+        var groupStartLineIdx = -1
+        val groupVarNames = ArrayList<String>()
+        var emittedInitialConfigGroup = false
+
+        fun flushVarGroup() {
+            if (groupVarNames.isNotEmpty()) {
+                val distinctVars = groupVarNames.distinct()
+                if (!emittedInitialConfigGroup || distinctVars.size >= 3) {
+                    val preview = distinctVars.take(3).joinToString(", ")
+                    val extra = distinctVars.size - 3
+                    val sig = if (extra > 0) "$preview (+$extra)" else preview
+                    val label = if (extra > 0) "$preview…" else preview
+                    landmarks.add(
+                        AstSymbol(
+                            name = label,
+                            kind = SymbolKind.CONFIG_VARS,
+                            lineIndex = groupStartLineIdx,
+                            lineNumber = groupStartLineIdx + 1,
+                            signature = sig,
+                            parameters = distinctVars
+                        )
+                    )
+                    emittedInitialConfigGroup = true
+                }
+            }
+            groupStartLineIdx = -1
+            groupVarNames.clear()
+        }
+
+        for (lineIdx in lines.indices) {
+            if (lineStates[lineIdx] != LineLexState.NORMAL) continue
+            val line = lines[lineIdx]
+            val trimmedStart = line.trimStart()
+            if (trimmedStart.isEmpty()) continue
+
+            if (trimmedStart.startsWith("<#")) {
+                val afterComments = stripStringsAndCommentsFromLine(line)
+                if (!trimmedStart.contains("#>") || afterComments.isBlank()) continue
+            }
+
+            if (REGION_START_REGEX.containsMatchIn(line) || REGION_END_REGEX.containsMatchIn(line)) {
+                flushVarGroup()
+                continue
+            }
+
+            if (trimmedStart.startsWith("#")) {
+                if (detectSectionHeaderTitle(lines, lineStates, lineIdx) != null) {
+                    flushVarGroup()
+                }
+                continue
+            }
+
+            val codeOnly = stripStringsAndCommentsFromLine(line)
+            if (codeOnly.isBlank()) continue
+
+            val braceBefore = currentBraceDepth
+            val parenBefore = currentParenDepth
+            var braceDelta = 0
+            var parenDelta = 0
+            for (ch in codeOnly) {
+                when (ch) {
+                    '{' -> braceDelta++
+                    '}' -> braceDelta--
+                    '(' -> parenDelta++
+                    ')' -> parenDelta--
+                }
+            }
+            currentBraceDepth = (currentBraceDepth + braceDelta).coerceAtLeast(0)
+            currentParenDepth = (currentParenDepth + parenDelta).coerceAtLeast(0)
+
+            if (braceBefore != 0 || parenBefore != 0) continue
+
+            if (PARAM_BLOCK_START_REGEX.containsMatchIn(codeOnly) || PIPELINE_BLOCK_REGEX.containsMatchIn(codeOnly)) {
+                flushVarGroup()
+                continue
+            }
+
+            val colParen = COLLECTION_PAREN_DECL_REGEX.find(codeOnly)
+            if (colParen != null && parenDelta > 0) {
+                flushVarGroup()
+                val varName = colParen.groupValues[1]
+                landmarks.add(
+                    AstSymbol(
+                        name = varName,
+                        kind = SymbolKind.DATA_TABLE,
+                        lineIndex = lineIdx,
+                        lineNumber = lineIdx + 1,
+                        signature = "$varName = @( … )"
+                    )
+                )
+                continue
+            }
+
+            val colBrace = COLLECTION_BRACE_DECL_REGEX.find(codeOnly)
+            if (colBrace != null && braceDelta > 0) {
+                flushVarGroup()
+                val varName = colBrace.groupValues[1]
+                landmarks.add(
+                    AstSymbol(
+                        name = varName,
+                        kind = SymbolKind.DATA_TABLE,
+                        lineIndex = lineIdx,
+                        lineNumber = lineIdx + 1,
+                        signature = "$varName = @{ … }"
+                    )
+                )
+                continue
+            }
+
+            val isControlHead = CONTROL_BLOCK_HEAD_REGEX.containsMatchIn(codeOnly) ||
+                PIPELINE_FOREACH_HEAD_REGEX.containsMatchIn(codeOnly)
+            if (isControlHead && (braceDelta > 0 || opensBraceOnNextCodeLine(lines, lineStates, lineIdx))) {
+                flushVarGroup()
+                val cleanSig = formatControlBlockSignature(codeOnly)
+                landmarks.add(
+                    AstSymbol(
+                        name = cleanSig,
+                        kind = SymbolKind.CONTROL_BLOCK,
+                        lineIndex = lineIdx,
+                        lineNumber = lineIdx + 1,
+                        signature = cleanSig
+                    )
+                )
+                continue
+            }
+
+            val scalarMatch = SCALAR_VAR_ASSIGN_REGEX.find(codeOnly)
+            if (scalarMatch != null) {
+                if (groupStartLineIdx < 0) groupStartLineIdx = lineIdx
+                groupVarNames.add(scalarMatch.groupValues[1])
+                continue
+            }
+
+            flushVarGroup()
+        }
+
+        flushVarGroup()
+        return landmarks
+    }
+
+    private fun extractSecondaryLanguageAstSymbols(
+        lines: List<String>,
+        language: SyntaxLanguage
+    ): List<AstSymbol> {
+        val symbols = ArrayList<AstSymbol>()
+        var inMarkdownFence = false
+
+        for (lineIdx in lines.indices) {
+            val line = lines[lineIdx]
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+
+            when (language) {
+                SyntaxLanguage.PYTHON -> {
+                    if (trimmed.startsWith("#")) continue
+                    val fnMatch = PYTHON_DEF_REGEX.find(line)
+                    if (fnMatch != null) {
+                        val name = fnMatch.groupValues[1]
+                        val rawParams = fnMatch.groupValues[2].trim()
+                        val params = rawParams.split(',').map { it.trim() }.filter { it.isNotEmpty() && it != "self" && it != "cls" }
+                        symbols.add(
+                            AstSymbol(
+                                name = name,
+                                kind = SymbolKind.FUNCTION,
+                                lineIndex = lineIdx,
+                                lineNumber = lineIdx + 1,
+                                signature = if (rawParams.isNotEmpty()) "def $name($rawParams)" else "def $name()",
+                                parameters = params
+                            )
+                        )
+                        continue
+                    }
+                    val clsMatch = PYTHON_CLASS_REGEX.find(line)
+                    if (clsMatch != null) {
+                        val name = clsMatch.groupValues[1]
+                        symbols.add(
+                            AstSymbol(
+                                name = name,
+                                kind = SymbolKind.CLASS,
+                                lineIndex = lineIdx,
+                                lineNumber = lineIdx + 1,
+                                signature = "class $name"
+                            )
+                        )
+                    }
+                }
+
+                SyntaxLanguage.KOTLIN -> {
+                    if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) continue
+                    val fnMatch = KOTLIN_FUN_REGEX.find(line)
+                    if (fnMatch != null) {
+                        val name = fnMatch.groupValues[1]
+                        val rawParams = fnMatch.groupValues[2].trim()
+                        val params = rawParams.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                        symbols.add(
+                            AstSymbol(
+                                name = name,
+                                kind = SymbolKind.FUNCTION,
+                                lineIndex = lineIdx,
+                                lineNumber = lineIdx + 1,
+                                signature = formatCallSignature(name, params.map { it.substringBefore(':').trim() }),
+                                parameters = params
+                            )
+                        )
+                        continue
+                    }
+                    val typeMatch = KOTLIN_TYPE_REGEX.find(line)
+                    if (typeMatch != null) {
+                        val kw = typeMatch.groupValues[1]
+                        val name = typeMatch.groupValues[2]
+                        symbols.add(
+                            AstSymbol(
+                                name = name,
+                                kind = SymbolKind.CLASS,
+                                lineIndex = lineIdx,
+                                lineNumber = lineIdx + 1,
+                                signature = "$kw $name"
+                            )
+                        )
+                    }
+                }
+
+                SyntaxLanguage.SHELL_BASH -> {
+                    if (trimmed.startsWith("#")) {
+                        val banner = BANNER_SECTION_COMMENT_REGEX.find(line)?.groupValues?.get(1)?.trim()
+                        if (!banner.isNullOrEmpty()) {
+                            symbols.add(
+                                AstSymbol(
+                                    name = banner,
+                                    kind = SymbolKind.SECTION,
+                                    lineIndex = lineIdx,
+                                    lineNumber = lineIdx + 1,
+                                    signature = banner
+                                )
+                            )
+                        }
+                        continue
+                    }
+                    val fnMatch = BASH_FUNCTION_REGEX.find(line)
+                    if (fnMatch != null) {
+                        val name = fnMatch.groupValues[1].ifEmpty { fnMatch.groupValues[2] }
+                        if (name.isNotEmpty() && name !in setOf("if", "for", "while", "until", "case", "select")) {
+                            symbols.add(
+                                AstSymbol(
+                                    name = name,
+                                    kind = SymbolKind.FUNCTION,
+                                    lineIndex = lineIdx,
+                                    lineNumber = lineIdx + 1,
+                                    signature = "$name()"
+                                )
+                            )
+                        }
+                    }
+                }
+
+                SyntaxLanguage.MARKDOWN -> {
+                    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+                        inMarkdownFence = !inMarkdownFence
+                        continue
+                    }
+                    if (!inMarkdownFence) {
+                        val hMatch = MARKDOWN_HEADING_REGEX.find(line)
+                        if (hMatch != null) {
+                            val hashes = hMatch.groupValues[1]
+                            val title = hMatch.groupValues[2].trim()
+                            symbols.add(
+                                AstSymbol(
+                                    name = title,
+                                    kind = SymbolKind.SECTION,
+                                    lineIndex = lineIdx,
+                                    lineNumber = lineIdx + 1,
+                                    signature = "$hashes $title"
+                                )
+                            )
+                        }
+                    }
+                }
+
+                else -> Unit
+            }
+        }
+
+        return symbols
+    }
+
+    private fun detectSectionHeaderTitle(
+        lines: List<String>,
+        lineStates: List<LineLexState>,
+        lineIdx: Int
+    ): String? {
+        val line = lines[lineIdx]
+        if (PURE_DIVIDER_COMMENT_REGEX.matches(line)) return null
+
+        val bannerMatch = BANNER_SECTION_COMMENT_REGEX.find(line)
+        if (bannerMatch != null) {
+            return bannerMatch.groupValues[1].trim().takeIf { it.isNotEmpty() }
+        }
+
+        val stepMatch = STEP_SECTION_COMMENT_REGEX.find(line)
+        if (stepMatch != null) {
+            return stepMatch.groupValues[1].trim().takeIf { it.isNotEmpty() }
+        }
+
+        // Sandwich box title: immediately preceded by a pure `# =====` border and closed within 5 comment lines
+        if (lineIdx > 0 &&
+            lineStates[lineIdx - 1] == LineLexState.NORMAL &&
+            PURE_DIVIDER_COMMENT_REGEX.matches(lines[lineIdx - 1])
+        ) {
+            val titleMatch = COMMENT_BOX_TITLE_LINE_REGEX.find(line)
+            if (titleMatch != null) {
+                val maxCloseIdx = (lineIdx + 5).coerceAtMost(lines.lastIndex)
+                var hasClosingBorder = false
+                for (k in (lineIdx + 1)..maxCloseIdx) {
+                    if (lineStates[k] != LineLexState.NORMAL) break
+                    val nextTrimmed = lines[k].trimStart()
+                    if (!nextTrimmed.startsWith("#")) break
+                    if (PURE_DIVIDER_COMMENT_REGEX.matches(lines[k])) {
+                        hasClosingBorder = true
+                        break
+                    }
+                }
+                if (hasClosingBorder) {
+                    return titleMatch.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                }
+            }
+        }
+
+        return null
+    }
+
+    private fun extractFunctionBodyParamNames(
+        lines: List<String>,
+        lineStates: List<LineLexState>,
+        fnDeclLineIdx: Int
+    ): List<String> {
+        val maxIdx = (fnDeclLineIdx + 45).coerceAtMost(lines.lastIndex)
+        var sawOpeningBrace = false
+        var attrBracketDepth = 0
+
+        for (idx in fnDeclLineIdx..maxIdx) {
+            if (lineStates[idx] != LineLexState.NORMAL) continue
+            val rawLine = lines[idx]
+            val trimmedStart = rawLine.trimStart()
+            if (trimmedStart.isEmpty()) continue
+            if (trimmedStart.startsWith("<#") && !trimmedStart.contains("#>")) continue
+
+            val stripped = stripStringsAndCommentsFromLine(rawLine)
+            if (stripped.isBlank()) continue
+
+            val searchSlice = if (idx == fnDeclLineIdx) {
+                val bracePos = stripped.indexOf('{')
+                if (bracePos < 0) continue
+                sawOpeningBrace = true
+                stripped.substring(bracePos + 1)
+            } else {
+                stripped
+            }
+
+            val trimmedSlice = searchSlice.trim()
+            if (trimmedSlice.isEmpty()) continue
+
+            if (!sawOpeningBrace) {
+                if (trimmedSlice.startsWith("{")) {
+                    sawOpeningBrace = true
+                    val afterBrace = trimmedSlice.substring(1).trim()
+                    if (afterBrace.isEmpty()) continue
+                    if (PARAM_BLOCK_START_REGEX.containsMatchIn(afterBrace)) {
+                        val openParen = findUnquotedParamOpenParen(rawLine)
+                        if (openParen >= 0) {
+                            return extractParamNamesFromParenthesizedList(lines, lineStates, idx, openParen)
+                        }
+                    }
+                    continue
+                }
+                return emptyList()
+            }
+
+            if (attrBracketDepth > 0 || trimmedSlice.startsWith("[")) {
+                for (ch in trimmedSlice) {
+                    if (ch == '[') attrBracketDepth++
+                    else if (ch == ']') attrBracketDepth = (attrBracketDepth - 1).coerceAtLeast(0)
+                }
+                if (attrBracketDepth == 0) {
+                    val afterAttr = trimmedSlice.substringAfterLast(']').trim()
+                    if (afterAttr.isNotEmpty() && PARAM_BLOCK_START_REGEX.containsMatchIn(afterAttr)) {
+                        val openParen = findUnquotedParamOpenParen(rawLine)
+                        if (openParen >= 0) {
+                            return extractParamNamesFromParenthesizedList(lines, lineStates, idx, openParen)
+                        }
+                    }
+                }
+                continue
+            }
+
+            if (PARAM_BLOCK_START_REGEX.containsMatchIn(trimmedSlice)) {
+                val openParen = findUnquotedParamOpenParen(rawLine)
+                if (openParen >= 0) {
+                    return extractParamNamesFromParenthesizedList(lines, lineStates, idx, openParen)
+                }
+                return emptyList()
+            }
+
+            // Reached the first non-attribute executable statement without a `param(...)` block
+            return emptyList()
+        }
+
+        return emptyList()
+    }
+
+    private fun findUnquotedParamOpenParen(line: String): Int {
+        val match = Regex("""\bparam\s*\(""", RegexOption.IGNORE_CASE).find(line) ?: return -1
+        return match.range.last
+    }
+
+    private fun extractParamNamesFromParenthesizedList(
+        lines: List<String>,
+        lineStates: List<LineLexState>,
+        startLineIdx: Int,
+        openParenOffset: Int
+    ): List<String> {
+        val params = ArrayList<String>()
+        val currentClauseBeforeDefault = StringBuilder()
+        var nestedParenDepth = 0
+        var squareDepth = 0
+        var hitDefaultEquals = false
+        val maxIdx = (startLineIdx + 45).coerceAtMost(lines.lastIndex)
+
+        fun finalizeClause() {
+            val clause = currentClauseBeforeDefault.toString()
+            currentClauseBeforeDefault.setLength(0)
+            hitDefaultEquals = false
+            val lastVar = PARAM_VARIABLE_NAME_REGEX.findAll(clause).lastOrNull()?.value
+            if (!lastVar.isNullOrEmpty()) {
+                params.add(lastVar)
+            }
+        }
+
+        for (idx in startLineIdx..maxIdx) {
+            if (idx > startLineIdx && lineStates[idx] != LineLexState.NORMAL) continue
+            val line = lines[idx]
+            var i = if (idx == startLineIdx) openParenOffset + 1 else 0
+            val len = line.length
+
+            while (i < len) {
+                val ch = line[i]
+                if (ch == '<' && i + 1 < len && line[i + 1] == '#') {
+                    val closeIdx = line.indexOf("#>", i + 2)
+                    if (closeIdx >= 0) {
+                        i = closeIdx + 2
+                        continue
+                    } else {
+                        break
+                    }
+                }
+                if (ch == '#') break
+                if (ch == '\'' || ch == '"') {
+                    val q = ch
+                    i++
+                    while (i < len && line[i] != q) {
+                        if (q == '"' && line[i] == '`' && i + 1 < len) i++
+                        i++
+                    }
+                    i++
+                    continue
+                }
+
+                when (ch) {
+                    '[' -> squareDepth++
+                    ']' -> squareDepth = (squareDepth - 1).coerceAtLeast(0)
+                    '(' -> nestedParenDepth++
+                    ')' -> {
+                        if (nestedParenDepth == 0) {
+                            finalizeClause()
+                            return params
+                        }
+                        nestedParenDepth--
+                    }
+                    ',' -> {
+                        if (squareDepth == 0 && nestedParenDepth == 0) {
+                            finalizeClause()
+                            i++
+                            continue
+                        }
+                    }
+                    '=' -> {
+                        if (squareDepth == 0 && nestedParenDepth == 0) {
+                            hitDefaultEquals = true
+                        }
+                    }
+                    else -> {
+                        if (squareDepth == 0 && nestedParenDepth == 0 && !hitDefaultEquals) {
+                            currentClauseBeforeDefault.append(ch)
+                        }
+                    }
+                }
+                i++
+            }
+        }
+
+        finalizeClause()
+        return params
+    }
+
+    private fun opensBraceOnNextCodeLine(
+        lines: List<String>,
+        lineStates: List<LineLexState>,
+        fromLineIdx: Int
+    ): Boolean {
+        val maxLookahead = (fromLineIdx + 3).coerceAtMost(lines.lastIndex)
+        for (idx in (fromLineIdx + 1)..maxLookahead) {
+            if (lineStates[idx] != LineLexState.NORMAL) continue
+            val trimmed = lines[idx].trimStart()
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) continue
+            val stripped = stripStringsAndCommentsFromLine(lines[idx]).trimStart()
+            if (stripped.isEmpty()) continue
+            return stripped.startsWith("{")
+        }
+        return false
+    }
+
+    private fun formatCallSignature(name: String, params: List<String>): String {
+        if (params.isEmpty()) return "$name()"
+        val preview = params.take(3).joinToString(", ")
+        return if (params.size > 3) "$name($preview, …)" else "$name($preview)"
+    }
+
+    private fun formatControlBlockSignature(codeOnly: String): String {
+        val compact = codeOnly
+            .trim()
+            .removeSuffix("{")
+            .trim()
+            .replace(Regex("""\s+"""), " ")
+        if (compact.equals("try", ignoreCase = true) || compact.equals("do", ignoreCase = true)) {
+            return "${compact.lowercase()} { … }"
+        }
+        return if (compact.length > 52) {
+            compact.take(51).trimEnd() + "…"
+        } else {
+            compact
+        }
     }
 
     /**
      * Parses foldable code blocks for `function ... { }`, `filter ... { }`, `workflow ... { }`,
-     * `class ... { }`, `#region ... #endregion`, and `<# ... #>` multi-line comments.
+     * `class ... { }`, `$Var = { ... }` scriptblocks, multi-line `@(` / `@{` collections,
+     * top-level control blocks (`if`/`foreach`/`try`/`switch`), `#region ... #endregion`,
+     * and `<# ... #>` multi-line comments.
      */
-    fun extractFoldRegions(content: String): List<FoldRegion> {
+    fun extractFoldRegions(
+        content: String,
+        language: SyntaxLanguage = SyntaxLanguage.POWERSHELL
+    ): List<FoldRegion> {
         if (content.isBlank()) return emptyList()
-        val lines = content.split('\n')
+        val lines = content.split('\n').map { it.trimEnd('\r') }
+        val lineStates = computeLineStates(lines, language)
         val regions = ArrayList<FoldRegion>()
 
         val regionStack = ArrayDeque<Pair<Int, String>>()
         var commentBlockStart: Int? = null
 
         data class BraceFrame(val startLine: Int, val label: String, val kind: FoldKind, val baseDepth: Int)
+        data class ParenFrame(val startLine: Int, val label: String, val baseDepth: Int)
+
         val braceFrames = ArrayDeque<BraceFrame>()
+        val parenFrames = ArrayDeque<ParenFrame>()
         var currentBraceDepth = 0
+        var currentParenDepth = 0
         var pendingDecl: Triple<Int, String, FoldKind>? = null
 
         for (lineIdx in lines.indices) {
             val line = lines[lineIdx]
             val trimmed = line.trim()
 
-            // 1. Multi-line comment blocks <# ... #>
-            if (commentBlockStart == null && trimmed.startsWith("<#") && !trimmed.contains("#>")) {
-                commentBlockStart = lineIdx
-                continue
-            }
-            if (commentBlockStart != null) {
-                if (trimmed.contains("#>")) {
-                    val start = commentBlockStart
-                    if (lineIdx > start) {
-                        regions.add(
-                            FoldRegion(
-                                id = "comment_$start",
-                                startLine = start,
-                                endLine = lineIdx,
-                                label = "<# Comment Block (${lineIdx - start + 1} lines) #>",
-                                kind = FoldKind.COMMENT_BLOCK
-                            )
-                        )
-                    }
-                    commentBlockStart = null
+            // 1. Multi-line comment blocks <# ... #> (PowerShell)
+            if (language == SyntaxLanguage.POWERSHELL) {
+                if (commentBlockStart == null &&
+                    lineStates[lineIdx] == LineLexState.NORMAL &&
+                    trimmed.startsWith("<#") &&
+                    !trimmed.contains("#>")
+                ) {
+                    commentBlockStart = lineIdx
+                    continue
                 }
-                continue
+                if (commentBlockStart != null) {
+                    if (trimmed.contains("#>")) {
+                        val start = commentBlockStart
+                        if (lineIdx > start) {
+                            regions.add(
+                                FoldRegion(
+                                    id = "comment_$start",
+                                    startLine = start,
+                                    endLine = lineIdx,
+                                    label = "<# Comment Block (${lineIdx - start + 1} lines) #>",
+                                    kind = FoldKind.COMMENT_BLOCK
+                                )
+                            )
+                        }
+                        commentBlockStart = null
+                    }
+                    continue
+                }
+
+                // Skip here-string interiors so braces inside strings never corrupt folds
+                if (lineStates[lineIdx] != LineLexState.NORMAL) continue
             }
 
             // 2. #region ... #endregion
@@ -1314,57 +2104,127 @@ object PowerShellEngine {
                 continue
             }
 
-            // 3. Function / Filter / Workflow / Class declarations
-            val fnMatch = FUNCTION_DECL_REGEX.find(line)
-            if (fnMatch != null) {
-                val kw = fnMatch.groupValues[1].lowercase()
-                val name = fnMatch.groupValues[2]
-                val kind = when (kw) {
-                    "filter" -> FoldKind.FILTER
-                    "workflow" -> FoldKind.WORKFLOW
-                    else -> FoldKind.FUNCTION
-                }
-                pendingDecl = Triple(lineIdx, "$kw $name { … }", kind)
-            } else {
-                val clsMatch = CLASS_DECL_REGEX.find(line)
-                if (clsMatch != null) {
-                    val kw = clsMatch.groupValues[1].lowercase()
-                    val name = clsMatch.groupValues[2]
-                    pendingDecl = Triple(lineIdx, "$kw $name { … }", FoldKind.CLASS)
+            val stripped = stripStringsAndCommentsFromLine(line)
+            if (stripped.isBlank()) continue
+
+            // Expire stale non-callable pending block headers if `{` did not follow within 3 lines
+            val existingPending = pendingDecl
+            if (existingPending != null &&
+                existingPending.third == FoldKind.BLOCK &&
+                lineIdx - existingPending.first > 3
+            ) {
+                pendingDecl = null
+            }
+
+            // 3. Function / Filter / Workflow / Class / Scriptblock / Collection / Control declarations
+            if (language == SyntaxLanguage.POWERSHELL) {
+                val fnMatch = FUNCTION_DECL_REGEX.find(stripped)
+                if (fnMatch != null) {
+                    val kw = fnMatch.groupValues[1].lowercase()
+                    val name = fnMatch.groupValues[2]
+                    val kind = when (kw) {
+                        "filter" -> FoldKind.FILTER
+                        "workflow" -> FoldKind.WORKFLOW
+                        else -> FoldKind.FUNCTION
+                    }
+                    pendingDecl = Triple(lineIdx, "$kw $name { … }", kind)
+                } else {
+                    val clsMatch = CLASS_DECL_REGEX.find(stripped)
+                    if (clsMatch != null) {
+                        val kw = clsMatch.groupValues[1].lowercase()
+                        val name = clsMatch.groupValues[2]
+                        pendingDecl = Triple(lineIdx, "$kw $name { … }", FoldKind.CLASS)
+                    } else {
+                        val sbMatch = SCRIPTBLOCK_DECL_REGEX.find(stripped)
+                        if (sbMatch != null) {
+                            val varName = sbMatch.groupValues[1]
+                            pendingDecl = Triple(lineIdx, "$varName = { … }", FoldKind.BLOCK)
+                        } else if (currentBraceDepth == 0 && currentParenDepth == 0) {
+                            val colBrace = COLLECTION_BRACE_DECL_REGEX.find(stripped)
+                            if (colBrace != null) {
+                                val varName = colBrace.groupValues[1]
+                                pendingDecl = Triple(lineIdx, "$varName = @{ … }", FoldKind.BLOCK)
+                            } else if (CONTROL_BLOCK_HEAD_REGEX.containsMatchIn(stripped) ||
+                                PIPELINE_FOREACH_HEAD_REGEX.containsMatchIn(stripped)
+                            ) {
+                                val cleanHdr = formatControlBlockSignature(stripped).removeSuffix(" { … }")
+                                pendingDecl = Triple(lineIdx, "$cleanHdr { … }", FoldKind.BLOCK)
+                            }
+                        }
+                    }
                 }
             }
 
-            // Count braces outside comments and strings
-            val stripped = stripStringsAndCommentsFromLine(line)
+            val colParenVar = if (language == SyntaxLanguage.POWERSHELL && currentBraceDepth == 0 && currentParenDepth == 0) {
+                COLLECTION_PAREN_DECL_REGEX.find(stripped)?.groupValues?.get(1)
+            } else {
+                null
+            }
+            var armedColParen = colParenVar != null
+
+            // Count braces & parens outside comments and strings
             for (ch in stripped) {
-                if (ch == '{') {
-                    val decl = pendingDecl
-                    if (decl != null) {
-                        braceFrames.addLast(
-                            BraceFrame(
-                                startLine = decl.first,
-                                label = decl.second,
-                                kind = decl.third,
-                                baseDepth = currentBraceDepth
-                            )
-                        )
-                        pendingDecl = null
-                    }
-                    currentBraceDepth++
-                } else if (ch == '}') {
-                    currentBraceDepth = (currentBraceDepth - 1).coerceAtLeast(0)
-                    if (braceFrames.isNotEmpty() && braceFrames.last().baseDepth == currentBraceDepth) {
-                        val frame = braceFrames.removeLast()
-                        if (lineIdx > frame.startLine) {
-                            regions.add(
-                                FoldRegion(
-                                    id = "fold_${frame.startLine}",
-                                    startLine = frame.startLine,
-                                    endLine = lineIdx,
-                                    label = frame.label,
-                                    kind = frame.kind
+                when (ch) {
+                    '{' -> {
+                        val decl = pendingDecl
+                        if (decl != null) {
+                            braceFrames.addLast(
+                                BraceFrame(
+                                    startLine = decl.first,
+                                    label = decl.second,
+                                    kind = decl.third,
+                                    baseDepth = currentBraceDepth
                                 )
                             )
+                            pendingDecl = null
+                        }
+                        currentBraceDepth++
+                    }
+                    '}' -> {
+                        currentBraceDepth = (currentBraceDepth - 1).coerceAtLeast(0)
+                        if (braceFrames.isNotEmpty() && braceFrames.last().baseDepth == currentBraceDepth) {
+                            val frame = braceFrames.removeLast()
+                            if (lineIdx > frame.startLine) {
+                                regions.add(
+                                    FoldRegion(
+                                        id = "fold_${frame.startLine}",
+                                        startLine = frame.startLine,
+                                        endLine = lineIdx,
+                                        label = frame.label,
+                                        kind = frame.kind
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    '(' -> {
+                        if (armedColParen && colParenVar != null) {
+                            parenFrames.addLast(
+                                ParenFrame(
+                                    startLine = lineIdx,
+                                    label = "$colParenVar = @( … )",
+                                    baseDepth = currentParenDepth
+                                )
+                            )
+                            armedColParen = false
+                        }
+                        currentParenDepth++
+                    }
+                    ')' -> {
+                        currentParenDepth = (currentParenDepth - 1).coerceAtLeast(0)
+                        if (parenFrames.isNotEmpty() && parenFrames.last().baseDepth == currentParenDepth) {
+                            val pFrame = parenFrames.removeLast()
+                            if (lineIdx > pFrame.startLine) {
+                                regions.add(
+                                    FoldRegion(
+                                        id = "paren_${pFrame.startLine}",
+                                        startLine = pFrame.startLine,
+                                        endLine = lineIdx,
+                                        label = pFrame.label,
+                                        kind = FoldKind.BLOCK
+                                    )
+                                )
+                            }
                         }
                     }
                 }
@@ -1380,12 +2240,21 @@ object PowerShellEngine {
         val len = line.length
         while (i < len) {
             val ch = line[i]
+            if (ch == '<' && i + 1 < len && line[i + 1] == '#') {
+                val closeIdx = line.indexOf("#>", i + 2)
+                if (closeIdx >= 0) {
+                    i = closeIdx + 2
+                    continue
+                } else {
+                    break
+                }
+            }
             if (ch == '#') break
             if (ch == '\'' || ch == '"') {
                 val q = ch
                 i++
                 while (i < len && line[i] != q) {
-                    if (line[i] == '`' && i + 1 < len) i++
+                    if (q == '"' && line[i] == '`' && i + 1 < len) i++
                     i++
                 }
                 i++
@@ -1401,7 +2270,7 @@ object PowerShellEngine {
     // INLINE POWERSHELL AUTO-COMPLETION ENGINE (CMDLETS, $VARS, -PARAMS, [TYPES])
     // =========================================================================
 
-    private val USER_VARIABLE_EXTRACT_REGEX = Regex("""\$(?:(?:env|global|script|private|local):)?[A-Za-z_][A-Za-z0-9_]*""")
+    private val USER_VARIABLE_EXTRACT_REGEX = Regex("""\$(?:(?:env|global|script|private|local):)?[\p{L}_][\p{L}\p{N}_]*""")
 
     private val COMMON_CMDLET_CATALOG: List<Pair<String, String>> = listOf(
         "Get-ChildItem" to "Gets items and child items in one or more locations (dir / ls / gci)",
@@ -1665,7 +2534,7 @@ object PowerShellEngine {
             else -> {
                 if (rawPrefix.length < 2) return emptyList()
                 for (sym in astSymbols) {
-                    if (sym.kind == SymbolKind.REGION) continue
+                    if (!sym.kind.isCallableCommand) continue
                     if (sym.name.lowercase().startsWith(lowerPrefix) && !sym.name.equals(rawPrefix, ignoreCase = true)) {
                         candidates.add(
                             PowerShellCompletionItem(
