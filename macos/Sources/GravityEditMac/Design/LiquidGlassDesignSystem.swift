@@ -32,7 +32,7 @@ public struct LiquidGlassCluster<Content: View>: View {
     }
 }
 
-private struct LiquidGlassSurfaceModifier<S: Shape>: ViewModifier {
+private struct LiquidGlassSurfaceModifier<S: InsettableShape>: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     let shape: S
@@ -119,7 +119,7 @@ private struct LiquidGlassButtonModifier: ViewModifier {
 }
 
 public extension View {
-    func liquidGlassSurface<S: Shape>(in shape: S, tint: Color? = nil) -> some View {
+    func liquidGlassSurface<S: InsettableShape>(in shape: S, tint: Color? = nil) -> some View {
         modifier(LiquidGlassSurfaceModifier(shape: shape, tint: tint))
     }
 
