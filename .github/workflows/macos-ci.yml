@@ -28,11 +28,9 @@ jobs:
       - name: Run GravityEditCore XCTest Suite
         working-directory: macos
         run: |
-          if ! swift test --enable-xctest --disable-swift-testing; then
-            echo "::notice::Running XCTest bundle directly via xcrun xctest..."
-            BIN_DIR="$(swift build --build-tests --show-bin-path)"
-            xcrun xctest "${BIN_DIR}/GravityEditMacPackageTests.xctest"
-          fi
+          swift build --build-tests
+          BIN_DIR="$(swift build --build-tests --show-bin-path)"
+          xcrun xctest "${BIN_DIR}/GravityEditMacPackageTests.xctest"
 
       - name: Build Universal GravityEdit.app, DMG, ZIP & Sparkle Appcast
         env:

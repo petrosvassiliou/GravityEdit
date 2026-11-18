@@ -202,12 +202,12 @@ public enum DiffEngine {
         var lIdx = 0
         var rIdx = 0
         while lIdx < midLeft.count || rIdx < midRight.count {
-            if insertedByTargetOffset[rIdx] != nil {
-                edits.append(RawLineEdit(kind: .insert, leftIdx: nil, rightIdx: prefix + rIdx))
-                rIdx += 1
-            } else if lIdx < midLeft.count && removedSet.contains(lIdx) {
+            if lIdx < midLeft.count && removedSet.contains(lIdx) {
                 edits.append(RawLineEdit(kind: .delete, leftIdx: prefix + lIdx, rightIdx: nil))
                 lIdx += 1
+            } else if insertedByTargetOffset[rIdx] != nil {
+                edits.append(RawLineEdit(kind: .insert, leftIdx: nil, rightIdx: prefix + rIdx))
+                rIdx += 1
             } else if lIdx < midLeft.count && rIdx < midRight.count {
                 edits.append(RawLineEdit(kind: .equal, leftIdx: prefix + lIdx, rightIdx: prefix + rIdx))
                 lIdx += 1
