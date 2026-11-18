@@ -13,8 +13,8 @@ permissions:
 
 jobs:
   build-and-package-macos:
-    name: Xcode 26 (macOS 26 Tahoe) • XCTest, Liquid Glass .app, .dmg & Sparkle Appcast
-    runs-on: macos-26
+    name: Xcode 26 (macOS 26 Tahoe) • XCTest, Universal arm64+x86_64 .app, .dmg & Sparkle Appcast
+    runs-on: macos-26-intel
 
     steps:
       - name: Checkout repository
@@ -44,12 +44,15 @@ jobs:
           fi
           ./macos/scripts/package_app.sh "${REL_VER}"
 
-      - name: Verify macOS Bundle Integrity, Sparkle Linkage, Code Signature, Editor Pixel Rendering & Live Launch
+      - name: Verify macOS Bundle Integrity, Universal arm64 Slice, Sparkle Linkage, Code Signature, Editor Pixel Rendering & Live Launch
         run: |
           APP="macos/dist/GravityEdit.app"
           test -f "${APP}/Contents/MacOS/GravityEdit"
           test -f "${APP}/Contents/Resources/AppIcon.icns"
           test -d "${APP}/Contents/Frameworks/Sparkle.framework"
+          ARCHS="$(lipo -archs "${APP}/Contents/MacOS/GravityEdit")"
+          echo "Built Mach-O architectures: ${ARCHS}"
+          echo "${ARCHS}" | grep -q "arm64"
           otool -L "${APP}/Contents/MacOS/GravityEdit"
           codesign -dvvv "${APP}/Contents/MacOS/GravityEdit" 2>&1
           codesign -dvvv "${APP}/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle" 2>&1
