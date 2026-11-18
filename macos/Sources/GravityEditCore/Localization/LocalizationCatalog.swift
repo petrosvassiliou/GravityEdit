@@ -72,7 +72,7 @@ public enum LocalizationCatalog {
 
     public static func tr(_ key: L10nKey, language: AppLanguage = .system) -> String {
         let code = language.resolvedCode
-        return table[code]?[key] ?? table["en"]![key]!
+        return table[code]?[key] ?? table["en"]?[key] ?? key.rawValue
     }
 
     private static let table: [String: [L10nKey: String]] = [
