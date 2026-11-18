@@ -11,3 +11,14 @@ local.properties
 app/build/
 *.jks
 *.keystore
+
+# macOS SwiftPM & App Bundle Artifacts
+macos/.build/
+macos/.swiftpm/
+macos/build/
+macos/dist/
+macos/*.xcodeproj
+*.app
+*.app.zip
+*.dmg
+appcast.xml

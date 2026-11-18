@@ -80,20 +80,22 @@ jobs:
           APK_SHA256=$(sha256sum "$APK_FILE" | awk '{print $1}')
           echo "$APK_SHA256  $APK_FILE" > "${APK_FILE}.sha256"
           cat <<EOF > release-notes.md
-          ### GravityEdit ${TAG_NAME} — Enhanced PowerShell Function & Procedural Script Navigator, Hover Fix & Play Protect Clean
-          - **PowerShell Function & Procedural Script Navigator (\`Funktionsnavigator\`):** Upgraded \`PowerShellEngine.extractAstSymbols\` and \`extractFoldRegions\` to extract multi-line \`param(...)\` signatures on advanced functions, Unicode/umlaut identifiers (\`[\p{L}\p{N}_\-:.]+\`), \`\$Var = { ... }\` scriptblock definitions, top-level \`param(...)\` & \`begin\`/\`process\`/\`end\`/\`clean\` blocks, and \`# === ... ===\` / box / \`# Step N:\` section headers — plus an automatic **procedural outline fallback** for linear admin scripts (such as Robocopy/DFS migration scripts without \`function\` blocks) that surfaces top-level configuration variable groups (\`var\`), multi-line \`@(\`/\`@{\` tables (\`tbl\`), and top-level \`if\`/\`foreach\`/\`switch\`/\`try\` control blocks (\`blk\`) with code folding, plus Python, Kotlin, Shell/Bash, and Markdown symbol navigation.
-          - **Googlebook OS & Desktop Mouse-Hover Rendering Fix:** Zero-hover-shadow Material 3 Expressive controls (\`hoveredElevation = 0.dp\`), opaque tonal container fills, shape-clipped state layers, and uniform 5% \`LocalRippleConfiguration\` hover tint.
-          - **Google Play Protect Zero-Risk Hardening (\`0\` Sensitive Permissions):** Requests **zero sensitive or special permissions** (only standard \`INTERNET\` for optional read-only JSON version checks; \`REQUEST_INSTALL_PACKAGES\` and \`FileProvider\` absent) and delegates updates strictly to Google Play or the trusted system browser.
-          - **Encrypted CI Release Signing (\`v1 + v2 + v3\`):** Production release signing key (\`CN=GravityEdit Release\`, \`com.gravityedit.app\`) verified automatically on every build with Android SDK \`apksigner\` and \`aapt2 dump permissions\` — upgrades seamlessly over \`v1.2.1\`–\`v1.2.3\` in-place.
+          ### GravityEdit ${TAG_NAME} — macOS Liquid Glass Edition + Android / Googlebook OS Workbench
+          - **New Native macOS Edition (\`GravityEdit-macOS-${TAG_NAME}.dmg\` & \`.app.zip\`):** Built in SwiftUI + AppKit (\`NSTextView\`) with **Apple Liquid Glass** design (\`GlassEffectContainer\`, \`.glassEffect\`, \`.glassEffectID\`, floating \`NavigationSplitView\` sidebar, unified window toolbar, crisp high-contrast code canvas, and macOS Sequoia vibrancy fallback) and strict Apple HIG compliance.
+          - **In-App Automatic Updates on macOS (Sparkle 2 + CryptoKit SHA-256):** Integrated \`SPUStandardUpdaterController\` (\`appcast.xml\`) plus verified in-app \`.app.zip\` SHA-256 bundle updates & automatic relaunch.
+          - **1:1 Cross-Platform PowerShell & BBEdit Parity:** Shared feature set across macOS, Googlebook OS, and Android — PowerShell AST & Procedural Script Navigator (\`Funktionsnavigator\`), Code Folding, Inline Completions, live \`PSScriptAnalyzer\` Quick Fixes, all 14 BBEdit Text Factory operations, PCRE Find/Replace + Multi-File Search, Side-by-Side Myers Diff, Clippings, and 6-language localization (\`en\`, \`de\`, \`it\`, \`es\`, \`fr\`, \`el\`).
+          - **Google Play Protect Zero-Risk Hardening (\`0\` Sensitive Permissions):** Android APK (\`com.gravityedit.app\`, \`v1 + v2 + v3\` signed) requests only standard \`INTERNET\` with zero install/sensitive permissions.
 
-          ### Cryptographic Integrity
+          ### Android APK Integrity
           - **Package ID:** \`com.gravityedit.app\`
-          - **Permissions:** \`android.permission.INTERNET\` only (0 sensitive/install permissions)
-          - **APK Signature Schemes:** \`v1 + v2 + v3\`
-          - **Certificate SHA-256:** \`0D:4D:1A:CA:6F:EC:72:2D:78:29:9D:80:E8:DD:B2:6E:45:18:5E:D4:D8:BE:C4:36:5A:19:8C:0D:BA:37:1B:C2\`
-          - **APK Asset:** \`${APK_FILE}\`
-          - **SHA-256:** \`${APK_SHA256}\`
+          - **APK Asset:** \`${APK_FILE}\` (\`${APK_SHA256}\`)
           EOF
-          gh release create "$TAG_NAME" "$APK_FILE" "${APK_FILE}.sha256" \
-            --title "GravityEdit ${TAG_NAME} — PowerShell Procedural & Advanced AST Navigator" \
-            --notes-file release-notes.md
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "$APK_FILE" "${APK_FILE}.sha256" --clobber
+          else
+            gh release create "$TAG_NAME" "$APK_FILE" "${APK_FILE}.sha256" \
+              --title "GravityEdit ${TAG_NAME} — macOS Liquid Glass & Android / Googlebook OS Release" \
+              --notes-file release-notes.md || \
+            gh release upload "$TAG_NAME" "$APK_FILE" "${APK_FILE}.sha256" --clobber
+          fi
+

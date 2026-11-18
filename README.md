@@ -2,18 +2,18 @@
 
 # GravityEdit
 
-**The 1:1 Functional Equivalent of BBEdit — Engineered Natively for Googlebook OS & Android with Material 3 Expressive Design & First-Class PowerShell Tooling**
+**The 1:1 PowerShell-First BBEdit Workbench — Engineered Natively for macOS (Apple Liquid Glass) and Googlebook OS & Android (Material 3 Expressive)**
 
 [![Latest Release](https://img.shields.io/github/v/release/petrosvassiliou/GravityEdit?style=for-the-badge&color=26469C&label=Latest%20Release)](https://github.com/petrosvassiliou/GravityEdit/releases/latest)
-[![Android CI](https://img.shields.io/github/actions/workflow/status/petrosvassiliou/GravityEdit/android-ci.yml?branch=main&style=for-the-badge&label=Android%20CI)](https://github.com/petrosvassiliou/GravityEdit/actions/workflows/android-ci.yml)
-[![Kotlin](https://img.shields.io/badge/Kotlin-100%25-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org/)
-[![Jetpack Compose](https://img.shields.io/badge/Compose-Material%203%20Expressive-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)](https://developer.android.com/compose)
-[![Play Protect](https://img.shields.io/badge/Play%20Protect-Policy%20Compliant-00C853?style=for-the-badge&logo=googleplay&logoColor=white)](#4-google-play-protectcompatible-auto-updates)
+[![macOS CI](https://img.shields.io/github/actions/workflow/status/petrosvassiliou/GravityEdit/macos-ci.yml?branch=main&style=for-the-badge&logo=apple&label=macOS%20CI)](https://github.com/petrosvassiliou/GravityEdit/actions/workflows/macos-ci.yml)
+[![Android CI](https://img.shields.io/github/actions/workflow/status/petrosvassiliou/GravityEdit/android-ci.yml?branch=main&style=for-the-badge&logo=android&label=Android%20CI)](https://github.com/petrosvassiliou/GravityEdit/actions/workflows/android-ci.yml)
+[![Swift + AppKit](https://img.shields.io/badge/macOS-Liquid%20Glass%20(SwiftUI%2026)-007AFF?style=for-the-badge&logo=swift&logoColor=white)](#macos-edition-apple-liquid-glass--sparkle-2-auto-updates)
+[![Compose M3](https://img.shields.io/badge/Android-Material%203%20Expressive-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)](#android--googlebook-os-edition-material-3-expressive)
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download Latest Signed APK (v1.2.4)</strong></a>
+  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download macOS DMG &amp; Android APK (v1.3.0)</strong></a>
   &nbsp;•&nbsp;
-  <a href="#whats-new-in-v124">What's New in v1.2.4</a>
+  <a href="#macos-edition-apple-liquid-glass--sparkle-2-auto-updates">macOS Liquid Glass</a>
   &nbsp;•&nbsp;
   <a href="#screenshots">Screenshots</a>
   &nbsp;•&nbsp;
@@ -30,30 +30,35 @@
 
 ## Overview
 
-**GravityEdit** (`com.gravityedit.app`) brings the rock-solid text engineering philosophy of **BBEdit for macOS** (*"It doesn't suck"* — zero bloat, instant startup, industrial PCRE regex, deterministic text pipelines) to **Googlebook OS** (Desktop/Laptop freeform windowing), **Android Tablets**, and **Android Phones**, paired with a **native PowerShell AST, syntax, inline completion, and `PSScriptAnalyzer`-grade diagnostic engine**.
+**GravityEdit** brings the rock-solid text engineering philosophy of **BBEdit** (*zero bloat, instant startup, industrial PCRE regex, deterministic text pipelines*) paired with a **first-class PowerShell AST, syntax, inline completion, and `PSScriptAnalyzer`-grade diagnostic engine** to two native desktop & mobile ecosystems:
 
-Built from the ground up in **100% Kotlin** and **Jetpack Compose (Material 3 Expressive)** with physics-driven spring motion, zero WebView wrappers, zero telemetry, and full offline capability.
+1. **GravityEdit for macOS (`com.gravityedit.mac`)** — 100% native **Swift, SwiftUI, and AppKit (`NSTextView` + `NSRulerView`)** engineered for **macOS 26 Tahoe Liquid Glass** (with graceful vibrancy fallback on macOS 15 Sequoia), full Apple Human Interface Guidelines compliance, native Menu Bar commands, and **in-app automatic updates** powered by **Sparkle 2 + CryptoKit SHA-256**.
+2. **GravityEdit for Googlebook OS & Android (`com.gravityedit.app`)** — 100% native **Kotlin & Jetpack Compose (Material 3 Expressive)** with adaptive freeform desktop/tablet/mobile layouts and **Google Play Protect–compliant (`0` sensitive permissions)** update verification.
 
 ---
 
-## What's New in v1.2.4
+## macOS Edition (Apple Liquid Glass & Sparkle 2 Auto-Updates)
 
-- **Enhanced PowerShell Function & Procedural Script Navigator (`Funktionsnavigator`):**
-  - **Advanced PowerShell Declarations:** Extracts multi-line `param(...)` parameter signatures inside `function` / `filter` / `workflow` / `configuration` bodies (even after `<# .SYNOPSIS #>` help blocks and `[CmdletBinding(...)]` attributes), supports full Unicode / German umlaut identifiers, indexes `$Var = { ... }` scriptblock definitions (`$sb`), top-level `param(...)` (`prm`) and `begin`/`process`/`end`/`clean` pipeline blocks (`pipe`), and recognizes `# === ... ===`, 3-line comment boxes, and `# Step N:` / `# Schritt N:` section headers (`#sec`) while strictly ignoring `<# ... #>` block comments and `@"..."@` here-strings.
-  - **Procedural Admin Script Outline Fallback:** For linear administration & migration `.ps1` scripts without `function` blocks (e.g., Robocopy / DFS cutover scripts), automatically populates the navigator with top-level configuration variable groups (`var`), multi-line `@(` / `@{` data tables (`tbl`), and top-level `if` / `foreach` / `ForEach-Object` / `switch` / `try` blocks (`blk`) — plus code folding for all multi-line collections, scriptblocks, and control blocks, and symbol extraction for Python, Kotlin, Shell/Bash, and Markdown.
-- **Googlebook OS & Desktop Mouse-Hover Rendering Fix:**
-  - Eliminated the Material 3 `1.3.x` hardware shadow tessellation artifact (`hoveredElevation = 1.dp` over transparent/non-opaque surfaces) across all Material 3 Expressive controls (`Button`, `FilledTonalButton`, `OutlinedButton`, `TextButton`, `FilterChip`, `AssistChip`, `Card`) and custom pill surfaces via `0.dp` hover shadow elevation, opaque tonal fills, shape-clipped state layers, and a uniform 5% `LocalRippleConfiguration` hover tint.
-- **Google Play Protect Zero-Risk Hardening (`0` Sensitive Permissions):**
-  - Requests zero sensitive or special permissions (`REQUEST_INSTALL_PACKAGES` and `FileProvider` absent), checks read-only JSON release metadata over HTTPS, and delegates downloads strictly to Google Play Store or the user's trusted system browser, signed via encrypted GitHub Actions Secrets (`v1 + v2 + v3`).
-- **Material 3 Expressive Design & Permanent Bottom-Left Version Badge (`v1.2.4`):**
-  - High-chroma Dark/Light/AMOLED (`#000000`)/Dynamic themes, Connected Split-Mode Button Group (`Single | Vertical | Horizontal`), morphing pill tabs, Workspace Overflow Menu (`⋮`), **132/132 localized string keys** across 6 languages, and **`v1.2.4`** permanently anchored at the bottom-left corner.
+### Apple Liquid Glass & Human Interface Guidelines Architecture
+- **Navigation-Only Liquid Glass Layer:** Uses SwiftUI 26 `GlassEffectContainer`, `.glassEffect(.regular, in:)`, `.glassEffectID(_:in:)`, `.buttonStyle(.glass)`, and `.buttonStyle(.glassProminent)` on the floating `NavigationSplitView` sidebar, unified window toolbar, morphing document tab capsules, bottom status pills, Command Palette (`⇧⌘P`), and inline PowerShell completion card — while keeping the **AppKit `NSTextView` code canvas strictly opaque and high-contrast** (`Daylight Crisp`, `Tahoe Midnight`, `Pitch-Black Pro`) per Apple HIG (*"Never use Liquid Glass in the content layer"*).
+- **Full Accessibility Compliance:** Automatically adapts to macOS `Reduce Transparency`, `Reduce Motion`, and `Increase Contrast` system settings.
+- **Native macOS Menu Bar & Keyboard Equivalents:** Complete macOS Menu Bar (`GravityEdit` → `About`, `Settings…` `⌘,`, `Check for Updates…` `⌥⌘U`; `File`; `Edit`; `Search`; **`Text` exposing all 14 BBEdit transformations directly in the menu bar**; `View`; `Tools`; `Help`), native `NSOpenPanel` / `NSSavePanel`, Dock drag-and-drop file/folder opening, and unsaved-document close/quit confirmation (`NSAlert`).
+- **In-App Automatic Updates:** Integrates **Sparkle 2 (`SPUStandardUpdaterController` + `appcast.xml`)** alongside a built-in **Liquid Glass Software Update sheet** (accessible from the menu bar or by clicking the bottom-left **`v1.3.0`** pill) that checks `petrosvassiliou/GravityEdit` releases in the background, verifies `.app.zip` archives against published **SHA-256** manifests via Apple `CryptoKit`, atomically swaps `GravityEdit.app`, and relaunches automatically.
+
+---
+
+## What's New in v1.3.0
+
+- **Native macOS Application (`macos/`):** Full 1:1 feature-parity macOS app (`GravityEdit-macOS-v1.3.0.dmg` & `.app.zip`) built with SwiftUI Liquid Glass + AppKit `NSTextView` and Sparkle 2 automatic updates.
+- **Enhanced PowerShell Function & Procedural Script Navigator (`Funktionsnavigator`):** Extracts multi-line `param(...)` parameter signatures on advanced functions, Unicode/German umlaut names, `$Var = { ... }` scriptblocks (`$sb`), `prm`, `pipe`, `# === ... ===` / box / `# Step N:` section headers (`#sec`), and automatic procedural landmarks (`var`, `tbl`, `blk`) for linear admin scripts without `function` blocks — plus Swift, Python, Kotlin, Shell/Zsh, and Markdown outlines.
+- **Googlebook OS & Android Polish:** Zero-hover-shadow Material 3 Expressive controls (`hoveredElevation = 0.dp`) and Google Play Protect clean (`0` sensitive permissions) release APK signed with `v1 + v2 + v3`.
 
 ---
 
 ## Screenshots
 
 ### 1. Googlebook OS / Tablet Desktop Workbench (Material 3 Expressive)
-Full desktop layout featuring the Expressive `NavigationRail`, drag-resizable **Open Documents & SAF Disk Browser** sidebar, tonal action clusters, **Connected Split-Mode Button Group** (`Single | Vertical | Horizontal`), **Morphing Pill Tab Bar**, **80-column page guide**, **PowerShell Inline Completion (`Tab`)**, and full-width **Expressive Status Bar** with **`v1.2.0`** pinned at the bottom-left corner.
+Full desktop layout featuring the Expressive `NavigationRail`, drag-resizable **Open Documents & SAF Disk Browser** sidebar, tonal action clusters, **Connected Split-Mode Button Group** (`Single | Vertical | Horizontal`), **Morphing Pill Tab Bar**, **80-column page guide**, **PowerShell Inline Completion (`Tab`)**, and full-width **Expressive Status Bar**.
 
 ![GravityEdit Desktop PowerShell Workbench](docs/screenshots/01-desktop-powershell-workbench.png)
 
@@ -69,16 +74,16 @@ Full desktop layout featuring the Expressive `NavigationRail`, drag-resizable **
         <img src="docs/screenshots/02-android-mobile-amoled.png" alt="GravityEdit Android Mobile AMOLED Mode" width="100%" />
       </p>
       <p>
-        True <code>#000000</code> Pitch-Black OLED theme, Expressive morphing pill tabs with trailing <code>+</code> button, <code>⋮</code> overflow menu, <strong>Sticky PowerShell Auxiliary Symbol Row</strong> docked above the bottom bar, and <strong><code>v1.2.0</code> permanently pinned at the bottom-left corner</strong>.
+        True <code>#000000</code> Pitch-Black OLED theme, Expressive morphing pill tabs with trailing <code>+</code> button, <code>⋮</code> overflow menu, <strong>Sticky PowerShell Auxiliary Symbol Row</strong>, and bottom-left version pill.
       </p>
     </td>
     <td width="66%" valign="top">
-      <h4 align="center">Expressive New File Dialog &amp; Stem-Only Rename</h4>
+      <h4 align="center">New File Dialog &amp; Stem-Only Rename</h4>
       <p align="center">
         <img src="docs/screenshots/03-new-document-filetype-selector.png" alt="GravityEdit New Document File Type Selector" width="100%" />
       </p>
       <p>
-        Clicking any <code>+</code> button (Top Toolbar, Desktop/Mobile Tab Bar, Sidebar, Overflow Menu, or <code>Ctrl+N</code>) opens the <code>28dp</code> Expressive <strong>New File</strong> selector for Plain Text (<code>.txt</code>), PowerShell (<code>.ps1</code> / <code>.psm1</code> / <code>.psd1</code>), Markdown, JSON, YAML, XML, Kotlin, Python, Shell, HTML, or CSS, plus encoding, line endings, and starter templates. Clicking an active tab title selects only the filename stem for instant renaming.
+        Create Plain Text (<code>.txt</code>), PowerShell (<code>.ps1</code> / <code>.psm1</code> / <code>.psd1</code>), Swift (<code>.swift</code>), Markdown, JSON, YAML, XML, Kotlin, Python, Shell, or HTML/CSS documents with explicit encoding, line endings, and starter templates.
       </p>
     </td>
   </tr>
@@ -86,21 +91,15 @@ Full desktop layout featuring the Expressive `NavigationRail`, drag-resizable **
 
 ---
 
-### 3. Connected Split-View Workspace & Complete Overflow Menu (`⋮`)
-Side-by-side **Vertical Split View** with independent per-pane AST symbols, code-folding regions, and diagnostics, paired with the **Workspace Overflow Menu (`⋮`)** exposing every editing, navigation, and tool command.
+### 3. Split-View Workspace, Side-by-Side Myers Diff & 14-Step BBEdit Text Factory
 
 ![Material 3 Expressive Split View and Overflow Menu](docs/screenshots/07-expressive-split-and-overflow-menu.png)
-
----
-
-### 4. Side-by-Side Myers Diff & 14-Step BBEdit Text Factory
-Line- and character-level **Myers Diff** with directional `←` / `→` merges alongside chainable **BBEdit Text Factory** batch pipelines with full per-step configuration chips.
 
 ![Side-by-Side Myers Diff and BBEdit Text Factory](docs/screenshots/04-bbedit-text-factory-and-diff.png)
 
 ---
 
-### 5. Live `PSScriptAnalyzer` Diagnostics & Play Protect Auto-Update Center
+### 4. Live `PSScriptAnalyzer` Diagnostics & Auto-Update Center
 
 <table>
   <tr>
@@ -114,12 +113,12 @@ Line- and character-level **Myers Diff** with directional `←` / `→` merges a
       </p>
     </td>
     <td width="50%" valign="top">
-      <h4 align="center">Google Play Protect–Verified Auto-Update (v1.2.0)</h4>
+      <h4 align="center">Cryptographically Verified Software Updates</h4>
       <p align="center">
-        <img src="docs/screenshots/06-play-protect-auto-update.png" alt="GravityEdit Play Protect Auto-Update Center" width="100%" />
+        <img src="docs/screenshots/06-play-protect-auto-update.png" alt="GravityEdit Auto-Update Center" width="100%" />
       </p>
       <p>
-        Accessible anytime by tapping the bottom-left <code>v1.2.0</code> badge. Routes Play Store installs to Google Play In-App Updates and verifies GitHub Release APKs via TLS 1.3 + ZIP magic header + SHA-256 digest before handing off to Android's native <code>PackageInstaller</code>.
+        Accessible anytime by clicking the bottom-left <code>v1.3.0</code> pill. Uses Sparkle 2 + CryptoKit SHA-256 in-app bundle updates on macOS, and Play Protect–clean trusted browser/Play Store routing on Android.
       </p>
     </td>
   </tr>
@@ -127,131 +126,88 @@ Line- and character-level **Myers Diff** with directional `←` / `→` merges a
 
 ---
 
-## Key Features
+## Key Features (1:1 Parity Across macOS & Android / Googlebook OS)
 
-### 1. Adaptive Material 3 Expressive UI (`WindowSizeClass`)
-- **Googlebook OS & Tablet Desktop Mode (`Expanded` / `Medium`):**
-  - Persistent Expressive `NavigationRail` + drag-resizable **Open Documents & SAF Disk Browser** tree sidebar.
-  - Spring-morphing pill tab bar with modified-state indicator dots, stem-selecting inline rename, localized right-click/long-press context menus (`Save`, `Rename`, `Close`, `Close Others`, `Move Left/Right`), and `+` New File selector.
-  - Connected **Single**, **Vertical Split (`◫`)**, and **Horizontal Split (`⊟`)** button group with isolated per-pane folds & diagnostics.
-  - Full-width **Expressive Status Bar** with **`v1.2.0`** permanently pinned at index `0` (bottom-left corner), cursor `Ln:Col` jump pill, live `PSScriptAnalyzer` health pill, Command Palette trigger, character/line/selection counts, and **Encoding**, **Line Ending**, **Syntax Language**, and **Zoom** pickers.
-- **Android Phone Mode (`Compact`):**
-  - `ModalNavigationDrawer` quick-action grid, unified morphing pill tab bar, adaptive `28dp` `ModalBottomSheet` tool & settings surfaces, **Sticky PowerShell Auxiliary Symbol Row** with spring-animated press feedback, and pinned bottom-left `v1.2.0` status bar.
-- **Expressive Color Schemes:** Material 3 Expressive Dark, **AMOLED Pitch Black (`#000000`)**, Material 3 Expressive Light, System Auto, and Android 12+ Dynamic Color.
-
-### 2. First-Class PowerShell Engine (`PowerShellEngine.kt`)
-- **Rich PowerShell Tokenization:** Approved-verb dictionary & alias highlighting (`Verb-Noun`), scoped/drive/automatic variable distinction (`$myVar`, `$script:x`, `$env:PATH`, `$_`, `$PSItem`, `$sender`, `$true`), cmdlet parameters (`-Path`, `-ErrorAction`), operators (`-eq`, `-match`, `-replace`), expandable string interpolation (`"$var"`, `"$(Get-Date)"`), `@{} / @()` hashtable & array subexpressions, Here-Strings (`@"..."@`), and Comment-Based Help tags (`.SYNOPSIS`, `.PARAMETER`, `.EXAMPLE`).
-- **Code Folding & AST / Procedural Script Navigator:** Fold and jump directly to `function`, `filter`, `workflow`, `configuration` (with multi-line `param(...)` extraction & Unicode identifier support), `class`/`enum`, `$Var = { ... }` scriptblocks, top-level `param(...)` & `begin`/`process`/`end`/`clean` blocks, `#region` & `# === ... ===` / `# Step N:` section banners, plus automatic top-level config variable, `@(`/`@{` table, and `if`/`foreach`/`switch`/`try` landmarks for linear PowerShell scripts (and Python, Kotlin, Shell/Bash, and Markdown outlines).
-- **Inline Auto-Completion:** Context-aware completions for built-in PowerShell cmdlets, approved verbs, automatic variables, and functions/variables declared in the active script (`Tab` to accept).
-- **Live `PSScriptAnalyzer`-Style Linter:** Detects `PSAvoidUsingCmdletAliases` (including after `|`, `=`, and inside `"$(...)"`), `PSUseApprovedVerbs`, `PSAvoidEmptyCatchBlock`, `PSAvoidUsingPlainTextForPassword`, `PSAvoidUsingInvokeExpression`, and unbalanced delimiters with instant one-click Quick Fixes.
-
-### 3. 1:1 BBEdit Feature Parity
-- **Industrial PCRE Find & Replace (`FindReplaceEngine.kt`):** Multi-line (`^$`), dot-matches-all (`?s`), case sensitivity, whole-word matching, selection-only search, named capture groups (`(?<name>...)`), backreferences (`$1`, `\1`, `\n`, `\t`), **Extract Matches to New Document**, interactive **Pattern Playground**, and **Multi-File Directory Search & Replace** with direct line-jump.
-- **BBEdit Text Factory (`TextTransformEngine.kt`):** Chain any combination of all **14 classic BBEdit text transformations** into reusable batch pipelines:
-  1. Change Case (`UPPER`, `lower`, `Title Case`, `Sentence case`, `camelCase`, `snake_case`)
-  2. Sort Lines (Ascending / Descending, Case-Sensitive, Numeric-Aware)
-  3. Process Duplicate Lines (Deduplicate, Keep Only Duplicates, Keep Unique Only, Ignore Leading Whitespace)
-  4. Prefix / Suffix Lines (with Skip Blank Lines option)
-  5. Strip Trailing Whitespace
-  6. Zap Gremlins (Strip or replace non-printable ASCII, zero-width spaces, or null bytes)
-  7. Entab / Detab (Convert spaces ↔ tabs at configurable tab stops)
-  8. Hard Wrap Text (Wrap at configurable column width with Paragraph Preservation)
-  9. Remove Line Breaks (Unwrap paragraphs)
-  10. Add / Remove Line Numbers (Configurable start, increment, zero-padding & separator)
-  11. Process Lines Containing… (Extract, Delete, or Copy matching lines via Regex/Literal)
-  12. Straighten / Educate Quotes (Smart typography ↔ straight ASCII quotes)
-  13. Base64 & URL Encode / Decode
-  14. Format / Prettify JSON, XML & PowerShell (`2` / `4` / `8` space indent)
-- **Side-by-Side Myers Diff (`DiffEngine.kt`):** Compare any two open documents with character-level change highlights and one-click directional merges (`←` / `→`).
-- **Clippings & Snippets (`ClippingsManager.kt`):** Expand dynamic placeholders (`#DATE#`, `#TIME#`, `#FILENAME#`, `#SELECTION#`, `#INSERTION#`) with a pre-loaded PowerShell snippet library.
-- **Persistent Scratchpad & Crash-Safe Auto-Save:** Instant DataStore-backed scratch buffer across restarts.
-
-### 4. Google Play Protect–Compatible Auto-Updates (`0` Sensitive Permissions)
-Implemented in [`AppUpdateManagerEngine.kt`](app/src/main/java/com/gravityedit/app/domain/engine/AppUpdateManagerEngine.kt) in strict compliance with Google Play Developer Policy & Google Play Protect real-time scanning:
-- **Zero Install Permissions (`REQUEST_INSTALL_PACKAGES` Absent):** GravityEdit never declares `REQUEST_INSTALL_PACKAGES` and never downloads `.apk` binaries inside the app process, avoiding Play Protect's sideloaded dropper heuristic.
-- **Source-Aware Routing:** Inspects `PackageManager.getInstallSourceInfo()` — installs originating from Google Play (`com.android.vending`) route strictly through Google Play Store.
-- **Read-Only HTTPS Check & Trusted Browser Handoff:** Direct GitHub installs check read-only JSON metadata at `releases/latest` over **HTTPS (TLS 1.3)**, display the published **SHA-256 cryptographic digest**, and delegate downloads exclusively to the user's trusted system browser.
-
-### 5. 6-Language Runtime Localization (`132/132` Keys)
-100% string parity verified by automated JUnit XML tests, with instant runtime switching via `AppCompatDelegate.setApplicationLocales()`:
-- English (`en`) • Deutsch (`de`) • Italiano (`it`) • Español (`es`) • Français (`fr`) • Ελληνικά (`el`)
+1. **First-Class PowerShell Engine (`PowerShellEngine.swift` / `PowerShellEngine.kt`):**
+   - Full PowerShell syntax tokenizer (`ApprovedVerbs`, aliases, `$env:`/`$script:`/`$_` variables, `-Parameters`, `-Operators`, `"$(...)"` interpolation, `@"..."@` here-strings, `<# .SYNOPSIS #>` help tags).
+   - Code Folding (`function`, `filter`, `workflow`, `class`, `$Var = { ... }`, `@(`/`@{`, control blocks, `#region`, `<#...#>`).
+   - AST & Procedural Function Navigator (`fn`, `flt`, `wf`, `cls`, `cfg`, `$sb`, `prm`, `pipe`, `#sec`, `#reg`, `var`, `tbl`, `blk`) + Swift, Python, Kotlin, Shell/Zsh, and Markdown outlines.
+   - Inline Auto-Completion (`Tab` / `⌥Space`) and live `PSScriptAnalyzer` linter with 1-click Quick Fixes & Fix All.
+2. **All 14 BBEdit Text Factory Transformations (`TextTransformEngine`):**
+   - Zap Gremlins • Process Duplicate Lines • Sort Lines (Ascending/Descending/Numeric/Regex) • Prefix/Suffix Lines • Change Case (`UPPER`, `lower`, `Title Case`, `Sentence case`, `camelCase`, `snake_case`, `iNVERT`) • Strip Trailing Whitespace • Entab/Detab • Hard Wrap & Unwrap • Add/Remove Line Numbers • Educate/Straighten Quotes • Canonize Batch Replace Table • Process Lines Containing • Convert Line Endings (`LF`/`CRLF`/`CR`) • Format/Prettify PowerShell, JSON & XML (+ Base64 & URL Encode/Decode).
+3. **Industrial PCRE Find & Replace, Multi-File Search, Regex Playground & Extract Matches.**
+4. **Side-by-Side Myers Diff with Intra-Line Highlights & Directional (`←` / `→`) Hunk Merging.**
+5. **Clippings Library (`#SELECTION#`, `#INSERTION#`, `#SELSTART#`..`#SELEND#`, `#DATE#`, `#TIME#`, `#FILENAME#`, `#USERNAME#`), Persistent Scratchpad & 6-Language Localization (`en`, `de`, `it`, `es`, `fr`, `el`).**
 
 ---
 
 ## Keyboard Shortcuts
 
-| Shortcut | Action |
-| :--- | :--- |
-| `Ctrl + P` / `Ctrl + Shift + P` | Open Command Palette & Fuzzy Switcher |
-| `Ctrl + N` | New File (Open File Type, Encoding & Line Ending Selector) |
-| `Ctrl + O` | Open File from Disk / SAF |
-| `Ctrl + S` / `Ctrl + Shift + S` | Save / Save As |
-| `Ctrl + W` | Close Active Document |
-| `Ctrl + F` | Find & Replace (PCRE Regex + Pattern Playground) |
-| `Ctrl + Shift + F` | Multi-File Directory Search & Replace |
-| `Ctrl + G` | Go to Line (`Ln:Col`) |
-| `Ctrl + J` | Jump to PowerShell Function / Filter / Class |
-| `Ctrl + D` | Duplicate Current Line |
-| `Ctrl + L` | Select Entire Line |
-| `Ctrl + /` | Toggle Line Comment (`#` / `//`) |
-| `Tab` / `Shift + Tab` | Accept Inline Completion or Indent / Unindent Block |
-| `Ctrl + +` / `Ctrl + -` / `Ctrl + 0` | Zoom In / Zoom Out / Reset Editor Zoom (`100%`) |
+| Action | macOS Shortcut | Googlebook OS / Android Shortcut |
+| :--- | :--- | :--- |
+| Command Palette | `⇧⌘P` | `Ctrl + P` / `Ctrl + Shift + P` |
+| New Document | `⌘N` (`⇧⌘N` Quick `.ps1`) | `Ctrl + N` |
+| Open File / Mount Folder | `⌘O` / `⇧⌘O` | `Ctrl + O` |
+| Save / Save As | `⌘S` / `⇧⌘S` | `Ctrl + S` / `Ctrl + Shift + S` |
+| Close Active Tab | `⌘W` | `Ctrl + W` |
+| Find & Replace / Multi-File Search | `⌘F` / `⇧⌘F` | `Ctrl + F` / `Ctrl + Shift + F` |
+| Open BBEdit Text Factory | `⇧⌘T` | `Ctrl + Shift + T` |
+| Format / Prettify Document | `⌃⌥F` | `Alt + Shift + F` |
+| Compare Documents (Myers Diff) | `⌃⌘D` | `Ctrl + Alt + D` |
+| Go to Line / Jump to Function | `⌃L` / `⌘J` | `Ctrl + G` / `Ctrl + J` |
+| Duplicate Line / Select Line | `⌘D` / `⌘L` | `Ctrl + D` / `Ctrl + L` |
+| Toggle Comment / Indent / Outdent | `⌘/` • `⌘]` • `⌘[` | `Ctrl + /` • `Tab` • `Shift + Tab` |
+| Split View (Single / Vertical / Horizontal) | `⌥⌘1` • `⌥⌘2` • `⌥⌘3` | Connected Split Toolbar |
+| Check for Software Updates | `⌥⌘U` (or `v1.3.0` pill) | Tap `v1.3.0` pill |
+| Settings | `⌘,` | Sidebar / Overflow Settings |
 
 ---
 
-## Architecture & Project Structure
+## Repository Structure
 
 ```text
-app/src/main/java/com/gravityedit/app/
-├── data/
-│   ├── preferences/     # DataStore persistence for editor, theme, locale & auto-update settings
-│   └── repository/      # Scratchpad & SAF file I/O persistence
-├── domain/
-│   ├── engine/
-│   │   ├── AppUpdateManagerEngine.kt   # Play Protect-compliant HTTPS + SHA-256 updater
-│   │   ├── ClippingsManager.kt         # BBEdit Clippings & dynamic token expansion
-│   │   ├── DiffEngine.kt               # Myers line + character diff & directional merge
-│   │   ├── FindReplaceEngine.kt        # PCRE Regex Find/Replace, Extract & Playground
-│   │   ├── PowerShellEngine.kt         # Tokenizer, folder, AST navigator, completion & linter
-│   │   └── TextTransformEngine.kt      # All 14 BBEdit Text Factory transformations
-│   └── model/           # Immutable state models (EditorDocument, SyntaxLanguage, etc.)
-└── ui/
-    ├── components/      # EditorCanvas, GravityExpressiveControls, Aux Symbol Row & 10 Modals
-    ├── theme/           # GravityEditTheme, GravityExpressiveShapes & GravityExpressiveMotion
-    ├── GravityEditScaffold.kt          # Adaptive Desktop/Mobile layouts & ExpressiveBottomStatusBar
-    └── viewmodel/GravityEditViewModel.kt
+GravityEdit/
+├── macos/                                     # Native macOS Edition (SwiftUI Liquid Glass + AppKit + Sparkle 2)
+│   ├── Package.swift                          # SwiftPM manifest (GravityEditCore, GravityEditMac, Tests)
+│   ├── Sources/
+│   │   ├── GravityEditCore/                   # Cross-module engines (PowerShell, Regex, TextFactory, Diff, Clippings, AutoUpdate, L10n)
+│   │   └── GravityEditMac/                    # LiquidGlassDesignSystem, SparkleUpdateManager, NSTextView editor, Views & Menu Commands
+│   ├── Tests/GravityEditCoreTests/            # XCTest suite
+│   └── scripts/                               # generate_icon.swift & package_app.sh (.app, .dmg, .app.zip, appcast.xml)
+├── app/                                       # Native Android & Googlebook OS Edition (Kotlin + Compose Material 3 Expressive)
+└── .github/workflows/
+    ├── macos-ci.yml                           # Xcode 26 (macos-26) XCTest + Universal .dmg/.app.zip/appcast release pipeline
+    └── android-ci.yml                         # JDK 17 JUnit + Signed v1/v2/v3 APK release pipeline
 ```
 
 ---
 
 ## Installation
 
-1. Download **`GravityEdit-v1.2.4.apk`** (`com.gravityedit.app`, signed with APK Signature Schemes `v1 + v2 + v3`) from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
-2. *(Optional)* Verify cryptographic integrity against `GravityEdit-v1.2.4.apk.sha256`:
-   ```bash
-   sha256sum -c GravityEdit-v1.2.4.apk.sha256
-   ```
-3. Open the APK on your **Android 8.0+ (API 26+)** phone, tablet, or **Googlebook OS** device. *(If you previously installed `v1.2.1`–`v1.2.3`, `v1.2.4` shares the same permanent release certificate and upgrades seamlessly in-place while preserving all documents and settings.)*
+### macOS (macOS 26 Tahoe Liquid Glass & macOS 15 Sequoia+)
+1. Download **`GravityEdit-macOS-v1.3.0.dmg`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
+2. Open the disk image and drag **`GravityEdit.app`** to **`/Applications`**.
+3. *(First launch without Apple Notarization)* If macOS Gatekeeper prompts on an unsigned/ad-hoc GitHub build, Control-click **`GravityEdit.app`** → **Open** (or run `xattr -dr com.apple.quarantine /Applications/GravityEdit.app`). Subsequent updates can be installed directly inside the app via **GravityEdit → Check for Updates…** (`⌥⌘U`)!
+
+### Android & Googlebook OS (Android 8.0+ / API 26+)
+1. Download **`GravityEdit-v1.3.0.apk`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest) and open to install or upgrade in-place.
 
 ---
 
 ## Building from Source
 
-### Prerequisites
-- **JDK 17+**
-- **Android SDK 35** (`compileSdk = 35`, `minSdk = 26`)
-
-### Run Unit Tests & Assemble APK
+### macOS (Xcode 26+ / Swift 6+)
 ```bash
-# Run the full 23-test JUnit 4 engine, UI hygiene & localization parity suite
-./gradlew testDebugUnitTest
+cd macos
 
-# Build Debug & Release APKs
-./gradlew assembleDebug assembleRelease
+# Run the XCTest unit test suite
+swift test
+
+# Build & package GravityEdit.app, .dmg, .app.zip, .sha256 & Sparkle appcast.xml
+./scripts/package_app.sh 1.3.0
 ```
 
----
-
-## License
-
-Released under the MIT License. Built with ❤️ in Kotlin & Jetpack Compose.
+### Android & Googlebook OS (JDK 17 + Android SDK 35)
+```bash
+./gradlew testDebugUnitTest assembleRelease
+```
