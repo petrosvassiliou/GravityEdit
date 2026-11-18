@@ -38,11 +38,18 @@ public struct GravityEditMainWindow: View {
                     Divider().opacity(0.35)
                     liquidGlassBottomStatusBar
                 }
-            }
-            .navigationTitle(vm.focusedDocument?.title ?? "GravityEdit")
-            .navigationSubtitle(navigationSubtitleText)
-            .toolbar {
-                windowToolbarContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .navigationTitle(vm.focusedDocument?.title ?? "GravityEdit")
+                .navigationSubtitle(navigationSubtitleText)
+                .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+                .modifier(
+                    GravityWindowToolbarModifier(
+                        vm: vm,
+                        functionNavigatorMenu: { toolbarFunctionNavigatorMenu },
+                        splitModeButtons: { toolbarSplitModeButtons },
+                        workbenchToolButtons: { toolbarWorkbenchButtons }
+                    )
+                )
             }
 
             // Floating Liquid Glass Command Palette Overlay (⌘P / ⇧⌘P)
@@ -513,127 +520,135 @@ public struct GravityEditMainWindow: View {
 
     // MARK: - Unified macOS Toolbar (Liquid Glass Control Groups)
 
-    @ToolbarContentBuilder
-    private var windowToolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            // 1. Function Navigator Menu (1:1 parity with Android/BBEdit Funktionsnavigator)
-            Menu {
-                if vm.focusedSymbols.isEmpty {
-                    Text(vm.tr(.noFunctionsFound))
-                } else {
-                    ForEach(vm.focusedSymbols) { sym in
-                        Button {
-                            vm.jumpToSymbol(sym)
-                        } label: {
-                            Text("[\(sym.kind.badge)]  \(sym.signature)   — Ln \(sym.lineNumber)")
-                        }
-                    }
-                    Divider()
-                    Button("Show in Sidebar Outline") {
-                        vm.sidebarSection = .functionOutline
+    private var toolbarFunctionNavigatorMenu: some View {
+        Menu {
+            if vm.focusedSymbols.isEmpty {
+                Text(vm.tr(.noFunctionsFound))
+            } else {
+                ForEach(vm.focusedSymbols) { sym in
+                    Button {
+                        vm.jumpToSymbol(sym)
+                    } label: {
+                        Text("[\(sym.kind.badge)]  \(sym.signature)   — Ln \(sym.lineNumber)")
                     }
                 }
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "function")
-                    Text("\(vm.focusedSymbols.count)")
-                        .font(.caption.monospacedDigit().weight(.semibold))
+                Divider()
+                Button("Show in Sidebar Outline") {
+                    vm.sidebarSection = .functionOutline
                 }
             }
-            .help("\(vm.tr(.functionNavigator)) (\(vm.focusedSymbols.count))")
-
-            // 2. Split View Picker (Single / Side-by-Side / Top-Bottom)
-            Picker("Split View", selection: $vm.splitMode) {
-                ForEach(SplitViewMode.allCases) { mode in
-                    Image(systemName: mode.sfSymbol)
-                        .tag(mode)
-                        .help(mode.label)
-                }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "function")
+                Text("\(vm.focusedSymbols.count)")
+                    .font(.caption.monospacedDigit().weight(.semibold))
             }
-            .pickerStyle(.segmented)
-            .frame(width: 98)
-            .onChange(of: vm.splitMode) { _, _ in
-                vm.refreshActiveAnalysisImmediate()
-            }
-
-            // 3. Find & Replace, Text Factory, Side-by-Side Diff & Clippings
-            Button {
-                vm.findSheetInitialTab = .document
-                vm.showFindReplaceSheet = true
-            } label: {
-                Image(systemName: "magnifyingglass")
-            }
-            .help("\(vm.tr(.findReplace)) (⌘F)")
-
-            Button {
-                vm.showTextFactorySheet = true
-            } label: {
-                Image(systemName: "wand.and.stars")
-            }
-            .help("\(vm.tr(.textFactory)) (⇧⌘T)")
-
-            Button {
-                vm.openDiffTool()
-            } label: {
-                Image(systemName: "arrow.left.arrow.right.square")
-            }
-            .help("\(vm.tr(.compareDiff)) (⌃⌘D)")
-
-            Button {
-                vm.showClippingsSheet = true
-            } label: {
-                Image(systemName: "text.badge.plus")
-            }
-            .help("\(vm.tr(.clippings)) (⌃⌘C)")
-
-            Button {
-                vm.showDiagnosticsSheet = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: vm.focusedDiagnostics.isEmpty ? "checkmark.shield" : "exclamationmark.shield.fill")
-                        .foregroundStyle(vm.focusedDiagnostics.isEmpty ? Color.green : Color.orange)
-                    if !vm.focusedDiagnostics.isEmpty {
-                        Text("\(vm.focusedDiagnostics.count)")
-                            .font(.caption2.monospacedDigit().weight(.bold))
-                    }
-                }
-            }
-            .help(vm.tr(.diagnostics))
-
-            Button {
-                vm.showCommandPalette.toggle()
-            } label: {
-                Image(systemName: "command.square")
-            }
-            .help("\(vm.tr(.commandPalette)) (⇧⌘P)")
         }
+        .help("\(vm.tr(.functionNavigator)) (\(vm.focusedSymbols.count))")
+    }
+
+    @ViewBuilder
+    private var toolbarSplitModeButtons: some View {
+        ForEach(SplitViewMode.allCases) { mode in
+            let isSelected = (vm.splitMode == mode)
+            Button {
+                vm.splitMode = mode
+                vm.refreshActiveAnalysisImmediate()
+            } label: {
+                Image(systemName: mode.sfSymbol)
+                    .fontWeight(isSelected ? .semibold : .regular)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            }
+            .help(mode.label)
+        }
+    }
+
+    @ViewBuilder
+    private var toolbarWorkbenchButtons: some View {
+        Button {
+            vm.findSheetInitialTab = .document
+            vm.showFindReplaceSheet = true
+        } label: {
+            Image(systemName: "magnifyingglass")
+        }
+        .help("\(vm.tr(.findReplace)) (⌘F)")
+
+        Button {
+            vm.showTextFactorySheet = true
+        } label: {
+            Image(systemName: "wand.and.stars")
+        }
+        .help("\(vm.tr(.textFactory)) (⇧⌘T)")
+
+        Button {
+            vm.openDiffTool()
+        } label: {
+            Image(systemName: "arrow.left.arrow.right.square")
+        }
+        .help("\(vm.tr(.compareDiff)) (⌃⌘D)")
+
+        Button {
+            vm.showClippingsSheet = true
+        } label: {
+            Image(systemName: "text.badge.plus")
+        }
+        .help("\(vm.tr(.clippings)) (⌃⌘C)")
+
+        Button {
+            vm.showDiagnosticsSheet = true
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: vm.focusedDiagnostics.isEmpty ? "checkmark.shield" : "exclamationmark.shield.fill")
+                    .foregroundStyle(vm.focusedDiagnostics.isEmpty ? Color.green : Color.orange)
+                if !vm.focusedDiagnostics.isEmpty {
+                    Text("\(vm.focusedDiagnostics.count)")
+                        .font(.caption2.monospacedDigit().weight(.bold))
+                }
+            }
+        }
+        .help(vm.tr(.diagnostics))
+
+        Button {
+            vm.showCommandPalette.toggle()
+        } label: {
+            Image(systemName: "command.square")
+        }
+        .help("\(vm.tr(.commandPalette)) (⇧⌘P)")
     }
 
     // MARK: - Liquid Glass Morphing Document Tab Bar
 
     private var liquidGlassDocumentTabStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LiquidGlassCluster(spacing: 6) {
-                HStack(spacing: 6) {
-                    ForEach(vm.documents) { doc in
-                        documentTabPill(for: doc)
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LiquidGlassCluster(spacing: 6) {
+                    HStack(spacing: 6) {
+                        ForEach(vm.documents) { doc in
+                            documentTabPill(for: doc)
+                        }
                     }
-
-                    Button {
-                        vm.showNewDocumentSheet = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .semibold))
-                            .frame(width: 26, height: 26)
-                    }
-                    .buttonStyle(.plain)
-                    .liquidGlassCapsule()
-                    .help("\(vm.tr(.newDocument)) (⌘N)")
+                    .padding(.leading, 10)
+                    .padding(.trailing, 4)
+                    .padding(.vertical, 5)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .fixedSize(horizontal: true, vertical: true)
             }
+            .frame(height: 38)
+
+            Button {
+                vm.showNewDocumentSheet = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.plain)
+            .liquidGlassCapsule()
+            .padding(.trailing, 10)
+            .help("\(vm.tr(.newDocument)) (⌘N)")
         }
+        .frame(height: 40)
+        .frame(maxWidth: .infinity)
         .background(.bar)
     }
 
@@ -951,7 +966,7 @@ public struct GravityEditMainWindow: View {
                 .buttonStyle(.plain)
             }
 
-            // Syntax Language Picker
+            // Syntax Language Picker (updates both syntax highlighting and filename extension)
             if let doc {
                 Menu {
                     ForEach(SyntaxLanguage.allCases) { lang in
@@ -959,7 +974,7 @@ public struct GravityEditMainWindow: View {
                             vm.setFocusedLanguage(lang)
                         } label: {
                             HStack {
-                                Text(lang.displayName)
+                                Text("\(lang.displayName) (.\(lang.primaryExtension))")
                                 if lang == doc.language { Image(systemName: "checkmark") }
                             }
                         }
@@ -1039,6 +1054,46 @@ public struct GravityEditMainWindow: View {
         case .error: return .red
         case .warning: return .orange
         case .info: return .cyan
+        }
+    }
+}
+
+private struct GravityWindowToolbarModifier<
+    FuncMenu: View,
+    SplitButtons: View,
+    WorkbenchButtons: View
+>: ViewModifier {
+    @ObservedObject var vm: WorkspaceViewModel
+    let functionNavigatorMenu: () -> FuncMenu
+    let splitModeButtons: () -> SplitButtons
+    let workbenchToolButtons: () -> WorkbenchButtons
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    functionNavigatorMenu()
+                }
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItemGroup(placement: .primaryAction) {
+                    splitModeButtons()
+                }
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItemGroup(placement: .primaryAction) {
+                    workbenchToolButtons()
+                }
+            }
+        } else {
+            content.toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    functionNavigatorMenu()
+                    Divider()
+                    splitModeButtons()
+                    Divider()
+                    workbenchToolButtons()
+                }
+            }
         }
     }
 }

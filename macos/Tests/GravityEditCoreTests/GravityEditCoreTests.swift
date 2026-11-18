@@ -268,4 +268,41 @@ final class GravityEditCoreTests: XCTestCase {
             }
         }
     }
+
+    func testDocumentTitleExtensionSyncWithLanguage() {
+        XCTAssertEqual(
+            EditorDocument.titleSynchronizedWithLanguage(currentTitle: "GravityWorkbench.ps1", language: .plainText),
+            "GravityWorkbench.txt"
+        )
+        XCTAssertEqual(
+            EditorDocument.titleSynchronizedWithLanguage(currentTitle: "GravityWorkbench.txt", language: .powershell),
+            "GravityWorkbench.ps1"
+        )
+        // Secondary valid extensions for the same language are preserved
+        XCTAssertEqual(
+            EditorDocument.titleSynchronizedWithLanguage(currentTitle: "Inventory.psm1", language: .powershell),
+            "Inventory.psm1"
+        )
+        XCTAssertEqual(
+            EditorDocument.titleSynchronizedWithLanguage(currentTitle: "Server.log", language: .plainText),
+            "Server.log"
+        )
+        XCTAssertEqual(
+            EditorDocument.titleSynchronizedWithLanguage(currentTitle: "Server.log", language: .swift),
+            "Server.swift"
+        )
+
+        var diskDoc = EditorDocument(
+            title: "Fix-1_FileServer-Shares.ps1",
+            fileURL: URL(fileURLWithPath: "/tmp/Fix-1_FileServer-Shares.ps1"),
+            content: "Get-SmbShare",
+            savedContent: "Get-SmbShare",
+            language: .powershell
+        )
+        XCTAssertFalse(diskDoc.isDirty)
+        diskDoc.language = .plainText
+        diskDoc.title = EditorDocument.titleSynchronizedWithLanguage(currentTitle: diskDoc.title, language: .plainText)
+        XCTAssertEqual(diskDoc.title, "Fix-1_FileServer-Shares.txt")
+        XCTAssertTrue(diskDoc.isDirty)
+    }
 }

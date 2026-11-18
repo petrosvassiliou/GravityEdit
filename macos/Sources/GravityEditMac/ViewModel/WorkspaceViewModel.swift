@@ -409,7 +409,15 @@ public final class WorkspaceViewModel: ObservableObject {
     public func setFocusedLanguage(_ lang: SyntaxLanguage) {
         guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
         documents[idx].language = lang
+        let updatedTitle = EditorDocument.titleSynchronizedWithLanguage(
+            currentTitle: documents[idx].title,
+            language: lang
+        )
+        if documents[idx].title != updatedTitle {
+            documents[idx].title = updatedTitle
+        }
         refreshActiveAnalysisImmediate()
+        postToast("File type set to \(lang.displayName) (.\(lang.primaryExtension))")
     }
 
     public func setFocusedEncoding(_ encoding: DocumentEncoding) {
@@ -572,7 +580,7 @@ public final class WorkspaceViewModel: ObservableObject {
     public func saveDocument(id: String) -> Bool {
         guard let idx = documents.firstIndex(where: { $0.id == id }) else { return false }
         let doc = documents[idx]
-        if let url = doc.fileURL {
+        if let url = doc.fileURL, url.lastPathComponent == doc.title {
             return writeDocument(at: idx, to: url)
         } else {
             return saveDocumentAs(id: id)

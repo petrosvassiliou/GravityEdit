@@ -513,7 +513,10 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     }
 
     public var isDirty: Bool {
-        !isScratchpad && content != savedContent
+        guard !isScratchpad else { return false }
+        if content != savedContent { return true }
+        if let url = fileURL, url.lastPathComponent != title { return true }
+        return false
     }
 
     public var lines: [String] {
@@ -628,6 +631,23 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
             return "\(trimmed).\(currentExt)"
         }
         return trimmed
+    }
+
+    /// Updates a document filename's extension to match a newly selected `SyntaxLanguage`
+    /// (for example, `GravityWorkbench.ps1` -> `GravityWorkbench.txt` when switching to `.plainText`),
+    /// while preserving extensions that already belong to the target language (such as `.psm1` or `.log`).
+    public static func titleSynchronizedWithLanguage(currentTitle: String, language: SyntaxLanguage) -> String {
+        let trimmed = currentTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "Untitled.\(language.primaryExtension)"
+        }
+        let currentExt = (trimmed as NSString).pathExtension.lowercased()
+        if !currentExt.isEmpty && language.extensions.contains(currentExt) {
+            return trimmed
+        }
+        let rawStem = (trimmed as NSString).deletingPathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stem = rawStem.isEmpty ? trimmed : rawStem
+        return "\(stem).\(language.primaryExtension)"
     }
 }
 

@@ -11,7 +11,7 @@
 [![Compose M3](https://img.shields.io/badge/Android-Material%203%20Expressive-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)](#android--googlebook-os-edition-material-3-expressive)
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download macOS DMG &amp; Android APK (v1.3.1)</strong></a>
+  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download macOS DMG &amp; Android APK (v1.3.2)</strong></a>
   &nbsp;•&nbsp;
   <a href="#macos-edition-apple-liquid-glass--sparkle-2-auto-updates">macOS Liquid Glass</a>
   &nbsp;•&nbsp;
@@ -43,13 +43,17 @@
 - **Navigation-Only Liquid Glass Layer:** Uses SwiftUI 26 `GlassEffectContainer`, `.glassEffect(.regular, in:)`, `.glassEffectID(_:in:)`, `.buttonStyle(.glass)`, and `.buttonStyle(.glassProminent)` on the floating `NavigationSplitView` sidebar, unified window toolbar, morphing document tab capsules, bottom status pills, Command Palette (`⇧⌘P`), and inline PowerShell completion card — while keeping the **AppKit `NSTextView` code canvas strictly opaque and high-contrast** (`Daylight Crisp`, `Tahoe Midnight`, `Pitch-Black Pro`) per Apple HIG (*"Never use Liquid Glass in the content layer"*).
 - **Full Accessibility Compliance:** Automatically adapts to macOS `Reduce Transparency`, `Reduce Motion`, and `Increase Contrast` system settings.
 - **Native macOS Menu Bar & Keyboard Equivalents:** Complete macOS Menu Bar (`GravityEdit` → `About`, `Settings…` `⌘,`, `Check for Updates…` `⌥⌘U`; `File`; `Edit`; `Search`; **`Text` exposing all 14 BBEdit transformations directly in the menu bar**; `View`; `Tools`; `Help`), native `NSOpenPanel` / `NSSavePanel`, Dock drag-and-drop file/folder opening, and unsaved-document close/quit confirmation (`NSAlert`).
-- **In-App Automatic Updates:** Integrates **Sparkle 2 (`SPUStandardUpdaterController` + `appcast.xml`)** alongside a built-in **Liquid Glass Software Update sheet** (accessible from the menu bar or by clicking the bottom-left **`v1.3.0`** pill) that checks `petrosvassiliou/GravityEdit` releases in the background, verifies `.app.zip` archives against published **SHA-256** manifests via Apple `CryptoKit`, atomically swaps `GravityEdit.app`, and relaunches automatically.
+- **In-App Automatic Updates:** Integrates **Sparkle 2 (`SPUStandardUpdaterController` + `appcast.xml`)** alongside a built-in **Liquid Glass Software Update sheet** (accessible from the menu bar or by clicking the bottom-left **`v1.3.2`** pill) that checks `petrosvassiliou/GravityEdit` releases in the background, verifies `.app.zip` archives against published **SHA-256** manifests via Apple `CryptoKit`, atomically swaps `GravityEdit.app`, and relaunches automatically.
 
 ---
 
-## What's New in v1.3.0
+## What's New in v1.3.2
 
-- **Native macOS Application (`macos/`):** Full 1:1 feature-parity macOS app (`GravityEdit-macOS-v1.3.0.dmg` & `.app.zip`) built with SwiftUI Liquid Glass + AppKit `NSTextView` and Sparkle 2 automatic updates.
+- **macOS Liquid Glass UI & TextKit 1 Code Canvas Polish (`v1.3.2`):**
+  - Fixed blank/empty `NSTextView` code canvas on macOS 26/27 Tahoe by replacing `DBL_MAX` (`CGFloat.greatestFiniteMagnitude`) container/view bounds with finite IEEE-754 `Float32`-safe TextKit 1 geometry (`1.0e7`) inside a clipped `GravityEditorContainerView` with synchronous layout sizing and single-line active gutter highlighting.
+  - Positioned the window title and subtitle cleanly inside the `NavigationSplitView` detail column to the right of the sidebar divider with an explicit visible toolbar boundary and non-collapsible `40pt` morphing Document Tab Bar so the editor gutter never overlaps the titlebar.
+  - Replaced the clipped `98pt` segmented split-view picker with unclipped native Liquid Glass toolbar button capsules separated by `ToolbarSpacer(.fixed)`.
+  - Synchronized document filename extensions automatically when switching syntax/file type (e.g., `GravityWorkbench.ps1` → `GravityWorkbench.txt` when selecting `Plain Text`).
 - **Enhanced PowerShell Function & Procedural Script Navigator (`Funktionsnavigator`):** Extracts multi-line `param(...)` parameter signatures on advanced functions, Unicode/German umlaut names, `$Var = { ... }` scriptblocks (`$sb`), `prm`, `pipe`, `# === ... ===` / box / `# Step N:` section headers (`#sec`), and automatic procedural landmarks (`var`, `tbl`, `blk`) for linear admin scripts without `function` blocks — plus Swift, Python, Kotlin, Shell/Zsh, and Markdown outlines.
 - **Googlebook OS & Android Polish:** Zero-hover-shadow Material 3 Expressive controls (`hoveredElevation = 0.dp`) and Google Play Protect clean (`0` sensitive permissions) release APK signed with `v1 + v2 + v3`.
 

@@ -283,6 +283,16 @@ public struct GravityEditMenuCommands: Commands {
 
             Divider()
 
+            Menu("Syntax & File Type") {
+                ForEach(SyntaxLanguage.allCases) { lang in
+                    Button("\(lang.displayName) (.\(lang.primaryExtension))") {
+                        vm.setFocusedLanguage(lang)
+                    }
+                }
+            }
+
+            Divider()
+
             Button("Zoom In") { vm.zoomIn() }
                 .keyboardShortcut("+", modifiers: [.command])
             Button("Zoom Out") { vm.zoomOut() }

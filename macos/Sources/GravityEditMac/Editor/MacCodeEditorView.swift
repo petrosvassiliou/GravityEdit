@@ -5,6 +5,10 @@ import SwiftUI
 // MARK: - Custom AppKit NSTextView with Page Guides, Current-Line Highlight, Invisibles & Auto-Indent
 
 public final class GravityCodeTextView: NSTextView {
+    /// Finite upper bound (`1.0e7 < 2^24`) per Apple TextKit 1 documentation so CoreGraphics & CALayer
+    /// tile backing stores never overflow IEEE-754 Float32 (`DBL_MAX` causes blank layer rendering).
+    public static let maxLayoutDimension: CGFloat = 10_000_000
+
     public var strongTextStorage: NSTextStorage?
     public var syntaxColors: EditorSyntaxColors = .tahoeMidnight
     public var drawPageGuides: Bool = true
@@ -93,9 +97,16 @@ public final class GravityCodeTextView: NSTextView {
         if drawCurrentLine {
             let ns = string as NSString
             let selLoc = min(selectedRange().location, ns.length)
-            let lineCharRange = ns.lineRange(for: NSRange(location: selLoc, length: 0))
-            let glyphRange = lm.glyphRange(forCharacterRange: lineCharRange, actualCharacterRange: nil)
-            var lineRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
+            var lineRect: NSRect
+            if ns.length == 0 {
+                lineRect = NSRect(x: 0, y: 0, width: bounds.width, height: (font?.pointSize ?? 13.5) * 1.45)
+            } else if selLoc == ns.length && ns.character(at: ns.length - 1) == 10 && !lm.extraLineFragmentRect.isEmpty {
+                lineRect = lm.extraLineFragmentRect
+            } else {
+                let lineCharRange = ns.lineRange(for: NSRange(location: selLoc, length: 0))
+                let glyphRange = lm.glyphRange(forCharacterRange: lineCharRange, actualCharacterRange: nil)
+                lineRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
+            }
             if lineRect.height < 14 {
                 lineRect.size.height = (font?.pointSize ?? 13.5) * 1.45
             }
@@ -268,6 +279,15 @@ public final class GravityLineNumberRulerView: NSRulerView {
             return
         }
 
+        var activeOneBasedLine = 1
+        var cursorScan = 0
+        while cursorScan < activeCharLoc && cursorScan < ns.length {
+            if ns.character(at: cursorScan) == 10 {
+                activeOneBasedLine += 1
+            }
+            cursorScan += 1
+        }
+
         let visibleGlyphRange = lm.glyphRange(forBoundingRect: visibleRect, in: tc)
         let firstVisibleChar = lm.characterIndexForGlyph(at: visibleGlyphRange.location)
 
@@ -301,7 +321,7 @@ public final class GravityLineNumberRulerView: NSRulerView {
                 }
 
                 if !isHiddenByFold {
-                    let isActiveLine = (activeCharLoc >= lineCharRange.location && activeCharLoc <= NSMaxRange(lineCharRange))
+                    let isActiveLine = (lineNumber == activeOneBasedLine)
                     let numStr = "\(lineNumber)" as NSString
                     let attrs: [NSAttributedString.Key: Any] = [
                         .font: isActiveLine ? activeFont : numberFont,
@@ -343,6 +363,23 @@ public final class GravityLineNumberRulerView: NSRulerView {
             }
 
             glyphIdx = max(glyphIdx + 1, NSMaxRange(effectiveGlyphRange))
+        }
+
+        // Draw trailing empty line number when document ends with '\n'
+        if ns.length > 0, ns.character(at: ns.length - 1) == 10, !lm.extraLineFragmentRect.isEmpty {
+            let extraRect = lm.extraLineFragmentRect
+            let yInRuler = extraRect.minY + textView.textContainerOrigin.y - visibleRect.minY
+            if yInRuler + extraRect.height >= rect.minY && yInRuler <= rect.maxY {
+                let isActiveLine = (lineNumber == activeOneBasedLine)
+                let numStr = "\(lineNumber)" as NSString
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: isActiveLine ? activeFont : numberFont,
+                    .foregroundColor: isActiveLine ? syntaxColors.gutterActiveLineNumber : syntaxColors.gutterLineNumber
+                ]
+                let sz = numStr.size(withAttributes: attrs)
+                let drawY = yInRuler + max(0, (extraRect.height - sz.height) * 0.5)
+                numStr.draw(at: NSPoint(x: ruleThickness - 20 - sz.width, y: drawY), withAttributes: attrs)
+            }
         }
     }
 }
@@ -492,6 +529,84 @@ public struct MacCodeEditorView: View {
     }
 }
 
+// MARK: - Clipped AppKit Host Container (Prevents NSScrollView Safe-Area Toolbar Bleed & Syncs Geometry)
+
+public final class GravityEditorContainerView: NSView {
+    public let scrollView: NSScrollView
+    public let textView: GravityCodeTextView
+    public let rulerView: GravityLineNumberRulerView
+    public var softWrap: Bool = false
+
+    public init(
+        scrollView: NSScrollView,
+        textView: GravityCodeTextView,
+        rulerView: GravityLineNumberRulerView,
+        softWrap: Bool
+    ) {
+        self.scrollView = scrollView
+        self.textView = textView
+        self.rulerView = rulerView
+        self.softWrap = softWrap
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        self.wantsLayer = true
+        self.clipsToBounds = true
+        scrollView.frame = self.bounds
+        scrollView.autoresizingMask = [.width, .height]
+        addSubview(scrollView)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    public override func layout() {
+        super.layout()
+        if scrollView.frame != bounds {
+            scrollView.frame = bounds
+        }
+        syncTextViewGeometry()
+    }
+
+    public func syncTextViewGeometry() {
+        let cs = scrollView.contentSize
+        guard cs.width > 10, cs.height > 10 else { return }
+
+        if textView.minSize != cs {
+            textView.minSize = cs
+        }
+
+        let maxDim = GravityCodeTextView.maxLayoutDimension
+        if let tc = textView.textContainer {
+            let targetWidth = softWrap
+                ? max(120, cs.width - textView.textContainerInset.width * 2)
+                : maxDim
+            if abs(tc.containerSize.width - targetWidth) > 0.5 ||
+               abs(tc.containerSize.height - maxDim) > 0.5 {
+                tc.containerSize = NSSize(width: targetWidth, height: maxDim)
+            }
+        }
+
+        var targetFrame = textView.frame
+        var changed = false
+        if softWrap {
+            if abs(targetFrame.size.width - cs.width) > 0.5 {
+                targetFrame.size.width = cs.width
+                changed = true
+            }
+        } else if targetFrame.size.width < cs.width || targetFrame.size.width > maxDim {
+            targetFrame.size.width = cs.width
+            changed = true
+        }
+        if targetFrame.size.height < cs.height || targetFrame.size.height > maxDim {
+            targetFrame.size.height = cs.height
+            changed = true
+        }
+        if changed {
+            textView.frame = targetFrame
+        }
+    }
+}
+
 private struct MacCodeEditorRepresentable: NSViewRepresentable {
     let document: EditorDocument
     let astSymbols: [AstSymbol]
@@ -518,23 +633,46 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
         Coordinator(parent: self)
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> GravityEditorContainerView {
+        let maxDim = GravityCodeTextView.maxLayoutDimension
+
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        scrollView.wantsLayer = true
+        scrollView.clipsToBounds = true
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = !softWrap
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = true
+        scrollView.contentView.clipsToBounds = true
+
+        let initialContentSize = NSSize(
+            width: max(320, scrollView.contentSize.width),
+            height: max(240, scrollView.contentSize.height)
+        )
+
         // Explicitly construct TextKit 1 stack (NSTextStorage -> NSLayoutManager -> NSTextContainer)
-        // for deterministic glyph metrics, custom folding attributes, and ruler synchronization.
+        // using finite IEEE-754 Float32-safe bounds (`1.0e7`) per Apple AppKit documentation.
         let textStorage = NSTextStorage()
         let layoutManager = FoldingAwareLayoutManager()
+        layoutManager.allowsNonContiguousLayout = false
         textStorage.addLayoutManager(layoutManager)
 
         let containerSize = NSSize(
-            width: softWrap ? 800 : CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
+            width: softWrap ? max(120, initialContentSize.width - 12) : maxDim,
+            height: maxDim
         )
         let textContainer = NSTextContainer(containerSize: containerSize)
         textContainer.widthTracksTextView = softWrap
+        textContainer.heightTracksTextView = false
         textContainer.lineFragmentPadding = 8
         layoutManager.addTextContainer(textContainer)
 
-        let textView = GravityCodeTextView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), textContainer: textContainer)
+        let textView = GravityCodeTextView(
+            frame: NSRect(origin: .zero, size: initialContentSize),
+            textContainer: textContainer
+        )
         textView.delegate = context.coordinator
         layoutManager.delegate = context.coordinator
 
@@ -544,6 +682,10 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
         textView.importsGraphics = false
         textView.allowsUndo = true
         textView.usesFindBar = false
+        textView.drawsBackground = true
+        textView.alignment = .left
+        textView.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        textView.textColor = syntaxColors.plainText
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -552,22 +694,18 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
         textView.isGrammarCheckingEnabled = false
         textView.smartInsertDeleteEnabled = false
 
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.minSize = initialContentSize
+        textView.maxSize = NSSize(width: maxDim, height: maxDim)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = !softWrap
         textView.autoresizingMask = softWrap ? [.width] : [.width, .height]
         textView.textContainerInset = NSSize(width: 6, height: 10)
 
-        let scrollView = NSScrollView()
-        scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = !softWrap
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = true
         scrollView.documentView = textView
 
         let ruler = GravityLineNumberRulerView(textView: textView)
+        ruler.wantsLayer = true
+        ruler.clipsToBounds = true
         ruler.onToggleFoldAtLine = { [weak coordinator = context.coordinator] startLine in
             coordinator?.parent.onToggleFold(startLine)
         }
@@ -575,17 +713,32 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = showLineNumbers
 
-        // Observe scroll bounds so the line-number & code-folding gutter scrolls in lockstep
+        // Observe clipView bounds & frame so the line-number gutter and minSize stay synchronized
         scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollView.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(
             context.coordinator,
-            selector: #selector(Coordinator.clipViewBoundsDidChange(_:)),
+            selector: #selector(Coordinator.clipViewBoundsOrFrameDidChange(_:)),
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.clipViewBoundsOrFrameDidChange(_:)),
+            name: NSView.frameDidChangeNotification,
+            object: scrollView.contentView
+        )
+
+        let container = GravityEditorContainerView(
+            scrollView: scrollView,
+            textView: textView,
+            rulerView: ruler,
+            softWrap: softWrap
         )
 
         textView.strongTextStorage = textStorage
         context.coordinator.textStorage = textStorage
+        context.coordinator.containerView = container
         context.coordinator.textView = textView
         context.coordinator.rulerView = ruler
 
@@ -607,10 +760,10 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
 
         // Initial content & styling
         context.coordinator.applyFullUpdate(from: self, forceRestyle: true)
-        return scrollView
+        return container
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ containerView: GravityEditorContainerView, context: Context) {
         context.coordinator.parent = self
         context.coordinator.applyFullUpdate(from: self, forceRestyle: false)
     }
@@ -621,6 +774,7 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate {
         var parent: MacCodeEditorRepresentable
         var textStorage: NSTextStorage?
+        weak var containerView: GravityEditorContainerView?
         weak var textView: GravityCodeTextView?
         weak var rulerView: GravityLineNumberRulerView?
 
@@ -638,12 +792,19 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
             self.parent = parent
         }
 
-        @objc func clipViewBoundsDidChange(_ notification: Notification) {
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        @objc func clipViewBoundsOrFrameDidChange(_ notification: Notification) {
+            containerView?.syncTextViewGeometry()
             rulerView?.needsDisplay = true
+            textView?.needsDisplay = true
         }
 
         func applyFullUpdate(from state: MacCodeEditorRepresentable, forceRestyle: Bool) {
             guard let tv = textView, let scroll = tv.enclosingScrollView, let ruler = rulerView else { return }
+            let maxDim = GravityCodeTextView.maxLayoutDimension
 
             // Handle mouse-click acceptance from SwiftUI completion overlay
             if let nonce = state.completionAcceptNonce, nonce != lastCompletionAcceptNonce {
@@ -661,28 +822,39 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
                 || state.document.foldedStartLines != lastFoldedLines
 
             // Update appearance & flags
+            let editorFont = NSFont.monospacedSystemFont(ofSize: state.fontSize, weight: .regular)
             tv.syntaxColors = state.syntaxColors
             tv.backgroundColor = state.syntaxColors.canvasBackground
+            tv.textColor = state.syntaxColors.plainText
             tv.insertionPointColor = state.syntaxColors.plainText
+            if tv.font != editorFont {
+                tv.font = editorFont
+            }
             tv.drawPageGuides = state.showPageGuides
             tv.drawCurrentLine = state.highlightCurrentLine
             tv.drawInvisibles = state.showInvisibles
             tv.configuredTabWidth = state.tabWidth
             scroll.backgroundColor = state.syntaxColors.canvasBackground
+            containerView?.softWrap = state.softWrap
 
             // Soft wrap toggle
             if let tc = tv.textContainer, tc.widthTracksTextView != state.softWrap {
                 tc.widthTracksTextView = state.softWrap
                 tc.containerSize = NSSize(
-                    width: state.softWrap ? max(200, scroll.contentSize.width) : CGFloat.greatestFiniteMagnitude,
-                    height: CGFloat.greatestFiniteMagnitude
+                    width: state.softWrap ? max(120, scroll.contentSize.width - tv.textContainerInset.width * 2) : maxDim,
+                    height: maxDim
                 )
                 tv.isHorizontallyResizable = !state.softWrap
+                tv.autoresizingMask = state.softWrap ? [.width] : [.width, .height]
                 scroll.hasHorizontalScroller = !state.softWrap
+                containerView?.syncTextViewGeometry()
             }
 
             // Ruler metadata
-            scroll.rulersVisible = state.showLineNumbers
+            if scroll.rulersVisible != state.showLineNumbers {
+                scroll.rulersVisible = state.showLineNumbers
+                containerView?.syncTextViewGeometry()
+            }
             ruler.syntaxColors = state.syntaxColors
             ruler.editorFontSize = state.fontSize
             var foldMap: [Int: FoldRegion] = [:]
@@ -716,6 +888,19 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
                 recomputeFoldedCharacterRanges(in: tv.string, foldRegions: state.foldRegions, foldedStarts: state.document.foldedStartLines)
                 tv.layoutManager?.invalidateGlyphs(forCharacterRange: NSRange(location: 0, length: newLen), changeInLength: 0, actualCharacterRange: nil)
                 tv.layoutManager?.invalidateLayout(forCharacterRange: NSRange(location: 0, length: newLen), actualCharacterRange: nil)
+                if let tc = tv.textContainer {
+                    tv.layoutManager?.ensureLayout(for: tc)
+                }
+                containerView?.syncTextViewGeometry()
+                tv.sizeToFit()
+                containerView?.syncTextViewGeometry()
+                if docChanged {
+                    if targetSel.location == 0 {
+                        tv.scroll(.zero)
+                    } else {
+                        tv.scrollRangeToVisible(targetSel)
+                    }
+                }
                 isProgrammaticUpdate = false
             } else if styleConfigChanged {
                 isProgrammaticUpdate = true
@@ -724,7 +909,15 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
                 recomputeFoldedCharacterRanges(in: tv.string, foldRegions: state.foldRegions, foldedStarts: state.document.foldedStartLines)
                 tv.layoutManager?.invalidateGlyphs(forCharacterRange: NSRange(location: 0, length: newLen), changeInLength: 0, actualCharacterRange: nil)
                 tv.layoutManager?.invalidateLayout(forCharacterRange: NSRange(location: 0, length: newLen), actualCharacterRange: nil)
+                if let tc = tv.textContainer {
+                    tv.layoutManager?.ensureLayout(for: tc)
+                }
+                containerView?.syncTextViewGeometry()
+                tv.sizeToFit()
+                containerView?.syncTextViewGeometry()
                 isProgrammaticUpdate = false
+            } else {
+                containerView?.syncTextViewGeometry()
             }
 
             // Explicit scroll jump request (Function Navigator, Go to Line, Find Match, Diagnostic)
@@ -837,6 +1030,8 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
                 foldRegions: parent.foldRegions,
                 foldedStarts: parent.document.foldedStartLines
             )
+            tv.sizeToFit()
+            containerView?.syncTextViewGeometry()
             isProgrammaticUpdate = false
 
             parent.onContentChange(tv.string, tv.selectedRange())
@@ -944,6 +1139,7 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
             let colors = parent.syntaxColors
 
             let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .left
             paragraph.lineSpacing = 2.0
 
             storage.beginEditing()

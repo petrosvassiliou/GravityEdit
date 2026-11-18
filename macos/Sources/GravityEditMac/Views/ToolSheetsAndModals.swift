@@ -14,12 +14,26 @@ public struct NewDocumentSheetView: View {
     @State private var selectedLineEnding: LineEnding = .lf
     @State private var includeStarterTemplate: Bool = true
 
+    private var previewFileName: String {
+        let untitledIndex = vm.documents.filter { !$0.isScratchpad }.count + 1
+        let trimmed = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawStem = trimmed.isEmpty ? "Untitled-\(untitledIndex)" : (trimmed as NSString).deletingPathExtension
+        let stem = rawStem.isEmpty ? "Untitled-\(untitledIndex)" : rawStem
+        return "\(stem).\(selectedLanguage.primaryExtension)"
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Label("New Document", systemImage: "doc.badge.plus")
                     .font(.title3.weight(.semibold))
                 Spacer()
+                Text(previewFileName)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .liquidGlassCapsule()
             }
 
             Form {
@@ -28,6 +42,18 @@ public struct NewDocumentSheetView: View {
                     ForEach(SyntaxLanguage.allCases) { lang in
                         Label("\(lang.displayName) (.\(lang.primaryExtension))", systemImage: lang.sfSymbolName)
                             .tag(lang)
+                    }
+                }
+                .onChange(of: selectedLanguage) { _, newLang in
+                    let trimmed = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty && !(trimmed as NSString).pathExtension.isEmpty {
+                        baseName = EditorDocument.titleSynchronizedWithLanguage(
+                            currentTitle: trimmed,
+                            language: newLang
+                        )
+                    }
+                    if newLang == .plainText {
+                        includeStarterTemplate = false
                     }
                 }
                 Picker("Character Encoding:", selection: $selectedEncoding) {
@@ -41,6 +67,7 @@ public struct NewDocumentSheetView: View {
                     }
                 }
                 Toggle("Populate starter template", isOn: $includeStarterTemplate)
+                    .disabled(selectedLanguage == .plainText)
             }
             .formStyle(.grouped)
 
@@ -49,7 +76,7 @@ public struct NewDocumentSheetView: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                     .liquidGlassButton()
-                Button("Create Document") {
+                Button("Create \(previewFileName)") {
                     vm.createNewDocument(
                         baseName: baseName,
                         language: selectedLanguage,
@@ -64,7 +91,7 @@ public struct NewDocumentSheetView: View {
             }
         }
         .padding(20)
-        .frame(width: 480)
+        .frame(width: 500)
     }
 }
 
