@@ -5,10 +5,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MACOS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-VERSION="${1:-1.3.0}"
+VERSION="${1:-1.3.1}"
 VERSION_CLEAN="${VERSION#v}"
 TAG_NAME="v${VERSION_CLEAN}"
-BUILD_NUMBER="${BUILD_NUMBER:-9}"
+BUILD_NUMBER="${BUILD_NUMBER:-10}"
 APP_NAME="GravityEdit"
 BUNDLE_ID="com.gravityedit.mac"
 
@@ -63,6 +63,11 @@ echo "==> [4/6] Writing Info.plist & PkgInfo..."
 printf "APPL????" > "${CONTENTS_DIR}/PkgInfo"
 
 PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-}"
+PUBLIC_ED_PLIST_ENTRY=""
+if [ -n "${PUBLIC_ED_KEY}" ]; then
+    PUBLIC_ED_PLIST_ENTRY="    <key>SUPublicEDKey</key>
+    <string>${PUBLIC_ED_KEY}</string>"
+fi
 
 cat <<EOF > "${CONTENTS_DIR}/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -110,8 +115,7 @@ cat <<EOF > "${CONTENTS_DIR}/Info.plist"
     <string>https://github.com/petrosvassiliou/GravityEdit/releases/latest/download/appcast.xml</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
-    <key>SUPublicEDKey</key>
-    <string>${PUBLIC_ED_KEY}</string>
+${PUBLIC_ED_PLIST_ENTRY}
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
@@ -145,23 +149,46 @@ cat <<EOF > "${CONTENTS_DIR}/Info.plist"
 </plist>
 EOF
 
-echo "==> [5/6] Signing nested Sparkle XPC/Updater helpers & GravityEdit.app (Hardened Runtime)..."
+echo "==> [5/6] Signing nested Sparkle XPC/Updater Mach-O binaries & GravityEdit.app..."
+xattr -cr "${APP_BUNDLE}" || true
 SIGN_IDENTITY="${MACOS_SIGN_IDENTITY:--}"
 
-# Inside-out code signing required by macOS Gatekeeper & Sparkle 2
+# IMPORTANT: Never pass `--options runtime` when ad-hoc signing (`--sign -`)!
+# Hardened Runtime (`CS_RUNTIME`) activates kernel Library Validation, which requires a non-empty
+# Apple Developer Team ID to match across the main binary and `@rpath/Sparkle.framework`; with ad-hoc
+# empty Team IDs, dyld4 aborts at launch with "mapping process and mapped file have different Team IDs".
+if [ "${SIGN_IDENTITY}" = "-" ]; then
+    CODESIGN_ARGS=(--force --timestamp=none --sign "-")
+else
+    CODESIGN_ARGS=(--force --options runtime --timestamp=none --sign "${SIGN_IDENTITY}")
+fi
+
+# Inside-out code signing of every Mach-O slice so zero upstream Sparkle Team IDs remain
 if [ -d "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/XPCServices" ]; then
     for xpc in "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/XPCServices/"*.xpc; do
-        [ -e "$xpc" ] && codesign --force --options runtime --timestamp=none --sign "${SIGN_IDENTITY}" "$xpc"
+        if [ -d "$xpc" ]; then
+            for xpc_bin in "$xpc/Contents/MacOS/"*; do
+                [ -f "$xpc_bin" ] && codesign "${CODESIGN_ARGS[@]}" "$xpc_bin"
+            done
+            codesign "${CODESIGN_ARGS[@]}" "$xpc"
+        fi
     done
 fi
-if [ -e "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Autoupdate" ]; then
-    codesign --force --options runtime --timestamp=none --sign "${SIGN_IDENTITY}" "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Autoupdate"
+if [ -f "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Autoupdate" ]; then
+    codesign "${CODESIGN_ARGS[@]}" "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Autoupdate"
 fi
 if [ -d "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Updater.app" ]; then
-    codesign --force --options runtime --timestamp=none --sign "${SIGN_IDENTITY}" "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Updater.app"
+    if [ -f "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater" ]; then
+        codesign "${CODESIGN_ARGS[@]}" "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater"
+    fi
+    codesign "${CODESIGN_ARGS[@]}" "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Updater.app"
 fi
-codesign --force --options runtime --timestamp=none --sign "${SIGN_IDENTITY}" "${FRAMEWORKS_DIR}/Sparkle.framework"
-codesign --force --options runtime --timestamp=none --sign "${SIGN_IDENTITY}" "${APP_BUNDLE}"
+if [ -f "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Sparkle" ]; then
+    codesign "${CODESIGN_ARGS[@]}" "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Sparkle"
+fi
+codesign "${CODESIGN_ARGS[@]}" "${FRAMEWORKS_DIR}/Sparkle.framework"
+codesign "${CODESIGN_ARGS[@]}" "${MACOS_BIN_DIR}/${APP_NAME}"
+codesign "${CODESIGN_ARGS[@]}" "${APP_BUNDLE}"
 
 codesign --verify --deep --strict --verbose=2 "${APP_BUNDLE}"
 

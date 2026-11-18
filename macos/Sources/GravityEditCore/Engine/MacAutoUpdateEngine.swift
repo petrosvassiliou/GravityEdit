@@ -52,8 +52,21 @@ public struct MacReleaseUpdateInfo: Equatable, Sendable {
 
 public enum MacAutoUpdateEngine {
 
-    public static let currentAppVersion = "1.3.0"
-    public static let currentBuildNumber = "9"
+    public static var currentAppVersion: String {
+        if let ver = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+           !ver.isEmpty {
+            return ver
+        }
+        return "1.3.1"
+    }
+
+    public static var currentBuildNumber: String {
+        if let bld = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+           !bld.isEmpty {
+            return bld
+        }
+        return "10"
+    }
     public static let bundleIdentifier = "com.gravityedit.mac"
     public static let githubRepoSlug = "petrosvassiliou/GravityEdit"
     public static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/petrosvassiliou/GravityEdit/releases/latest")!

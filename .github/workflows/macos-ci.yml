@@ -40,19 +40,43 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             REL_VER="${GITHUB_REF#refs/tags/v}"
           else
-            REL_VER="1.3.0"
+            REL_VER="1.3.1"
           fi
           ./macos/scripts/package_app.sh "${REL_VER}"
 
-      - name: Verify macOS Bundle Integrity, Sparkle Linkage & Code Signature
+      - name: Verify macOS Bundle Integrity, Sparkle Linkage, Code Signature & Live Launch
         run: |
           APP="macos/dist/GravityEdit.app"
           test -f "${APP}/Contents/MacOS/GravityEdit"
           test -f "${APP}/Contents/Resources/AppIcon.icns"
           test -d "${APP}/Contents/Frameworks/Sparkle.framework"
           otool -L "${APP}/Contents/MacOS/GravityEdit"
+          codesign -dvvv "${APP}/Contents/MacOS/GravityEdit" 2>&1
+          codesign -dvvv "${APP}/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle" 2>&1
           codesign --verify --deep --strict --verbose=2 "${APP}"
           plutil -lint "${APP}/Contents/Info.plist"
+
+          echo "==> Executing live macOS process launch & dyld @rpath/Sparkle.framework smoke test..."
+          SMOKE_DIR="$(mktemp -d)"
+          ditto -x -k macos/dist/GravityEdit-macOS-*.app.zip "${SMOKE_DIR}"
+          SMOKE_BIN="${SMOKE_DIR}/GravityEdit.app/Contents/MacOS/GravityEdit"
+
+          "${SMOKE_BIN}" >/tmp/gravityedit-smoke.log 2>&1 &
+          SMOKE_PID=$!
+          sleep 4
+
+          if ! kill -0 "${SMOKE_PID}" 2>/dev/null; then
+            echo "ERROR: GravityEdit exited or crashed during dyld/SwiftUI startup!"
+            cat /tmp/gravityedit-smoke.log || true
+            ls -la ~/Library/Logs/DiagnosticReports/ 2>/dev/null || true
+            cat ~/Library/Logs/DiagnosticReports/GravityEdit* 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "SUCCESS: GravityEdit (PID ${SMOKE_PID}) launched cleanly, mapped Sparkle.framework via dyld4, and stayed running!"
+          kill -TERM "${SMOKE_PID}" 2>/dev/null || true
+          wait "${SMOKE_PID}" 2>/dev/null || true
+          rm -rf "${SMOKE_DIR}"
 
       - name: Upload macOS Release Bundle Artifacts (.dmg, .app.zip, appcast.xml)
         uses: actions/upload-artifact@v4

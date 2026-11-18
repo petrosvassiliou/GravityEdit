@@ -5,6 +5,7 @@ import SwiftUI
 // MARK: - Custom AppKit NSTextView with Page Guides, Current-Line Highlight, Invisibles & Auto-Indent
 
 public final class GravityCodeTextView: NSTextView {
+    public var strongTextStorage: NSTextStorage?
     public var syntaxColors: EditorSyntaxColors = .tahoeMidnight
     public var drawPageGuides: Bool = true
     public var drawCurrentLine: Bool = true
@@ -583,6 +584,8 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
             object: scrollView.contentView
         )
 
+        textView.strongTextStorage = textStorage
+        context.coordinator.textStorage = textStorage
         context.coordinator.textView = textView
         context.coordinator.rulerView = ruler
 
@@ -617,6 +620,7 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate {
         var parent: MacCodeEditorRepresentable
+        var textStorage: NSTextStorage?
         weak var textView: GravityCodeTextView?
         weak var rulerView: GravityLineNumberRulerView?
 

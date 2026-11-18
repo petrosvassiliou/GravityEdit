@@ -11,7 +11,7 @@
 [![Compose M3](https://img.shields.io/badge/Android-Material%203%20Expressive-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)](#android--googlebook-os-edition-material-3-expressive)
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download macOS DMG &amp; Android APK (v1.3.0)</strong></a>
+  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download macOS DMG &amp; Android APK (v1.3.1)</strong></a>
   &nbsp;•&nbsp;
   <a href="#macos-edition-apple-liquid-glass--sparkle-2-auto-updates">macOS Liquid Glass</a>
   &nbsp;•&nbsp;
