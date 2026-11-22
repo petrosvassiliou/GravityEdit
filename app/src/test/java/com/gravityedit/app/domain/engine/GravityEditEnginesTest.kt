@@ -991,20 +991,20 @@ class GravityEditEnginesTest {
         val rightLines = leftLines.toMutableList().also {
             it[749] = "Line-750: Restart-Service -Name Spooler -Force"
         }
-        val diff = DiffEngine.computeDiff(
-            leftDocId = "left",
+        val diff = DiffEngine.computeDiffSync(
+            leftDocumentId = "left",
+            rightDocumentId = "right",
             leftTitle = "Left.ps1",
-            leftText = leftLines.joinToString("\n"),
-            rightDocId = "right",
             rightTitle = "Right.ps1",
+            leftText = leftLines.joinToString("\n"),
             rightText = rightLines.joinToString("\n")
         )
         assertEquals(1, diff.modifiedCount)
         assertEquals(0, diff.addedCount)
-        assertEquals(0, diff.deletedCount)
+        assertEquals(0, diff.removedCount)
         val modRow = diff.rows.first { it.changeType == DiffChangeType.MODIFY }
         assertEquals(750, modRow.leftLineNumber)
         assertEquals(750, modRow.rightLineNumber)
-        assertTrue(modRow.rightHighlightRanges.isNotEmpty())
+        assertTrue(modRow.rightCharHighlights.isNotEmpty())
     }
 }

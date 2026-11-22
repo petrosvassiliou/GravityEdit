@@ -2087,8 +2087,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                 updateDocumentContent(
                     documentId = doc.id,
                     newContent = merged,
-                    selectionStart = selStart,
-                    selectionEnd = selStart + result.transformedText.length
+                    newSelectionStart = selStart,
+                    newSelectionEnd = selStart + result.transformedText.length
                 )
             } else {
                 updateDocumentContent(doc.id, result.transformedText)

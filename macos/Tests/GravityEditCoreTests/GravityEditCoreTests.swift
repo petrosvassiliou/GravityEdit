@@ -338,15 +338,13 @@ final class GravityEditCoreTests: XCTestCase {
             savedContent: "Get-Date",
             language: .powershell,
             encoding: .utf8,
-            savedEncoding: .utf8,
-            lineEnding: .lf,
-            savedLineEnding: .lf
+            lineEnding: .lf
         )
         XCTAssertFalse(doc.isDirty)
         doc.lineEnding = .crlf
         XCTAssertTrue(doc.isDirty)
         doc.lineEnding = .lf
-        doc.encoding = .utf8BOM
+        doc.encoding = .utf8Bom
         XCTAssertTrue(doc.isDirty)
 
         let swapScript = MacAutoUpdateEngine.buildAtomicBundleSwapScript(

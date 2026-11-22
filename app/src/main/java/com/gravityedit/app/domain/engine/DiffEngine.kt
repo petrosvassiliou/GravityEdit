@@ -190,7 +190,14 @@ object DiffEngine {
         if (prefix > 0 || suffix > 0) {
             val out = ArrayList<RawEditOp>(leftLines.size + rightLines.size)
             for (i in 0 until prefix) {
-                out.add(RawEditOp(DiffChangeType.EQUAL, i, i))
+                out.add(
+                    RawEditOp(
+                        type = EditOpType.EQUAL,
+                        leftIndex = i,
+                        rightIndex = i,
+                        text = leftLines[i]
+                    )
+                )
             }
             val subLeft = leftLines.subList(prefix, leftLines.size - suffix)
             val subRight = rightLines.subList(prefix, rightLines.size - suffix)
@@ -198,17 +205,21 @@ object DiffEngine {
                 out.add(
                     RawEditOp(
                         type = op.type,
-                        leftIdx = op.leftIdx?.plus(prefix),
-                        rightIdx = op.rightIdx?.plus(prefix)
+                        leftIndex = if (op.leftIndex >= 0) op.leftIndex + prefix else -1,
+                        rightIndex = if (op.rightIndex >= 0) op.rightIndex + prefix else -1,
+                        text = op.text
                     )
                 )
             }
             for (i in 0 until suffix) {
+                val lIdx = leftLines.size - suffix + i
+                val rIdx = rightLines.size - suffix + i
                 out.add(
                     RawEditOp(
-                        DiffChangeType.EQUAL,
-                        leftLines.size - suffix + i,
-                        rightLines.size - suffix + i
+                        type = EditOpType.EQUAL,
+                        leftIndex = lIdx,
+                        rightIndex = rIdx,
+                        text = leftLines[lIdx]
                     )
                 )
             }
