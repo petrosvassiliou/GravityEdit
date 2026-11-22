@@ -1262,6 +1262,15 @@ object PowerShellEngine {
         content: String,
         language: SyntaxLanguage = SyntaxLanguage.POWERSHELL
     ): List<AstSymbol> {
+        if (content.isEmpty()) return emptyList()
+        when (language) {
+            SyntaxLanguage.PLAIN_TEXT,
+            SyntaxLanguage.JSON,
+            SyntaxLanguage.XML,
+            SyntaxLanguage.YAML,
+            SyntaxLanguage.HTML_CSS -> return emptyList()
+            else -> Unit
+        }
         if (content.isBlank()) return emptyList()
         val lines = content.split('\n').map { it.trimEnd('\r') }
         if (language != SyntaxLanguage.POWERSHELL) {
@@ -2027,6 +2036,7 @@ object PowerShellEngine {
         content: String,
         language: SyntaxLanguage = SyntaxLanguage.POWERSHELL
     ): List<FoldRegion> {
+        if (content.isEmpty() || language == SyntaxLanguage.PLAIN_TEXT) return emptyList()
         if (content.isBlank()) return emptyList()
         val lines = content.split('\n').map { it.trimEnd('\r') }
         val lineStates = computeLineStates(lines, language)

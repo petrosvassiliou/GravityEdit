@@ -10,6 +10,8 @@ public struct GravityEditMainWindow: View {
     @Namespace private var sidebarGlassNamespace
     @State private var outlineFilterQuery: String = ""
     @State private var goToLineInput: String = ""
+    @State private var lastTabClickId: String = ""
+    @State private var lastTabClickTime: TimeInterval = 0
     @FocusState private var renameFieldFocused: Bool
     @FocusState private var goToLineFocused: Bool
 
@@ -714,15 +716,24 @@ public struct GravityEditMainWindow: View {
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 5)
-        .liquidGlassCapsule(tint: isFocused ? .accentColor : nil)
+        .liquidGlassCapsule(tint: isFocused ? Color.accentColor.opacity(0.22) : nil)
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(isFocused ? Color.accentColor.opacity(0.48) : Color.clear, lineWidth: 1)
+        )
         .liquidGlassMorphID(doc.id, in: tabGlassNamespace)
         .contentShape(Capsule())
-        .onTapGesture(count: 2) {
-            vm.selectTab(doc.id)
-            vm.beginRenamingDocument(id: doc.id)
-        }
         .onTapGesture {
-            vm.selectTab(doc.id)
+            let now = ProcessInfo.processInfo.systemUptime
+            let isDoubleClick = (lastTabClickId == doc.id) && ((now - lastTabClickTime) <= NSEvent.doubleClickInterval)
+            lastTabClickId = doc.id
+            lastTabClickTime = now
+            if vm.focusedDocumentId != doc.id {
+                vm.selectTab(doc.id)
+            }
+            if isDoubleClick && !doc.isScratchpad {
+                vm.beginRenamingDocument(id: doc.id)
+            }
         }
         .contextMenu {
             Button("Save") { _ = vm.saveDocument(id: doc.id) }
@@ -745,43 +756,45 @@ public struct GravityEditMainWindow: View {
 
     @ViewBuilder
     private var editorSplitWorkspace: some View {
+        let openIds = Set(vm.documents.map(\.id))
         switch vm.splitMode {
         case .none:
             if let doc = vm.primaryDocument {
-                primaryEditorPane(doc: doc)
+                primaryEditorPane(doc: doc, openIds: openIds)
             }
         case .vertical:
             HSplitView {
                 if let pDoc = vm.primaryDocument {
-                    primaryEditorPane(doc: pDoc)
+                    primaryEditorPane(doc: pDoc, openIds: openIds)
                         .frame(minWidth: 260)
                 }
                 if let sDoc = vm.secondaryDocument {
-                    secondaryEditorPane(doc: sDoc)
+                    secondaryEditorPane(doc: sDoc, openIds: openIds)
                         .frame(minWidth: 260)
                 }
             }
         case .horizontal:
             VSplitView {
                 if let pDoc = vm.primaryDocument {
-                    primaryEditorPane(doc: pDoc)
+                    primaryEditorPane(doc: pDoc, openIds: openIds)
                         .frame(minHeight: 160)
                 }
                 if let sDoc = vm.secondaryDocument {
-                    secondaryEditorPane(doc: sDoc)
+                    secondaryEditorPane(doc: sDoc, openIds: openIds)
                         .frame(minHeight: 160)
                 }
             }
         }
     }
 
-    private func primaryEditorPane(doc: EditorDocument) -> some View {
+    private func primaryEditorPane(doc: EditorDocument, openIds: Set<String>) -> some View {
         VStack(spacing: 0) {
             if vm.splitMode != .none {
                 splitPaneHeaderBar(doc: doc, isSecondary: false, isFocused: !vm.isSecondaryPaneFocused)
             }
             MacCodeEditorView(
                 document: doc,
+                openDocumentIds: openIds,
                 astSymbols: vm.primarySymbols,
                 foldRegions: vm.primaryFolds,
                 diagnostics: vm.primaryDiagnostics,
@@ -812,11 +825,12 @@ public struct GravityEditMainWindow: View {
         }
     }
 
-    private func secondaryEditorPane(doc: EditorDocument) -> some View {
+    private func secondaryEditorPane(doc: EditorDocument, openIds: Set<String>) -> some View {
         VStack(spacing: 0) {
             splitPaneHeaderBar(doc: doc, isSecondary: true, isFocused: vm.isSecondaryPaneFocused)
             MacCodeEditorView(
                 document: doc,
+                openDocumentIds: openIds,
                 astSymbols: vm.secondarySymbols,
                 foldRegions: vm.secondaryFolds,
                 diagnostics: vm.secondaryDiagnostics,

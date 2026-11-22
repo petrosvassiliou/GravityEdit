@@ -135,8 +135,20 @@ public final class WorkspaceViewModel: ObservableObject {
     @Published public var statusBannerMessage: String? = nil
     @Published public var scrollJumpRequest: ScrollJumpRequest? = nil
 
+    private struct DocumentAnalysisCacheEntry {
+        let contentByteCount: Int
+        let contentHash: Int
+        let language: SyntaxLanguage
+        let liveAnalyzerEnabled: Bool
+        let symbols: [AstSymbol]
+        let folds: [FoldRegion]
+        let diagnostics: [PowerShellDiagnostic]
+    }
+
     private var scratchpadSaveWorkItem: DispatchWorkItem?
     private var analysisWorkItem: DispatchWorkItem?
+    private var analysisCache: [String: DocumentAnalysisCacheEntry] = [:]
+    private var analysisGeneration: UInt64 = 0
 
     // MARK: - Computed Helpers
 
@@ -340,28 +352,133 @@ public final class WorkspaceViewModel: ObservableObject {
     }
 
     public func refreshActiveAnalysisImmediate() {
-        if let pDoc = primaryDocument {
-            primarySymbols = PowerShellEngine.extractAstSymbols(pDoc.content, language: pDoc.language)
-            primaryFolds = PowerShellEngine.extractFoldRegions(pDoc.content, language: pDoc.language)
-            primaryDiagnostics = (liveScriptAnalyzer && pDoc.language == .powershell)
-                ? PowerShellEngine.analyzeScriptDiagnostics(pDoc.content)
-                : []
-        } else {
-            primarySymbols = []
-            primaryFolds = []
-            primaryDiagnostics = []
+        analysisWorkItem?.cancel()
+        analysisGeneration &+= 1
+        let gen = analysisGeneration
+        let liveAnalyzer = liveScriptAnalyzer
+
+        func resolvePane(doc: EditorDocument?, isSecondary: Bool) {
+            guard let doc else {
+                if isSecondary {
+                    secondarySymbols = []
+                    secondaryFolds = []
+                    secondaryDiagnostics = []
+                } else {
+                    primarySymbols = []
+                    primaryFolds = []
+                    primaryDiagnostics = []
+                }
+                return
+            }
+
+            let byteCount = doc.content.utf8.count
+            let contentHash = doc.content.hashValue
+            if let cached = analysisCache[doc.id],
+               cached.contentByteCount == byteCount,
+               cached.contentHash == contentHash,
+               cached.language == doc.language,
+               cached.liveAnalyzerEnabled == liveAnalyzer {
+                if isSecondary {
+                    if secondarySymbols != cached.symbols { secondarySymbols = cached.symbols }
+                    if secondaryFolds != cached.folds { secondaryFolds = cached.folds }
+                    if secondaryDiagnostics != cached.diagnostics { secondaryDiagnostics = cached.diagnostics }
+                } else {
+                    if primarySymbols != cached.symbols { primarySymbols = cached.symbols }
+                    if primaryFolds != cached.folds { primaryFolds = cached.folds }
+                    if primaryDiagnostics != cached.diagnostics { primaryDiagnostics = cached.diagnostics }
+                }
+                return
+            }
+
+            // Fast synchronous path for small/medium scripts or plainText/CSV (< 24 KB or non-parsed language)
+            let isZeroParseLang: Bool = {
+                switch doc.language {
+                case .plainText: return true
+                default: return false
+                }
+            }()
+
+            if isZeroParseLang || byteCount <= 24_000 {
+                let symbols = PowerShellEngine.extractAstSymbols(doc.content, language: doc.language)
+                let folds = PowerShellEngine.extractFoldRegions(doc.content, language: doc.language)
+                let diags = (liveAnalyzer && doc.language == .powershell)
+                    ? PowerShellEngine.analyzeScriptDiagnostics(doc.content)
+                    : []
+                let entry = DocumentAnalysisCacheEntry(
+                    contentByteCount: byteCount,
+                    contentHash: contentHash,
+                    language: doc.language,
+                    liveAnalyzerEnabled: liveAnalyzer,
+                    symbols: symbols,
+                    folds: folds,
+                    diagnostics: diags
+                )
+                analysisCache[doc.id] = entry
+                if isSecondary {
+                    secondarySymbols = symbols
+                    secondaryFolds = folds
+                    secondaryDiagnostics = diags
+                } else {
+                    primarySymbols = symbols
+                    primaryFolds = folds
+                    primaryDiagnostics = diags
+                }
+            } else {
+                // Large uncached code file: clear stale pane indicators immediately and parse off MainActor
+                let docId = doc.id
+                let contentSnapshot = doc.content
+                let langSnapshot = doc.language
+                if isSecondary {
+                    secondarySymbols = []
+                    secondaryFolds = []
+                    secondaryDiagnostics = []
+                } else {
+                    primarySymbols = []
+                    primaryFolds = []
+                    primaryDiagnostics = []
+                }
+                Task.detached(priority: .userInitiated) { [weak self] in
+                    let symbols = PowerShellEngine.extractAstSymbols(contentSnapshot, language: langSnapshot)
+                    let folds = PowerShellEngine.extractFoldRegions(contentSnapshot, language: langSnapshot)
+                    let diags = (liveAnalyzer && langSnapshot == .powershell)
+                        ? PowerShellEngine.analyzeScriptDiagnostics(contentSnapshot)
+                        : []
+                    await MainActor.run {
+                        guard let self else { return }
+                        let entry = DocumentAnalysisCacheEntry(
+                            contentByteCount: byteCount,
+                            contentHash: contentHash,
+                            language: langSnapshot,
+                            liveAnalyzerEnabled: liveAnalyzer,
+                            symbols: symbols,
+                            folds: folds,
+                            diagnostics: diags
+                        )
+                        self.analysisCache[docId] = entry
+                        guard self.analysisGeneration == gen else { return }
+                        if isSecondary {
+                            if self.secondaryDocument?.id == docId {
+                                self.secondarySymbols = symbols
+                                self.secondaryFolds = folds
+                                self.secondaryDiagnostics = diags
+                            }
+                        } else if self.primaryDocument?.id == docId {
+                            self.primarySymbols = symbols
+                            self.primaryFolds = folds
+                            self.primaryDiagnostics = diags
+                        }
+                    }
+                }
+            }
         }
 
-        if splitMode != .none, let sDoc = secondaryDocument {
-            secondarySymbols = PowerShellEngine.extractAstSymbols(sDoc.content, language: sDoc.language)
-            secondaryFolds = PowerShellEngine.extractFoldRegions(sDoc.content, language: sDoc.language)
-            secondaryDiagnostics = (liveScriptAnalyzer && sDoc.language == .powershell)
-                ? PowerShellEngine.analyzeScriptDiagnostics(sDoc.content)
-                : []
+        resolvePane(doc: primaryDocument, isSecondary: false)
+        if splitMode != .none {
+            resolvePane(doc: secondaryDocument, isSecondary: true)
         } else {
-            secondarySymbols = []
-            secondaryFolds = []
-            secondaryDiagnostics = []
+            if !secondarySymbols.isEmpty { secondarySymbols = [] }
+            if !secondaryFolds.isEmpty { secondaryFolds = [] }
+            if !secondaryDiagnostics.isEmpty { secondaryDiagnostics = [] }
         }
     }
 
@@ -581,7 +698,6 @@ public final class WorkspaceViewModel: ObservableObject {
             let insertAt = max(0, documents.firstIndex(where: \.isScratchpad) ?? documents.count)
             documents.insert(doc, at: insertAt)
             selectTab(doc.id)
-            refreshActiveAnalysisImmediate()
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
             postToast("Opened \(fileName)")
         } catch {
@@ -674,6 +790,7 @@ public final class WorkspaceViewModel: ObservableObject {
             }
         }
 
+        analysisCache.removeValue(forKey: id)
         documents.removeAll { $0.id == id }
         if documents.isEmpty {
             documents.append(loadOrCreateScratchpadDocument())

@@ -867,6 +867,13 @@ public enum PowerShellEngine {
         _ content: String,
         language: SyntaxLanguage = .powershell
     ) -> [AstSymbol] {
+        guard !content.isEmpty else { return [] }
+        switch language {
+        case .plainText, .json, .xml, .yaml, .htmlCss:
+            return []
+        default:
+            break
+        }
         guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         let lines = content.components(separatedBy: "\n").map {
             $0.hasSuffix("\r") ? String($0.dropLast()) : $0
@@ -1602,6 +1609,7 @@ public enum PowerShellEngine {
         _ content: String,
         language: SyntaxLanguage = .powershell
     ) -> [FoldRegion] {
+        guard !content.isEmpty, language != .plainText else { return [] }
         guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         let lines = content.components(separatedBy: "\n").map {
             $0.hasSuffix("\r") ? String($0.dropLast()) : $0

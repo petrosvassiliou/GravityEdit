@@ -147,6 +147,31 @@ func runVerification() {
         exit(1)
     }
     print("Verified AppKit NSUndoManager programmatic edit undo/redo round-trip!")
+
+    // Verify warm multi-slot deck switching between PowerShell and a 5,000-line CSV takes < 15ms for 100 switches
+    let deck = NSView(frame: NSRect(x: 0, y: 0, width: 1020, height: 680))
+    let csvScroll = NSScrollView(frame: deck.bounds)
+    let csvTV = NSTextView(frame: NSRect(origin: .zero, size: cs))
+    csvTV.string = (1...5000).map { "Row-\($0);Informationsverbund;Verwaltung;\($0)" }.joined(separator: "\n")
+    csvScroll.documentView = csvTV
+    csvScroll.isHidden = true
+    deck.addSubview(scrollView)
+    deck.addSubview(csvScroll)
+    window.contentView = deck
+    window.layoutIfNeeded()
+
+    let switchStart = CFAbsoluteTimeGetCurrent()
+    for i in 0..<100 {
+        let showCSV = (i % 2 == 0)
+        scrollView.isHidden = showCSV
+        csvScroll.isHidden = !showCSV
+    }
+    let switchMs = (CFAbsoluteTimeGetCurrent() - switchStart) * 1000.0
+    print(String(format: "Verified 100 warm AppKit deck switches in %.3f ms (%.4f ms/switch)", switchMs, switchMs / 100.0))
+    guard switchMs < 15.0 else {
+        fputs("FAIL: Warm deck switching exceeded 15ms budget (\(switchMs)ms)\n", stderr)
+        exit(1)
+    }
 }
 
 MainActor.assumeIsolated {

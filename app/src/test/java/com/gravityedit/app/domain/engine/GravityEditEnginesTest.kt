@@ -1007,4 +1007,27 @@ class GravityEditEnginesTest {
         assertEquals(750, modRow.rightLineNumber)
         assertTrue(modRow.rightCharHighlights.isNotEmpty())
     }
+
+    @Test
+    fun cachedMetricsAndPlainTextFastPath_executeSubMillisecondOnLargeCsv() {
+        val csvBody = (1..5000).joinToString("\n") { idx -> "Row-$idx;Informationsverbund;Verwaltung;${idx * 42}" }
+        val csvDoc = EditorDocument(
+            title = "Informationsverbund_Verwaltung.csv",
+            content = csvBody,
+            savedContent = csvBody,
+            language = SyntaxLanguage.PLAIN_TEXT
+        )
+        assertEquals(5000, csvDoc.lineCount)
+        assertEquals(5000, csvDoc.wordCount)
+
+        val startNs = System.nanoTime()
+        repeat(200) {
+            assertEquals(5000, csvDoc.lineCount)
+            assertEquals(5000, csvDoc.wordCount)
+            assertTrue(PowerShellEngine.extractAstSymbols(csvDoc.content, SyntaxLanguage.PLAIN_TEXT).isEmpty())
+            assertTrue(PowerShellEngine.extractFoldRegions(csvDoc.content, SyntaxLanguage.PLAIN_TEXT).isEmpty())
+        }
+        val elapsedMs = (System.nanoTime() - startNs) / 1_000_000.0
+        assertTrue("Expected 200 tab-switch metric/outline queries < 50ms, took ${elapsedMs}ms", elapsedMs < 50.0)
+    }
 }

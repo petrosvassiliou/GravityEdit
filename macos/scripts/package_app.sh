@@ -5,10 +5,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MACOS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-VERSION="${1:-1.3.3}"
+VERSION="${1:-1.3.4}"
 VERSION_CLEAN="${VERSION#v}"
 TAG_NAME="v${VERSION_CLEAN}"
-BUILD_NUMBER="${BUILD_NUMBER:-12}"
+BUILD_NUMBER="${BUILD_NUMBER:-13}"
 APP_NAME="GravityEdit"
 BUNDLE_ID="com.gravityedit.mac"
 

@@ -355,5 +355,32 @@ final class GravityEditCoreTests: XCTestCase {
         XCTAssertTrue(swapScript.contains("if kill -0 \"$TARGET_PID\" 2>/dev/null; then"))
         XCTAssertTrue(swapScript.contains("exit 0"))
     }
+
+    func testInstantTabSwitchCachedMetricsAndPlainTextFastPath() {
+        let csvRows = (1...5000).map { "Row-\($0);Informationsverbund;Verwaltung;\($0 * 42)" }
+        let csvBody = csvRows.joined(separator: "\n")
+        var csvDoc = EditorDocument(
+            title: "Informationsverbund_Verwaltung.csv",
+            content: csvBody,
+            savedContent: csvBody,
+            language: .plainText
+        )
+        XCTAssertEqual(csvDoc.lineCount, 5000)
+        XCTAssertEqual(csvDoc.wordCount, 5000) // no whitespace inside semicolon-delimited rows
+
+        let t0 = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<200 {
+            _ = csvDoc.lineCount
+            _ = csvDoc.wordCount
+            _ = PowerShellEngine.extractAstSymbols(csvDoc.content, language: .plainText)
+            _ = PowerShellEngine.extractFoldRegions(csvDoc.content, language: .plainText)
+        }
+        let elapsedMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000.0
+        XCTAssertLessThan(elapsedMs, 25.0, "200 tab-switch metric/outline queries on a 5,000-line CSV must complete in < 25ms (actual: \(elapsedMs)ms)")
+
+        csvDoc.content = "Alpha Beta\nGamma"
+        XCTAssertEqual(csvDoc.lineCount, 2)
+        XCTAssertEqual(csvDoc.wordCount, 3)
+    }
 }
 

@@ -474,7 +474,15 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     public let id: String
     public var title: String
     public var fileURL: URL?
-    public var content: String
+    public var content: String {
+        didSet {
+            if content != oldValue {
+                let metrics = Self.computeLineAndWordCounts(in: content)
+                cachedLineCount = metrics.lines
+                cachedWordCount = metrics.words
+            }
+        }
+    }
     public var savedContent: String
     public var isScratchpad: Bool
     public var language: SyntaxLanguage
@@ -485,6 +493,15 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     public var selectionStart: Int
     public var selectionEnd: Int
     public var foldedStartLines: Set<Int>
+
+    private var cachedLineCount: Int
+    private var cachedWordCount: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, fileURL, content, savedContent, isScratchpad
+        case language, encoding, savedEncoding, lineEnding, savedLineEnding
+        case selectionStart, selectionEnd, foldedStartLines
+    }
 
     public init(
         id: String = UUID().uuidString,
@@ -500,6 +517,7 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
         selectionEnd: Int = 0,
         foldedStartLines: Set<Int> = []
     ) {
+        let metrics = Self.computeLineAndWordCounts(in: content)
         self.id = id
         self.title = title
         self.fileURL = fileURL
@@ -514,6 +532,52 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
         self.selectionStart = selectionStart
         self.selectionEnd = selectionEnd
         self.foldedStartLines = foldedStartLines
+        self.cachedLineCount = metrics.lines
+        self.cachedWordCount = metrics.words
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedContent = try c.decode(String.self, forKey: .content)
+        let decodedEnc = try c.decode(DocumentEncoding.self, forKey: .encoding)
+        let decodedLE = try c.decode(LineEnding.self, forKey: .lineEnding)
+        let metrics = Self.computeLineAndWordCounts(in: decodedContent)
+
+        self.id = try c.decode(String.self, forKey: .id)
+        self.title = try c.decode(String.self, forKey: .title)
+        self.fileURL = try c.decodeIfPresent(URL.self, forKey: .fileURL)
+        self.content = decodedContent
+        self.savedContent = try c.decode(String.self, forKey: .savedContent)
+        self.isScratchpad = try c.decode(Bool.self, forKey: .isScratchpad)
+        self.language = try c.decode(SyntaxLanguage.self, forKey: .language)
+        self.encoding = decodedEnc
+        self.savedEncoding = try c.decodeIfPresent(DocumentEncoding.self, forKey: .savedEncoding) ?? decodedEnc
+        self.lineEnding = decodedLE
+        self.savedLineEnding = try c.decodeIfPresent(LineEnding.self, forKey: .savedLineEnding) ?? decodedLE
+        self.selectionStart = try c.decode(Int.self, forKey: .selectionStart)
+        self.selectionEnd = try c.decode(Int.self, forKey: .selectionEnd)
+        self.foldedStartLines = try c.decode(Set<Int>.self, forKey: .foldedStartLines)
+        self.cachedLineCount = metrics.lines
+        self.cachedWordCount = metrics.words
+    }
+
+    private static func computeLineAndWordCounts(in text: String) -> (lines: Int, words: Int) {
+        guard !text.isEmpty else { return (1, 0) }
+        var lines = 1
+        var words = 0
+        var inWord = false
+        for byte in text.utf8 {
+            if byte == 10 { // '\n'
+                lines += 1
+                inWord = false
+            } else if byte == 32 || byte == 9 || byte == 13 || byte == 12 || byte == 11 {
+                inWord = false
+            } else if !inWord {
+                inWord = true
+                words += 1
+            }
+        }
+        return (lines, words)
     }
 
     public var isDirty: Bool {
@@ -529,11 +593,7 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     }
 
     public var lineCount: Int {
-        var count = 1
-        for ch in content.utf8 where ch == UInt8(ascii: "\n") {
-            count += 1
-        }
-        return count
+        cachedLineCount
     }
 
     public var charCount: Int {
@@ -541,7 +601,7 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     }
 
     public var wordCount: Int {
-        content.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+        cachedWordCount
     }
 
     public var safeSelectionStart: Int {
@@ -562,6 +622,7 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     }
 
     public func cursorLineAndColumn() -> (line: Int, column: Int) {
+        if selectionEnd <= 0 || content.isEmpty { return (1, 1) }
         let ns = content as NSString
         let cursor = min(max(0, selectionEnd), ns.length)
         var line = 1

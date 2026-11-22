@@ -194,17 +194,41 @@ data class EditorDocument(
     val isDirty: Boolean
         get() = !isScratchpad && (content != savedContent || (uriString != null && title != savedTitle))
 
-    val lines: List<String>
-        get() = if (content.isEmpty()) listOf("") else content.split('\n')
+    val lines: List<String> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        if (content.isEmpty()) listOf("") else content.split('\n')
+    }
+
+    private val cachedMetrics: Pair<Int, Int> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        if (content.isEmpty()) {
+            1 to 0
+        } else {
+            var ln = 1
+            var words = 0
+            var inWord = false
+            for (i in content.indices) {
+                val ch = content[i]
+                if (ch == '\n') {
+                    ln++
+                    inWord = false
+                } else if (ch.isWhitespace()) {
+                    inWord = false
+                } else if (!inWord) {
+                    inWord = true
+                    words++
+                }
+            }
+            ln to words
+        }
+    }
 
     val lineCount: Int
-        get() = content.count { it == '\n' } + 1
+        get() = cachedMetrics.first
 
     val charCount: Int
         get() = content.length
 
     val wordCount: Int
-        get() = WORD_REGEX.findAll(content).count()
+        get() = cachedMetrics.second
 
     val safeSelectionStart: Int
         get() = minOf(selectionStart, selectionEnd).coerceIn(0, content.length)
@@ -220,6 +244,7 @@ data class EditorDocument(
         }
 
     fun cursorLineAndColumn(): Pair<Int, Int> {
+        if (selectionEnd <= 0 || content.isEmpty()) return 1 to 1
         val cursorOffset = selectionEnd.coerceIn(0, content.length)
         var line = 1
         var lastLineStart = 0

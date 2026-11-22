@@ -2083,6 +2083,8 @@ private fun MultiDocumentTabBar(
     onNewTab: () -> Unit
 ) {
     var editingTabDocId by remember { mutableStateOf<String?>(null) }
+    var lastTapDocId by remember { mutableStateOf("") }
+    var lastTapUptimeMs by remember { mutableStateOf(0L) }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -2133,13 +2135,18 @@ private fun MultiDocumentTabBar(
                             .clip(tabShape)
                             .combinedClickable(
                                 onClick = {
-                                    editingTabDocId = null
-                                    onSelectTab(doc.id)
-                                },
-                                onDoubleClick = {
-                                    if (!doc.isScratchpad) {
+                                    val nowMs = android.os.SystemClock.uptimeMillis()
+                                    val isDoubleTap = (lastTapDocId == doc.id) && ((nowMs - lastTapUptimeMs) <= 320L)
+                                    lastTapDocId = doc.id
+                                    lastTapUptimeMs = nowMs
+                                    if (isDoubleTap && !doc.isScratchpad) {
                                         onSelectTab(doc.id)
                                         editingTabDocId = doc.id
+                                    } else {
+                                        editingTabDocId = null
+                                        if (!isSelected) {
+                                            onSelectTab(doc.id)
+                                        }
                                     }
                                 },
                                 onLongClick = { contextMenuExpanded = true }

@@ -332,8 +332,18 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     private val _events = MutableSharedFlow<GravityEditUiEvent>(extraBufferCapacity = 16)
     val events: SharedFlow<GravityEditUiEvent> = _events.asSharedFlow()
 
+    private data class CachedDocAnalysis(
+        val contentLength: Int,
+        val contentHash: Int,
+        val language: SyntaxLanguage,
+        val symbols: List<AstSymbol>,
+        val folds: List<FoldRegion>,
+        val diagnostics: List<PowerShellDiagnostic>
+    )
+
     private var astParseJob: Job? = null
     private var scratchpadSaveJob: Job? = null
+    private val analysisCache = java.util.concurrent.ConcurrentHashMap<String, CachedDocAnalysis>()
     private var untitledCounter = 2
 
     init {
@@ -665,6 +675,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun closeDocument(documentId: String) {
+        analysisCache.remove(documentId)
         _uiState.update { state ->
             val target = state.documents.firstOrNull { it.id == documentId } ?: return@update state
             if (target.isScratchpad && state.documents.size <= 1) {
@@ -702,6 +713,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { state ->
             val kept = state.documents.filter { it.id == keepDocumentId || it.isScratchpad }
             if (kept.isEmpty()) return@update state
+            val keptIds = kept.map { it.id }.toSet()
+            analysisCache.keys.removeIf { it !in keptIds }
             state.copy(
                 documents = kept,
                 activeDocumentId = keepDocumentId,
@@ -1085,8 +1098,48 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     private fun refreshAstAndFoldsForActiveDocument() {
         astParseJob?.cancel()
         val doc = _uiState.value.focusedDocument ?: return
+        val docId = doc.id
         val contentSnapshot = doc.content
+        val contentLen = contentSnapshot.length
+        val contentHash = contentSnapshot.hashCode()
         val languageSnapshot = doc.language
+
+        val cached = analysisCache[docId]
+        if (cached != null &&
+            cached.contentLength == contentLen &&
+            cached.contentHash == contentHash &&
+            cached.language == languageSnapshot
+        ) {
+            _uiState.update { state ->
+                state.copy(
+                    astSymbols = cached.symbols,
+                    foldRegions = cached.folds,
+                    diagnostics = cached.diagnostics
+                )
+            }
+            return
+        }
+
+        if (languageSnapshot == SyntaxLanguage.PLAIN_TEXT) {
+            val emptyEntry = CachedDocAnalysis(
+                contentLength = contentLen,
+                contentHash = contentHash,
+                language = languageSnapshot,
+                symbols = emptyList(),
+                folds = emptyList(),
+                diagnostics = emptyList()
+            )
+            analysisCache[docId] = emptyEntry
+            _uiState.update { state ->
+                state.copy(
+                    astSymbols = emptyList(),
+                    foldRegions = emptyList(),
+                    diagnostics = emptyList()
+                )
+            }
+            return
+        }
+
         astParseJob = viewModelScope.launch(Dispatchers.Default) {
             val symbols = PowerShellEngine.extractAstSymbols(contentSnapshot, languageSnapshot)
             val folds = PowerShellEngine.extractFoldRegions(contentSnapshot, languageSnapshot)
@@ -1095,7 +1148,16 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             } else {
                 emptyList()
             }
+            analysisCache[docId] = CachedDocAnalysis(
+                contentLength = contentLen,
+                contentHash = contentHash,
+                language = languageSnapshot,
+                symbols = symbols,
+                folds = folds,
+                diagnostics = diags
+            )
             _uiState.update { state ->
+                if (state.focusedDocument?.id != docId) return@update state
                 state.copy(
                     astSymbols = symbols,
                     foldRegions = folds,
