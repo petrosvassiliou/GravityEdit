@@ -561,7 +561,7 @@ public final class GravityEditorContainerView: NSView {
     public let textView: GravityCodeTextView
     public let rulerView: GravityLineNumberRulerView
     public var softWrap: Bool = false
-    fileprivate var slotCoordinator: MacCodeEditorRepresentable.Coordinator?
+    fileprivate var slotCoordinator: MacCodeEditorRepresentable.SlotCoordinator?
 
     public init(
         scrollView: NSScrollView,
@@ -747,7 +747,7 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
     @MainActor
     private func makeContainerSlot(initialBounds: NSRect) -> GravityEditorContainerView {
         let maxDim = GravityCodeTextView.maxLayoutDimension
-        let coordinator = Coordinator(parent: self)
+        let coordinator = SlotCoordinator(parent: self)
 
         let initRect = NSRect(
             x: 0,
@@ -837,13 +837,13 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
         scrollView.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(
             coordinator,
-            selector: #selector(Coordinator.clipViewBoundsOrFrameDidChange(_:)),
+            selector: #selector(SlotCoordinator.clipViewBoundsOrFrameDidChange(_:)),
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView
         )
         NotificationCenter.default.addObserver(
             coordinator,
-            selector: #selector(Coordinator.clipViewBoundsOrFrameDidChange(_:)),
+            selector: #selector(SlotCoordinator.clipViewBoundsOrFrameDidChange(_:)),
             name: NSView.frameDidChangeNotification,
             object: scrollView.contentView
         )
@@ -884,7 +884,7 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
     // MARK: - Per-Document Slot Coordinator
 
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate {
+    final class SlotCoordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate {
         var parent: MacCodeEditorRepresentable
         var textStorage: NSTextStorage?
         weak var containerView: GravityEditorContainerView?
