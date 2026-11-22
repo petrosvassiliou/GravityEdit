@@ -305,4 +305,57 @@ final class GravityEditCoreTests: XCTestCase {
         XCTAssertEqual(diskDoc.title, "Fix-1_FileServer-Shares.txt")
         XCTAssertTrue(diskDoc.isDirty)
     }
+
+    func testCanonizePreservesPercentagesAndURLsAndFormatPrettifyRespectsPowerShell() {
+        let aliasTable = "%=ForEach-Object\n?=Where-Object\ngci=Get-ChildItem"
+        let psSample = "Write-Host \"100% complete https://example.com?debug=1 status=$?\"\ngci | % { $_ } | ? { $_.Length -gt 0 }"
+        let canonized = TextTransformEngine.canonizeUsingTable(
+            psSample,
+            tableRaw: aliasTable,
+            caseSensitive: false,
+            wholeWords: true
+        )
+        XCTAssertTrue(canonized.contains("100% complete https://example.com?debug=1 status=$?"))
+        XCTAssertTrue(canonized.contains("Get-ChildItem | ForEach-Object { $_ } | Where-Object { $_.Length -gt 0 }"))
+
+        let bracketedPS = "[CmdletBinding()]\nparam(\n[string]$Node\n)\nif ($Node) {\n[int[]]$Ports = @(80, 443)\n}"
+        let formattedPS = TextTransformEngine.formatPrettify(
+            bracketedPS,
+            target: .auto,
+            documentLanguage: .powershell,
+            indentSpaces: 4
+        )
+        XCTAssertTrue(formattedPS.contains("    [string]$Node"))
+        XCTAssertTrue(formattedPS.contains("    [int[]]$Ports = @(80, 443)"))
+
+        XCTAssertEqual(TextTransformEngine.changeCase("getServiceStatus", mode: .camelCase), "getServiceStatus")
+        XCTAssertEqual(TextTransformEngine.changeCase("Get-ServiceStatus", mode: .camelCase), "getServiceStatus")
+
+        var doc = EditorDocument(
+            title: "Server.ps1",
+            fileURL: URL(fileURLWithPath: "/tmp/Server.ps1"),
+            content: "Get-Date",
+            savedContent: "Get-Date",
+            language: .powershell,
+            encoding: .utf8,
+            savedEncoding: .utf8,
+            lineEnding: .lf,
+            savedLineEnding: .lf
+        )
+        XCTAssertFalse(doc.isDirty)
+        doc.lineEnding = .crlf
+        XCTAssertTrue(doc.isDirty)
+        doc.lineEnding = .lf
+        doc.encoding = .utf8BOM
+        XCTAssertTrue(doc.isDirty)
+
+        let swapScript = MacAutoUpdateEngine.buildAtomicBundleSwapScript(
+            processIdentifier: 4242,
+            stagedAppBundleURL: URL(fileURLWithPath: "/tmp/Staged/GravityEdit.app"),
+            destinationAppBundleURL: URL(fileURLWithPath: "/Applications/GravityEdit.app")
+        )
+        XCTAssertTrue(swapScript.contains("if kill -0 \"$TARGET_PID\" 2>/dev/null; then"))
+        XCTAssertTrue(swapScript.contains("exit 0"))
+    }
 }
+

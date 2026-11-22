@@ -13,6 +13,14 @@ public enum FindSheetTab: String, CaseIterable, Identifiable {
     public var id: String { rawValue }
 }
 
+public enum TextFactoryScope: String, CaseIterable, Identifiable {
+    case selection = "Selection Only"
+    case activeDocument = "Active Document"
+    case allOpenDocuments = "All Open Documents"
+
+    public var id: String { rawValue }
+}
+
 public struct ScrollJumpRequest: Equatable {
     public let id: UUID
     public let documentId: String
@@ -74,6 +82,7 @@ public final class WorkspaceViewModel: ObservableObject {
     @Published public var splitMode: SplitViewMode = .none
     @Published public var isSecondaryPaneFocused: Bool = false
     @Published public var sidebarSection: SidebarSection = .openDocuments
+    @Published public var sidebarVisibility: NavigationSplitViewVisibility = .all
 
     // Disk Browser
     @Published public var mountedFolderURL: URL? = nil
@@ -99,6 +108,7 @@ public final class WorkspaceViewModel: ObservableObject {
         TextFactoryStep(operationType: .stripTrailingWhitespace, enabled: true),
         TextFactoryStep(operationType: .formatPrettify, enabled: true)
     ]
+    @Published public var textFactoryScope: TextFactoryScope = .activeDocument
 
     @Published public var diffLeftDocumentId: String = ""
     @Published public var diffRightDocumentId: String = ""
@@ -510,7 +520,15 @@ public final class WorkspaceViewModel: ObservableObject {
         }
     }
 
+    public func revealSidebar(section: SidebarSection) {
+        sidebarSection = section
+        sidebarVisibility = .all
+    }
+
     public func selectTab(_ id: String) {
+        if let renamingId = renamingDocumentId, renamingId != id {
+            commitRenamingDocument()
+        }
         if splitMode != .none && isSecondaryPaneFocused {
             secondaryDocumentId = id
         } else {
@@ -618,6 +636,8 @@ public final class WorkspaceViewModel: ObservableObject {
             documents[idx].fileURL = url
             documents[idx].title = url.lastPathComponent
             documents[idx].savedContent = doc.content
+            documents[idx].savedEncoding = doc.encoding
+            documents[idx].savedLineEnding = doc.lineEnding
             documents[idx].language = SyntaxLanguage.fromFileName(url.lastPathComponent)
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
             refreshActiveAnalysisImmediate()
@@ -703,9 +723,14 @@ public final class WorkspaceViewModel: ObservableObject {
         renameDraftStem = (doc.title as NSString).deletingPathExtension
     }
 
+    public func cancelRenamingDocument() {
+        renamingDocumentId = nil
+        renameDraftStem = ""
+    }
+
     public func commitRenamingDocument() {
         guard let id = renamingDocumentId,
-              let idx = documents.firstIndex(where: { $0.id == id }) else {
+               let idx = documents.firstIndex(where: { $0.id == id }) else {
             renamingDocumentId = nil
             return
         }
@@ -734,7 +759,7 @@ public final class WorkspaceViewModel: ObservableObject {
 
     public func mountProjectFolder(url: URL) {
         mountedFolderURL = url
-        sidebarSection = .diskBrowser
+        revealSidebar(section: .diskBrowser)
         reloadDiskBrowserTree()
         postToast("Mounted \(url.lastPathComponent)")
     }
@@ -802,6 +827,35 @@ public final class WorkspaceViewModel: ObservableObject {
         jumpToLine(diagnostic.lineNumber)
     }
 
+    private func persistScratchpadIfNeeded(at idx: Int) {
+        if documents.indices.contains(idx), documents[idx].isScratchpad {
+            scheduleScratchpadSave(documents[idx].content)
+        }
+    }
+
+    /// Computes inclusive 0-based `[startLine, endLine]` for a selection, excluding a trailing line
+    /// when a multi-line selection ends cleanly at column 0 after a newline.
+    private static func lineSpan(for doc: EditorDocument) -> (startLine: Int, endLine: Int) {
+        let s = doc.safeSelectionStart
+        let e = doc.safeSelectionEnd
+        let startLine = doc.lineIndexForUTF16Offset(s)
+        var endLine = doc.lineIndexForUTF16Offset(e)
+        if e > s && endLine > startLine {
+            let ns = doc.content as NSString
+            if e <= ns.length && ns.character(at: e - 1) == 10 {
+                endLine -= 1
+            }
+        }
+        return (startLine, endLine)
+    }
+
+    private static func selectLineSpan(in doc: inout EditorDocument, startLine: Int, endLine: Int) {
+        let startRange = doc.nsRangeForLineIndex(startLine)
+        let endRange = doc.nsRangeForLineIndex(endLine)
+        doc.selectionStart = startRange.location
+        doc.selectionEnd = NSMaxRange(endRange)
+    }
+
     public func applyQuickFix(_ diagnostic: PowerShellDiagnostic) {
         guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
         let updated = PowerShellEngine.applyDiagnosticQuickFix(
@@ -809,6 +863,7 @@ public final class WorkspaceViewModel: ObservableObject {
             diagnostic: diagnostic
         )
         documents[idx].content = updated
+        persistScratchpadIfNeeded(at: idx)
         refreshActiveAnalysisImmediate()
         postToast("Applied Quick Fix: \(diagnostic.ruleId)")
     }
@@ -821,6 +876,7 @@ public final class WorkspaceViewModel: ObservableObject {
             return
         }
         documents[idx].content = updated
+        persistScratchpadIfNeeded(at: idx)
         refreshActiveAnalysisImmediate()
         postToast("Applied \(count) PSScriptAnalyzer Quick Fix\(count == 1 ? "" : "es")")
     }
@@ -829,9 +885,16 @@ public final class WorkspaceViewModel: ObservableObject {
         guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
         let doc = documents[idx]
         var lines = doc.lines
-        let lineIdx = min(max(0, doc.lineIndexForUTF16Offset(doc.safeSelectionStart)), lines.count - 1)
-        lines.insert(lines[lineIdx], at: lineIdx + 1)
+        guard !lines.isEmpty else { return }
+        let (rawStart, rawEnd) = Self.lineSpan(for: doc)
+        let startLine = min(max(0, rawStart), lines.count - 1)
+        let endLine = min(max(startLine, rawEnd), lines.count - 1)
+        let slice = Array(lines[startLine...endLine])
+        lines.insert(contentsOf: slice, at: endLine + 1)
         documents[idx].content = lines.joined(separator: "\n")
+        let count = slice.count
+        Self.selectLineSpan(in: &documents[idx], startLine: endLine + 1, endLine: endLine + count)
+        persistScratchpadIfNeeded(at: idx)
         refreshActiveAnalysis()
     }
 
@@ -840,58 +903,100 @@ public final class WorkspaceViewModel: ObservableObject {
         let doc = documents[idx]
         var lines = doc.lines
         guard !lines.isEmpty else { return }
-        let lineIdx = min(max(0, doc.lineIndexForUTF16Offset(doc.safeSelectionStart)), lines.count - 1)
-        lines.remove(at: lineIdx)
+        let (rawStart, rawEnd) = Self.lineSpan(for: doc)
+        let startLine = min(max(0, rawStart), lines.count - 1)
+        let endLine = min(max(startLine, rawEnd), lines.count - 1)
+        lines.removeSubrange(startLine...endLine)
         documents[idx].content = lines.isEmpty ? "" : lines.joined(separator: "\n")
+        let targetLine = min(startLine, max(0, documents[idx].lines.count - 1))
+        let targetRange = documents[idx].nsRangeForLineIndex(targetLine)
+        documents[idx].selectionStart = targetRange.location
+        documents[idx].selectionEnd = targetRange.location
+        persistScratchpadIfNeeded(at: idx)
         refreshActiveAnalysis()
     }
 
     public func selectCurrentLine() {
-        guard let doc = focusedDocument else { return }
+        guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+        let doc = documents[idx]
         let lineIdx = doc.lineIndexForUTF16Offset(doc.safeSelectionStart)
         let r = doc.nsRangeForLineIndex(lineIdx)
+        documents[idx].selectionStart = r.location
+        documents[idx].selectionEnd = NSMaxRange(r)
         scrollJumpRequest = ScrollJumpRequest(documentId: doc.id, utf16Range: r)
     }
 
     public func toggleCommentOnSelection() {
         guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
         let doc = documents[idx]
-        let prefix = doc.language.singleLineCommentPrefix ?? "#"
+        let hadMultiSelection = doc.safeSelectionEnd > doc.safeSelectionStart
         var lines = doc.lines
-        let startLine = doc.lineIndexForUTF16Offset(doc.safeSelectionStart)
-        let endLine = doc.lineIndexForUTF16Offset(doc.safeSelectionEnd)
+        let (startLine, endLine) = Self.lineSpan(for: doc)
         guard startLine <= endLine, endLine < lines.count else { return }
 
-        let nonBlankSlice = (startLine...endLine).map { lines[$0] }.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        let allCommented = !nonBlankSlice.isEmpty && nonBlankSlice.allSatisfy {
-            $0.trimmingCharacters(in: .whitespaces).hasPrefix(prefix)
-        }
+        if let prefix = doc.language.singleLineCommentPrefix {
+            let nonBlankSlice = (startLine...endLine).map { lines[$0] }.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            let allCommented = !nonBlankSlice.isEmpty && nonBlankSlice.allSatisfy {
+                $0.trimmingCharacters(in: .whitespaces).hasPrefix(prefix)
+            }
 
-        for i in startLine...endLine {
-            if allCommented {
-                if let range = lines[i].range(of: prefix + " ") {
-                    lines[i].removeSubrange(range)
-                } else if let range = lines[i].range(of: prefix) {
-                    lines[i].removeSubrange(range)
+            for i in startLine...endLine {
+                if allCommented {
+                    if let range = lines[i].range(of: prefix + " ") {
+                        lines[i].removeSubrange(range)
+                    } else if let range = lines[i].range(of: prefix) {
+                        lines[i].removeSubrange(range)
+                    }
+                } else {
+                    lines[i] = "\(prefix) \(lines[i])"
                 }
-            } else {
-                lines[i] = "\(prefix) \(lines[i])"
+            }
+        } else {
+            // Block HTML/XML/Markdown comments (`<!-- ... -->`)
+            let nonBlankSlice = (startLine...endLine).map { lines[$0] }.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            let allCommented = !nonBlankSlice.isEmpty && nonBlankSlice.allSatisfy {
+                let t = $0.trimmingCharacters(in: .whitespaces)
+                return t.hasPrefix("<!--") && t.hasSuffix("-->")
+            }
+            for i in startLine...endLine {
+                let t = lines[i].trimmingCharacters(in: .whitespaces)
+                guard !t.isEmpty else { continue }
+                if allCommented {
+                    lines[i] = lines[i]
+                        .replacingOccurrences(of: "<!-- ", with: "")
+                        .replacingOccurrences(of: " -->", with: "")
+                        .replacingOccurrences(of: "<!--", with: "")
+                        .replacingOccurrences(of: "-->", with: "")
+                } else {
+                    lines[i] = "<!-- \(lines[i]) -->"
+                }
             }
         }
+
         documents[idx].content = lines.joined(separator: "\n")
+        if hadMultiSelection || startLine < endLine {
+            Self.selectLineSpan(in: &documents[idx], startLine: startLine, endLine: endLine)
+        } else {
+            let lineRange = documents[idx].nsRangeForLineIndex(startLine)
+            documents[idx].selectionStart = NSMaxRange(lineRange)
+            documents[idx].selectionEnd = NSMaxRange(lineRange)
+        }
+        persistScratchpadIfNeeded(at: idx)
         refreshActiveAnalysis()
     }
 
     public func indentSelection(outdent: Bool) {
         guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
         let doc = documents[idx]
+        let hadMultiSelection = doc.safeSelectionEnd > doc.safeSelectionStart
         let spaces = String(repeating: " ", count: max(1, tabWidth))
         var lines = doc.lines
-        let startLine = doc.lineIndexForUTF16Offset(doc.safeSelectionStart)
-        let endLine = doc.lineIndexForUTF16Offset(doc.safeSelectionEnd)
+        let (startLine, endLine) = Self.lineSpan(for: doc)
         guard startLine <= endLine, endLine < lines.count else { return }
 
+        var firstLineDelta = 0
         for i in startLine...endLine {
+            let beforeLen = (lines[i] as NSString).length
             if outdent {
                 if lines[i].hasPrefix(spaces) {
                     lines[i].removeFirst(spaces.count)
@@ -904,8 +1009,19 @@ public final class WorkspaceViewModel: ObservableObject {
             } else {
                 lines[i] = spaces + lines[i]
             }
+            if i == startLine {
+                firstLineDelta = (lines[i] as NSString).length - beforeLen
+            }
         }
         documents[idx].content = lines.joined(separator: "\n")
+        if hadMultiSelection || startLine < endLine {
+            Self.selectLineSpan(in: &documents[idx], startLine: startLine, endLine: endLine)
+        } else {
+            let newCursor = max(0, doc.safeSelectionStart + firstLineDelta)
+            documents[idx].selectionStart = newCursor
+            documents[idx].selectionEnd = newCursor
+        }
+        persistScratchpadIfNeeded(at: idx)
         refreshActiveAnalysis()
     }
 
@@ -935,6 +1051,9 @@ public final class WorkspaceViewModel: ObservableObject {
                 in: NSRange(location: selStart, length: selEnd - selStart),
                 with: result.transformedText
             )
+            let newEnd = selStart + (result.transformedText as NSString).length
+            documents[idx].selectionStart = selStart
+            documents[idx].selectionEnd = newEnd
         } else {
             documents[idx].content = result.transformedText
         }
@@ -942,6 +1061,8 @@ public final class WorkspaceViewModel: ObservableObject {
         if let le = result.targetLineEnding {
             documents[idx].lineEnding = le
         }
+
+        persistScratchpadIfNeeded(at: idx)
 
         for extra in result.extractedDocuments {
             let newDoc = EditorDocument(title: extra.title, content: extra.content, savedContent: "", language: .plainText)
@@ -953,38 +1074,113 @@ public final class WorkspaceViewModel: ObservableObject {
     }
 
     public func runFullTextFactoryPipeline() {
-        guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
-        let doc = documents[idx]
-        let result = TextTransformEngine.executePipeline(
-            inputText: doc.content,
-            steps: textFactorySteps,
-            documentLanguage: doc.language
-        )
-        documents[idx].content = result.transformedText
-        if let le = result.targetLineEnding {
-            documents[idx].lineEnding = le
+        switch textFactoryScope {
+        case .selection:
+            guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+            let doc = documents[idx]
+            let selStart = doc.safeSelectionStart
+            let selEnd = doc.safeSelectionEnd
+            guard selEnd > selStart else {
+                postToast("Select text first or switch scope to Active Document")
+                return
+            }
+            let result = TextTransformEngine.executePipeline(
+                inputText: doc.selectedText,
+                steps: textFactorySteps,
+                documentLanguage: doc.language
+            )
+            let ns = doc.content as NSString
+            documents[idx].content = ns.replacingCharacters(
+                in: NSRange(location: selStart, length: selEnd - selStart),
+                with: result.transformedText
+            )
+            documents[idx].selectionStart = selStart
+            documents[idx].selectionEnd = selStart + (result.transformedText as NSString).length
+            if let le = result.targetLineEnding { documents[idx].lineEnding = le }
+            persistScratchpadIfNeeded(at: idx)
+            for extra in result.extractedDocuments {
+                let newDoc = EditorDocument(title: extra.title, content: extra.content, savedContent: "", language: .plainText)
+                documents.insert(newDoc, at: max(0, documents.count - 1))
+            }
+            refreshActiveAnalysisImmediate()
+            postToast("\(result.summary) (Selection)")
+
+        case .activeDocument:
+            guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+            let doc = documents[idx]
+            let result = TextTransformEngine.executePipeline(
+                inputText: doc.content,
+                steps: textFactorySteps,
+                documentLanguage: doc.language
+            )
+            documents[idx].content = result.transformedText
+            if let le = result.targetLineEnding {
+                documents[idx].lineEnding = le
+            }
+            persistScratchpadIfNeeded(at: idx)
+            for extra in result.extractedDocuments {
+                let newDoc = EditorDocument(title: extra.title, content: extra.content, savedContent: "", language: .plainText)
+                documents.insert(newDoc, at: max(0, documents.count - 1))
+                activeDocumentId = newDoc.id
+            }
+            refreshActiveAnalysisImmediate()
+            postToast(result.summary)
+
+        case .allOpenDocuments:
+            var transformedTabs = 0
+            var extracted: [EditorDocument] = []
+            for idx in documents.indices where !documents[idx].isScratchpad {
+                let doc = documents[idx]
+                let result = TextTransformEngine.executePipeline(
+                    inputText: doc.content,
+                    steps: textFactorySteps,
+                    documentLanguage: doc.language
+                )
+                documents[idx].content = result.transformedText
+                if let le = result.targetLineEnding {
+                    documents[idx].lineEnding = le
+                }
+                transformedTabs += 1
+                for extra in result.extractedDocuments {
+                    extracted.append(
+                        EditorDocument(title: "\(doc.title)-\(extra.title)", content: extra.content, savedContent: "", language: .plainText)
+                    )
+                }
+            }
+            for newDoc in extracted {
+                documents.insert(newDoc, at: max(0, documents.count - 1))
+            }
+            refreshActiveAnalysisImmediate()
+            postToast("Applied pipeline across \(transformedTabs) open document\(transformedTabs == 1 ? "" : "s")")
         }
-        for extra in result.extractedDocuments {
-            let newDoc = EditorDocument(title: extra.title, content: extra.content, savedContent: "", language: .plainText)
-            documents.insert(newDoc, at: max(0, documents.count - 1))
-            activeDocumentId = newDoc.id
-        }
-        refreshActiveAnalysisImmediate()
-        postToast(result.summary)
     }
 
-    public func applyEncodingUtility(_ transform: (String) -> String, label: String) {
+    public func applyEncodingUtility(_ transform: (String) -> String, label: String, validateBase64: Bool = false) {
         guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
         let doc = documents[idx]
         let s = doc.safeSelectionStart
         let e = doc.safeSelectionEnd
-        if e > s {
-            let ns = doc.content as NSString
-            let replaced = transform(doc.selectedText)
-            documents[idx].content = ns.replacingCharacters(in: NSRange(location: s, length: e - s), with: replaced)
-        } else {
-            documents[idx].content = transform(doc.content)
+        let hasSelection = e > s
+        let source = hasSelection ? doc.selectedText : doc.content
+
+        if validateBase64 {
+            let cleaned = source.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleaned.isEmpty, Data(base64Encoded: cleaned, options: [.ignoreUnknownCharacters]) != nil else {
+                postToast("Input is not valid Base64 text")
+                return
+            }
         }
+
+        let replaced = transform(source)
+        if hasSelection {
+            let ns = doc.content as NSString
+            documents[idx].content = ns.replacingCharacters(in: NSRange(location: s, length: e - s), with: replaced)
+            documents[idx].selectionStart = s
+            documents[idx].selectionEnd = s + (replaced as NSString).length
+        } else {
+            documents[idx].content = replaced
+        }
+        persistScratchpadIfNeeded(at: idx)
         refreshActiveAnalysis()
         postToast(label)
     }
@@ -996,7 +1192,7 @@ public final class WorkspaceViewModel: ObservableObject {
             documentMatches = []
             return
         }
-        let selRange = (doc.safeSelectionEnd > doc.safeSelectionStart)
+        let selRange = (searchOptions.searchInSelectionOnly && doc.safeSelectionEnd > doc.safeSelectionStart)
             ? NSRange(location: doc.safeSelectionStart, length: doc.safeSelectionEnd - doc.safeSelectionStart)
             : nil
         switch FindReplaceEngine.findAllMatches(in: doc.content, options: searchOptions, selectionRange: selRange) {
@@ -1010,15 +1206,70 @@ public final class WorkspaceViewModel: ObservableObject {
         }
     }
 
+    public func jumpToSearchMatch(_ match: SearchMatch) {
+        guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+        if let mIdx = documentMatches.firstIndex(where: { $0.id == match.id }) {
+            activeMatchIndex = mIdx
+        }
+        documents[idx].selectionStart = match.nsRange.location
+        documents[idx].selectionEnd = NSMaxRange(match.nsRange)
+        scrollJumpRequest = ScrollJumpRequest(documentId: documents[idx].id, utf16Range: match.nsRange)
+    }
+
     public func findNextMatch(forward: Bool = true) {
         evaluateDocumentSearch()
-        guard !documentMatches.isEmpty, let doc = focusedDocument else { return }
-        if forward {
-            activeMatchIndex = (activeMatchIndex + 1) % documentMatches.count
+        guard !documentMatches.isEmpty,
+              let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+        let doc = documents[idx]
+        let curSel = NSRange(location: doc.safeSelectionStart, length: max(0, doc.safeSelectionEnd - doc.safeSelectionStart))
+        let currentMatch = documentMatches[min(activeMatchIndex, documentMatches.count - 1)]
+
+        if curSel != currentMatch.nsRange {
+            // Jump to the first/current match after cursor before stepping past index 0
+            if forward {
+                if let nextIdx = documentMatches.firstIndex(where: { $0.nsRange.location >= doc.safeSelectionStart }) {
+                    activeMatchIndex = nextIdx
+                } else if searchOptions.wrapAround {
+                    activeMatchIndex = 0
+                } else {
+                    postToast("Reached end of document")
+                    return
+                }
+            } else {
+                if let prevIdx = documentMatches.lastIndex(where: { $0.nsRange.location <= doc.safeSelectionStart }) {
+                    activeMatchIndex = prevIdx
+                } else if searchOptions.wrapAround {
+                    activeMatchIndex = documentMatches.count - 1
+                } else {
+                    postToast("Reached beginning of document")
+                    return
+                }
+            }
         } else {
-            activeMatchIndex = (activeMatchIndex - 1 + documentMatches.count) % documentMatches.count
+            if forward {
+                if activeMatchIndex + 1 < documentMatches.count {
+                    activeMatchIndex += 1
+                } else if searchOptions.wrapAround {
+                    activeMatchIndex = 0
+                } else {
+                    postToast("Reached end of document")
+                    return
+                }
+            } else {
+                if activeMatchIndex > 0 {
+                    activeMatchIndex -= 1
+                } else if searchOptions.wrapAround {
+                    activeMatchIndex = documentMatches.count - 1
+                } else {
+                    postToast("Reached beginning of document")
+                    return
+                }
+            }
         }
+
         let match = documentMatches[activeMatchIndex]
+        documents[idx].selectionStart = match.nsRange.location
+        documents[idx].selectionEnd = NSMaxRange(match.nsRange)
         scrollJumpRequest = ScrollJumpRequest(documentId: doc.id, utf16Range: match.nsRange)
     }
 
@@ -1027,34 +1278,42 @@ public final class WorkspaceViewModel: ObservableObject {
         guard !documentMatches.isEmpty,
               let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
         let match = documentMatches[min(activeMatchIndex, documentMatches.count - 1)]
-        if case .success(let res) = FindReplaceEngine.replaceSingleMatch(
+        switch FindReplaceEngine.replaceSingleMatch(
             in: documents[idx].content,
             match: match,
             options: searchOptions
         ) {
+        case .success(let res):
             documents[idx].content = res.updatedText
             documents[idx].selectionStart = res.updatedCursorOffset
             documents[idx].selectionEnd = res.updatedCursorOffset
+            persistScratchpadIfNeeded(at: idx)
             evaluateDocumentSearch()
             refreshActiveAnalysis()
+        case .failure(let err):
+            searchErrorMessage = err.localizedDescription
         }
     }
 
     public func replaceAllInDocument() {
         guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
         let doc = documents[idx]
-        let selRange = (doc.safeSelectionEnd > doc.safeSelectionStart)
+        let selRange = (searchOptions.searchInSelectionOnly && doc.safeSelectionEnd > doc.safeSelectionStart)
             ? NSRange(location: doc.safeSelectionStart, length: doc.safeSelectionEnd - doc.safeSelectionStart)
             : nil
-        if case .success(let res) = FindReplaceEngine.replaceAllMatches(
+        switch FindReplaceEngine.replaceAllMatches(
             in: doc.content,
             options: searchOptions,
             selectionRange: selRange
         ) {
+        case .success(let res):
             documents[idx].content = res.updatedText
+            persistScratchpadIfNeeded(at: idx)
             evaluateDocumentSearch()
             refreshActiveAnalysis()
             postToast("Replaced \(res.replacedCount) occurrence\(res.replacedCount == 1 ? "" : "s")")
+        case .failure(let err):
+            searchErrorMessage = err.localizedDescription
         }
     }
 
@@ -1094,9 +1353,26 @@ public final class WorkspaceViewModel: ObservableObject {
 
     public func runMultiFileReplaceAll() {
         guard let root = mountedFolderURL else { return }
-        if case .success(let res) = FindReplaceEngine.replaceInDirectory(rootURL: root, options: searchOptions) {
+        switch FindReplaceEngine.replaceInDirectory(rootURL: root, options: searchOptions) {
+        case .success(let res):
+            // Reload any open document tabs backed by files under the mounted directory so tabs never hold stale content
+            for idx in documents.indices {
+                guard !documents[idx].isScratchpad, let url = documents[idx].fileURL,
+                      let data = try? Data(contentsOf: url) else { continue }
+                let (rawText, encoding) = DocumentEncoding.decode(data)
+                let normalized = LineEnding.normalizeToLf(rawText)
+                if documents[idx].content != normalized {
+                    documents[idx].content = normalized
+                    documents[idx].savedContent = normalized
+                    documents[idx].encoding = encoding
+                    documents[idx].savedEncoding = encoding
+                }
+            }
             runMultiFileSearch()
+            refreshActiveAnalysisImmediate()
             postToast("Modified \(res.filesModified) files (\(res.totalReplacements) replacements)")
+        case .failure(let err):
+            searchErrorMessage = err.localizedDescription
         }
     }
 
@@ -1111,6 +1387,13 @@ public final class WorkspaceViewModel: ObservableObject {
         }
         recomputeDiff()
         showDiffSheet = true
+    }
+
+    public func swapDiffDocuments() {
+        let tmp = diffLeftDocumentId
+        diffLeftDocumentId = diffRightDocumentId
+        diffRightDocumentId = tmp
+        recomputeDiff()
     }
 
     public func recomputeDiff() {
@@ -1133,10 +1416,12 @@ public final class WorkspaceViewModel: ObservableObject {
             guard let leftId = diff.leftDocumentId,
                   let idx = documents.firstIndex(where: { $0.id == leftId }) else { return }
             documents[idx].content = DiffEngine.mergeRowRightToLeft(diff: diff, rowIndex: rowIndex)
+            persistScratchpadIfNeeded(at: idx)
         } else {
             guard let rightId = diff.rightDocumentId,
                   let idx = documents.firstIndex(where: { $0.id == rightId }) else { return }
             documents[idx].content = DiffEngine.mergeRowLeftToRight(diff: diff, rowIndex: rowIndex)
+            persistScratchpadIfNeeded(at: idx)
         }
         recomputeDiff()
         refreshActiveAnalysisImmediate()
@@ -1153,6 +1438,7 @@ public final class WorkspaceViewModel: ObservableObject {
             clipboardText: clipboard
         )
         documents[idx] = updated
+        persistScratchpadIfNeeded(at: idx)
         let selLen = max(0, updated.selectionEnd - updated.selectionStart)
         scrollJumpRequest = ScrollJumpRequest(
             documentId: updated.id,

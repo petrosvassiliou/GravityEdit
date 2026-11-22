@@ -8,9 +8,10 @@ public struct GravityEditMainWindow: View {
 
     @Namespace private var tabGlassNamespace
     @Namespace private var sidebarGlassNamespace
-    @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @State private var outlineFilterQuery: String = ""
     @State private var goToLineInput: String = ""
+    @FocusState private var renameFieldFocused: Bool
+    @FocusState private var goToLineFocused: Bool
 
     public init(vm: WorkspaceViewModel, updateManager: SparkleUpdateManager) {
         self.vm = vm
@@ -27,7 +28,7 @@ public struct GravityEditMainWindow: View {
 
     public var body: some View {
         ZStack {
-            NavigationSplitView(columnVisibility: $sidebarVisibility) {
+            NavigationSplitView(columnVisibility: $vm.sidebarVisibility) {
                 sidebarContent
                     .navigationSplitViewColumnWidth(min: 230, ideal: 268, max: 360)
             } detail: {
@@ -186,9 +187,7 @@ public struct GravityEditMainWindow: View {
             Section(vm.tr(.openDocuments)) {
                 ForEach(vm.documents) { doc in
                     let isActive = (doc.id == vm.focusedDocumentId)
-                    Button {
-                        vm.selectTab(doc.id)
-                    } label: {
+                    HStack(spacing: 8) {
                         HStack(spacing: 8) {
                             Image(systemName: doc.isScratchpad ? "note.text" : doc.language.sfSymbolName)
                                 .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
@@ -209,20 +208,26 @@ public struct GravityEditMainWindow: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            if !doc.isScratchpad {
-                                Button {
-                                    vm.closeDocument(id: doc.id)
-                                } label: {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 9, weight: .bold))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.plain)
-                            }
                         }
-                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            vm.selectTab(doc.id)
+                        }
+
+                        if !doc.isScratchpad {
+                            Button {
+                                vm.closeDocument(id: doc.id)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 16, height: 16)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Close Document")
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.vertical, 2)
                     .listRowBackground(
                         isActive
                             ? RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.accentColor.opacity(0.14))
@@ -288,14 +293,18 @@ public struct GravityEditMainWindow: View {
 
             if vm.diskBrowserNodes.isEmpty {
                 VStack(spacing: 10) {
-                    Image(systemName: "folder.badge.gearshape")
+                    Image(systemName: vm.mountedFolderURL == nil ? "folder.badge.gearshape" : "folder")
                         .font(.system(size: 28))
                         .foregroundStyle(.secondary)
-                    Text("Mount a project folder to browse scripts and run multi-file regex searches.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    Button("Mount Folder…") {
+                    Text(
+                        vm.mountedFolderURL == nil
+                            ? "Mount a project folder to browse scripts and run multi-file regex searches."
+                            : "This folder contains no visible files."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    Button(vm.mountedFolderURL == nil ? "Mount Folder…" : "Choose Another Folder…") {
                         vm.mountProjectFolderWithPanel()
                     }
                     .liquidGlassButton(prominent: true)
@@ -534,7 +543,7 @@ public struct GravityEditMainWindow: View {
                 }
                 Divider()
                 Button("Show in Sidebar Outline") {
-                    vm.sidebarSection = .functionOutline
+                    vm.revealSidebar(section: .functionOutline)
                 }
             }
         } label: {
@@ -667,7 +676,10 @@ public struct GravityEditMainWindow: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 12, weight: .semibold))
                         .frame(minWidth: 70, maxWidth: 150)
+                        .focused($renameFieldFocused)
                         .onSubmit { vm.commitRenamingDocument() }
+                        .onExitCommand { vm.cancelRenamingDocument() }
+                        .onAppear { renameFieldFocused = true }
                     let ext = (doc.title as NSString).pathExtension
                     if !ext.isEmpty {
                         Text(".\(ext)")
@@ -705,11 +717,12 @@ public struct GravityEditMainWindow: View {
         .liquidGlassCapsule(tint: isFocused ? .accentColor : nil)
         .liquidGlassMorphID(doc.id, in: tabGlassNamespace)
         .contentShape(Capsule())
+        .onTapGesture(count: 2) {
+            vm.selectTab(doc.id)
+            vm.beginRenamingDocument(id: doc.id)
+        }
         .onTapGesture {
             vm.selectTab(doc.id)
-        }
-        .onTapGesture(count: 2) {
-            vm.beginRenamingDocument(id: doc.id)
         }
         .contextMenu {
             Button("Save") { _ = vm.saveDocument(id: doc.id) }
@@ -909,6 +922,11 @@ public struct GravityEditMainWindow: View {
                     .liquidGlassCapsule()
             }
             .buttonStyle(.plain)
+            .onChange(of: vm.showGoToLinePopover) { _, isShown in
+                if isShown {
+                    goToLineInput = "\(ln)"
+                }
+            }
             .popover(isPresented: $vm.showGoToLinePopover, arrowEdge: .top) {
                 HStack(spacing: 8) {
                     Text(vm.tr(.goToLine))
@@ -916,6 +934,8 @@ public struct GravityEditMainWindow: View {
                     TextField("1..\(doc?.lineCount ?? 1)", text: $goToLineInput)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
+                        .focused($goToLineFocused)
+                        .onAppear { goToLineFocused = true }
                         .onSubmit {
                             if let target = Int(goToLineInput.trimmingCharacters(in: .whitespaces)) {
                                 vm.jumpToLine(target)
@@ -954,10 +974,14 @@ public struct GravityEditMainWindow: View {
                 } label: {
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(vm.focusedDiagnostics.isEmpty ? Color.green : Color.orange)
+                            .fill(!vm.liveScriptAnalyzer ? Color.secondary : (vm.focusedDiagnostics.isEmpty ? Color.green : Color.orange))
                             .frame(width: 6, height: 6)
-                        Text(vm.focusedDiagnostics.isEmpty ? vm.tr(.cleanScript) : "\(vm.focusedDiagnostics.count) Issues")
-                            .font(.system(size: 11, weight: .medium))
+                        Text(
+                            !vm.liveScriptAnalyzer
+                                ? "Linter Off"
+                                : (vm.focusedDiagnostics.isEmpty ? vm.tr(.cleanScript) : "\(vm.focusedDiagnostics.count) Issues")
+                        )
+                        .font(.system(size: 11, weight: .medium))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
@@ -992,7 +1016,14 @@ public struct GravityEditMainWindow: View {
                 // Encoding Picker
                 Menu {
                     ForEach(DocumentEncoding.allCases) { enc in
-                        Button(enc.displayName) { vm.setFocusedEncoding(enc) }
+                        Button {
+                            vm.setFocusedEncoding(enc)
+                        } label: {
+                            HStack {
+                                Text(enc.displayName)
+                                if enc == doc.encoding { Image(systemName: "checkmark") }
+                            }
+                        }
                     }
                 } label: {
                     Text(doc.encoding.displayName)
@@ -1007,7 +1038,14 @@ public struct GravityEditMainWindow: View {
                 // Line Ending Picker
                 Menu {
                     ForEach(LineEnding.allCases) { le in
-                        Button(le.displayName) { vm.setFocusedLineEnding(le) }
+                        Button {
+                            vm.setFocusedLineEnding(le)
+                        } label: {
+                            HStack {
+                                Text(le.displayName)
+                                if le == doc.lineEnding { Image(systemName: "checkmark") }
+                            }
+                        }
                     }
                 } label: {
                     Text(doc.lineEnding.badge)

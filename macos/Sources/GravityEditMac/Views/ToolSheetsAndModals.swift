@@ -102,11 +102,25 @@ public struct FindReplaceSheetView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var activeTab: FindSheetTab = .document
+    @FocusState private var findFieldFocused: Bool
     @State private var playgroundSample: String = """
     2026-11-18 09:14:22 [ERROR] Node=SRV-AD01 Code=403 Message="Token expired"
     2026-11-18 09:14:25 [INFO]  Node=SRV-FS02 Code=200 Message="Replication healthy"
     2026-11-18 09:15:01 [ERROR] Node=SRV-SQL1 Code=504 Message="Gateway timeout"
     """
+
+    private var footerSummaryText: String {
+        switch activeTab {
+        case .document:
+            return "\(vm.documentMatches.count) match\(vm.documentMatches.count == 1 ? "" : "es") in active document"
+        case .directory:
+            let total = vm.multiFileMatches.reduce(0) { $0 + $1.totalMatches }
+            return "\(total) match\(total == 1 ? "" : "es") across \(vm.multiFileMatches.count) file\(vm.multiFileMatches.count == 1 ? "" : "s")"
+        case .playground:
+            let eval = FindReplaceEngine.evaluatePlayground(sampleText: playgroundSample, options: vm.searchOptions)
+            return "\(eval.matches.count) playground match\(eval.matches.count == 1 ? "" : "es") (\(eval.executionTimeMicros) µs)"
+        }
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -119,8 +133,9 @@ public struct FindReplaceSheetView: View {
                         Text(tab.rawValue).tag(tab)
                     }
                 }
+                .labelsHidden()
                 .pickerStyle(.segmented)
-                .frame(width: 430)
+                .frame(width: 440)
             }
 
             // Shared Query & Replacement Controls
@@ -132,6 +147,8 @@ public struct FindReplaceSheetView: View {
                     TextField("Regular expression or literal string…", text: $vm.searchOptions.query)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(.body, design: .monospaced))
+                        .focused($findFieldFocused)
+                        .onSubmit { vm.findNextMatch(forward: true) }
                         .onChange(of: vm.searchOptions.query) { _, _ in vm.evaluateDocumentSearch() }
                 }
                 HStack(spacing: 8) {
@@ -143,11 +160,13 @@ public struct FindReplaceSheetView: View {
                         .font(.system(.body, design: .monospaced))
                 }
 
-                HStack(spacing: 14) {
+                HStack(spacing: 12) {
                     Toggle("Grep / Regex", isOn: $vm.searchOptions.grepRegex)
                     Toggle("Case Sensitive", isOn: $vm.searchOptions.caseSensitive)
                     Toggle("Entire Words", isOn: $vm.searchOptions.matchEntireWords)
+                    Toggle("Multi-Line (^$)", isOn: $vm.searchOptions.multiLine)
                     Toggle("Dot Matches All", isOn: $vm.searchOptions.dotMatchesAll)
+                    Toggle("Wrap Around", isOn: $vm.searchOptions.wrapAround)
                     Toggle("Selection Only", isOn: $vm.searchOptions.searchInSelectionOnly)
                     Spacer()
                 }
@@ -177,7 +196,7 @@ public struct FindReplaceSheetView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             HStack {
-                Text("\(vm.documentMatches.count) matches in active document")
+                Text(footerSummaryText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -187,10 +206,14 @@ public struct FindReplaceSheetView: View {
             }
         }
         .padding(20)
-        .frame(width: 760, height: 540)
+        .frame(width: 820, height: 540)
         .onAppear {
             activeTab = vm.findSheetInitialTab
             vm.evaluateDocumentSearch()
+            findFieldFocused = true
+        }
+        .onChange(of: vm.findSheetInitialTab) { _, newTab in
+            activeTab = newTab
         }
     }
 
@@ -214,9 +237,7 @@ public struct FindReplaceSheetView: View {
 
             List(vm.documentMatches) { match in
                 Button {
-                    if let doc = vm.focusedDocument {
-                        vm.scrollJumpRequest = ScrollJumpRequest(documentId: doc.id, utf16Range: match.nsRange)
-                    }
+                    vm.jumpToSearchMatch(match)
                 } label: {
                     HStack(spacing: 10) {
                         Text("Ln \(match.lineNumber):\(match.columnNumber)")
@@ -332,6 +353,13 @@ public struct TextFactorySheetView: View {
                 Label("BBEdit Text Factory Pipeline (14 Operations)", systemImage: "wand.and.stars")
                     .font(.title3.weight(.semibold))
                 Spacer()
+                Picker("Scope:", selection: $vm.textFactoryScope) {
+                    ForEach(TextFactoryScope.allCases) { scope in
+                        Text(scope.rawValue).tag(scope)
+                    }
+                }
+                .frame(width: 220)
+
                 Menu {
                     ForEach(TextOperationType.allCases) { op in
                         Button {
@@ -402,7 +430,7 @@ public struct TextFactorySheetView: View {
             .frame(height: 390)
 
             HStack {
-                Text("Applies sequentially to “\(vm.focusedDocument?.title ?? "Active Document")”")
+                Text("Target Scope: \(vm.textFactoryScope.rawValue)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -418,9 +446,14 @@ public struct TextFactorySheetView: View {
             }
         }
         .padding(20)
-        .frame(width: 780, height: 520)
+        .frame(width: 820, height: 530)
         .onAppear {
             selectedStepId = vm.textFactorySteps.first?.id
+            if let doc = vm.focusedDocument, doc.safeSelectionEnd > doc.safeSelectionStart {
+                vm.textFactoryScope = .selection
+            } else if vm.textFactoryScope == .selection {
+                vm.textFactoryScope = .activeDocument
+            }
         }
     }
 
@@ -436,6 +469,9 @@ public struct TextFactorySheetView: View {
                 case .zapGremlins:
                     Picker("Action:", selection: step.zapAction) {
                         ForEach(ZapGremlinsAction.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    if step.wrappedValue.zapAction == .replaceWithChar {
+                        TextField("Replacement Character:", text: step.zapReplacementChar)
                     }
                     Toggle("Control Characters", isOn: step.zapControlChars)
                     Toggle("Null Bytes (\\0)", isOn: step.zapNullBytes)
@@ -455,6 +491,9 @@ public struct TextFactorySheetView: View {
                     Toggle("Case Sensitive", isOn: step.sortCaseSensitive)
                     Toggle("Numeric Value Sort", isOn: step.sortNumeric)
                     TextField("Optional Regex Key Pattern:", text: step.sortRegexPattern)
+                    if !step.wrappedValue.sortRegexPattern.isEmpty {
+                        Stepper("Regex Capture Group: \(step.wrappedValue.sortRegexGroupIndex)", value: step.sortRegexGroupIndex, in: 0...9)
+                    }
 
                 case .prefixSuffixLines:
                     Picker("Action:", selection: step.prefixSuffixAction) {
@@ -491,6 +530,7 @@ public struct TextFactorySheetView: View {
                         ForEach(LineNumberAction.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     Stepper("Start Number: \(step.wrappedValue.lineNumberStart)", value: step.lineNumberStart, in: 0...10000)
+                    Stepper("Increment Step: \(step.wrappedValue.lineNumberIncrement)", value: step.lineNumberIncrement, in: 1...100)
                     Stepper("Zero Pad Width: \(step.wrappedValue.lineNumberZeroPadWidth)", value: step.lineNumberZeroPadWidth, in: 0...8)
                     TextField("Separator:", text: step.lineNumberSeparator)
 
@@ -559,11 +599,19 @@ public struct DiffToolSheetView: View {
                 }
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Picker("Left:", selection: $vm.diffLeftDocumentId) {
                     ForEach(vm.documents) { doc in Text(doc.title).tag(doc.id) }
                 }
                 .onChange(of: vm.diffLeftDocumentId) { _, _ in vm.recomputeDiff() }
+
+                Button {
+                    vm.swapDiffDocuments()
+                } label: {
+                    Label("Swap", systemImage: "arrow.left.arrow.right")
+                }
+                .liquidGlassButton()
+                .help("Swap Left and Right Documents")
 
                 Picker("Right:", selection: $vm.diffRightDocumentId) {
                     ForEach(vm.documents) { doc in Text(doc.title).tag(doc.id) }
@@ -589,7 +637,7 @@ public struct DiffToolSheetView: View {
                                 .foregroundStyle(.secondary)
                                 .frame(width: 34, alignment: .trailing)
 
-                            Text(row.leftText ?? "")
+                            Text(attributedDiffLine(row.leftText ?? "", spans: row.leftCharHighlights, isLeft: true))
                                 .font(.system(size: 11.5, design: .monospaced))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(3)
@@ -620,7 +668,7 @@ public struct DiffToolSheetView: View {
                                 .foregroundStyle(.secondary)
                                 .frame(width: 34, alignment: .trailing)
 
-                            Text(row.rightText ?? "")
+                            Text(attributedDiffLine(row.rightText ?? "", spans: row.rightCharHighlights, isLeft: false))
                                 .font(.system(size: 11.5, design: .monospaced))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(3)
@@ -640,6 +688,23 @@ public struct DiffToolSheetView: View {
         }
         .padding(20)
         .frame(width: 920, height: 560)
+    }
+
+    private func attributedDiffLine(_ text: String, spans: [CharDiffSpan], isLeft: Bool) -> AttributedString {
+        var attr = AttributedString(text)
+        guard !spans.isEmpty else { return attr }
+        let highlightColor = isLeft ? Color.red.opacity(0.32) : Color.green.opacity(0.32)
+        for span in spans {
+            guard span.start >= 0, span.end > span.start, span.end <= text.utf16.count else { continue }
+            let startIdx = String.Index(utf16Offset: span.start, in: text)
+            let endIdx = String.Index(utf16Offset: span.end, in: text)
+            if let attrStart = AttributedString.Index(startIdx, within: attr),
+               let attrEnd = AttributedString.Index(endIdx, within: attr),
+               attrStart < attrEnd {
+                attr[attrStart..<attrEnd].backgroundColor = highlightColor
+            }
+        }
+        return attr
     }
 
     private func diffRowTint(_ type: DiffChangeType, isLeft: Bool) -> Color {
@@ -696,14 +761,15 @@ public struct ClippingsSheetView: View {
                             guard !newName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
                             vm.addCustomClipping(
                                 name: newName,
-                                prefix: newPrefix.isEmpty ? "custom" : newPrefix,
+                                prefix: newPrefix.trimmingCharacters(in: .whitespaces).isEmpty ? "custom" : newPrefix.trimmingCharacters(in: .whitespaces),
                                 description: newDesc,
                                 body: newBody,
                                 language: vm.focusedDocument?.language ?? .powershell
                             )
                             isCreatingCustom = false
-                            newName = ""; newPrefix = ""; newDesc = ""
+                            newName = ""; newPrefix = ""; newDesc = ""; newBody = "#SELECTION##INSERTION#"
                         }
+                        .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .liquidGlassButton(prominent: true)
                     }
                 }
@@ -790,6 +856,14 @@ public struct DiagnosticsSheetView: View {
     @ObservedObject var vm: WorkspaceViewModel
     @Environment(\.dismiss) private var dismiss
 
+    private func badgeColor(for severity: DiagnosticSeverity) -> Color {
+        switch severity {
+        case .error: return .red
+        case .warning: return .orange
+        case .info: return .cyan
+        }
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -804,7 +878,20 @@ public struct DiagnosticsSheetView: View {
                 }
             }
 
-            if vm.focusedDiagnostics.isEmpty {
+            if !vm.liveScriptAnalyzer {
+                VStack(spacing: 10) {
+                    Image(systemName: "pause.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.secondary)
+                    Text("Live PSScriptAnalyzer linting is currently paused.")
+                        .font(.callout)
+                    Button("Enable Live Linting") {
+                        vm.liveScriptAnalyzer = true
+                    }
+                    .liquidGlassButton(prominent: true)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if vm.focusedDiagnostics.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "checkmark.seal.fill")
                         .font(.system(size: 36))
@@ -815,12 +902,14 @@ public struct DiagnosticsSheetView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(vm.focusedDiagnostics) { diag in
+                    let sevColor = badgeColor(for: diag.severity)
                     HStack(alignment: .center, spacing: 12) {
                         Text(diag.severity.badge)
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(sevColor)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.18), in: Capsule())
+                            .background(sevColor.opacity(0.18), in: Capsule())
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text("\(diag.ruleId)  •  Ln \(diag.lineNumber), Col \(diag.column)")
@@ -861,13 +950,14 @@ public struct DiagnosticsSheetView: View {
     }
 }
 
-// MARK: - 7. Floating Liquid Glass Command Palette Overlay (⌘P / ⇧⌘P)
+// MARK: - 7. Floating Liquid Glass Command Palette Overlay (⇧⌘P)
 
 public struct CommandPaletteOverlayView: View {
     @ObservedObject var vm: WorkspaceViewModel
     @ObservedObject var updateManager: SparkleUpdateManager
 
     @State private var query: String = ""
+    @State private var selectedIndex: Int = 0
     @FocusState private var searchFocused: Bool
 
     public var body: some View {
@@ -878,25 +968,44 @@ public struct CommandPaletteOverlayView: View {
                 $0.title.localizedCaseInsensitiveContains(query) ||
                 $0.subtitle.localizedCaseInsensitiveContains(query)
             }
+        let clampedIndex = filtered.isEmpty ? 0 : min(max(0, selectedIndex), filtered.count - 1)
 
         VStack(spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: "command")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
-                TextField("Type a command or action…", text: $query)
+                TextField("Type a command or action… (↑↓ to select, Return to run, Esc to close)", text: $query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 15))
                     .focused($searchFocused)
+                    .onChange(of: query) { _, _ in selectedIndex = 0 }
+                    .onKeyPress(.downArrow) {
+                        if !filtered.isEmpty {
+                            selectedIndex = (clampedIndex + 1) % filtered.count
+                        }
+                        return .handled
+                    }
+                    .onKeyPress(.upArrow) {
+                        if !filtered.isEmpty {
+                            selectedIndex = (clampedIndex - 1 + filtered.count) % filtered.count
+                        }
+                        return .handled
+                    }
+                    .onExitCommand {
+                        vm.showCommandPalette = false
+                    }
                     .onSubmit {
-                        if let first = filtered.first {
+                        if !filtered.isEmpty {
+                            let target = filtered[clampedIndex]
                             vm.showCommandPalette = false
-                            first.action()
+                            target.action()
                         }
                     }
                 Button("Esc") {
                     vm.showCommandPalette = false
                 }
+                .keyboardShortcut(.cancelAction)
                 .font(.caption2.monospaced())
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -906,43 +1015,56 @@ public struct CommandPaletteOverlayView: View {
 
             Divider().opacity(0.3)
 
-            ScrollView {
-                VStack(spacing: 3) {
-                    ForEach(filtered) { item in
-                        Button {
-                            vm.showCommandPalette = false
-                            item.action()
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: item.sfSymbol)
-                                    .frame(width: 22)
-                                    .foregroundStyle(Color.accentColor)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(item.title)
-                                        .font(.system(size: 13, weight: .medium))
-                                    Text(item.subtitle)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 3) {
+                        ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, item in
+                            let isSelected = (idx == clampedIndex)
+                            Button {
+                                vm.showCommandPalette = false
+                                item.action()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: item.sfSymbol)
+                                        .frame(width: 22)
+                                        .foregroundStyle(Color.accentColor)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(item.title)
+                                            .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                                        Text(item.subtitle)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if !item.shortcutHint.isEmpty {
+                                        Text(item.shortcutHint)
+                                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                            .foregroundStyle(.secondary)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 5))
+                                    }
                                 }
-                                Spacer()
-                                if !item.shortcutHint.isEmpty {
-                                    Text(item.shortcutHint)
-                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 5))
-                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.clear)
+                                )
+                                .contentShape(Rectangle())
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .contentShape(Rectangle())
+                            .buttonStyle(.plain)
+                            .id(item.id)
                         }
-                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 8)
+                }
+                .onChange(of: clampedIndex) { _, newIdx in
+                    if filtered.indices.contains(newIdx) {
+                        proxy.scrollTo(filtered[newIdx].id, anchor: .center)
                     }
                 }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 8)
             }
             .frame(maxHeight: 320)
         }
@@ -958,6 +1080,12 @@ public struct CommandPaletteOverlayView: View {
 public struct SoftwareUpdateSheetView: View {
     @ObservedObject var updateManager: SparkleUpdateManager
     @Environment(\.dismiss) private var dismiss
+
+    private var isBusy: Bool {
+        if case .checking = updateManager.state { return true }
+        if case .downloading = updateManager.state { return true }
+        return false
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1083,6 +1211,7 @@ public struct SoftwareUpdateSheetView: View {
                 Button("Check Again") {
                     Task { await updateManager.checkForUpdates(userInitiated: true) }
                 }
+                .disabled(isBusy)
                 .liquidGlassButton()
 
                 if case .updateAvailable = updateManager.state {
@@ -1104,7 +1233,7 @@ public struct SoftwareUpdateSheetView: View {
 
     private func releaseNotesBox(_ notes: String) -> some View {
         ScrollView {
-            Text(notes)
+            Text((try? AttributedString(markdown: notes)) ?? AttributedString(notes))
                 .font(.system(size: 12))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)

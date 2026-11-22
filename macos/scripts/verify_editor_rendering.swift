@@ -52,6 +52,8 @@ func runVerification() {
     tv.alignment = .left
     tv.textContainerInset = NSSize(width: 6, height: 10)
 
+    tv.allowsUndo = true
+
     var lines: [String] = []
     for i in 1...109 {
         lines.append("function Invoke-FileServerShareFix\(i) { [CmdletBinding()] param([string]$ShareName = 'DFS-\(i)') Get-SmbShare -Name $ShareName }")
@@ -122,6 +124,29 @@ func runVerification() {
         fputs("FAIL: Code canvas rendered blank/empty (inkPixels=\(inkPixels))!\n", stderr)
         exit(1)
     }
+
+    // Verify programmatic edit protocol registers cleanly with NSUndoManager (⌘Z / ⇧⌘Z)
+    let transformedScript = psScript.uppercased()
+    let fullOldRange = NSRange(location: 0, length: (tv.string as NSString).length)
+    if tv.shouldChangeText(in: fullOldRange, replacementString: transformedScript) {
+        tv.replaceCharacters(in: fullOldRange, with: transformedScript)
+        tv.didChangeText()
+    }
+    guard tv.string == transformedScript, tv.undoManager?.canUndo == true else {
+        fputs("FAIL: Programmatic edit did not register on NSUndoManager!\n", stderr)
+        exit(1)
+    }
+    tv.undoManager?.undo()
+    guard tv.string == psScript else {
+        fputs("FAIL: NSUndoManager.undo() did not restore original PowerShell script!\n", stderr)
+        exit(1)
+    }
+    tv.undoManager?.redo()
+    guard tv.string == transformedScript else {
+        fputs("FAIL: NSUndoManager.redo() did not re-apply programmatic transform!\n", stderr)
+        exit(1)
+    }
+    print("Verified AppKit NSUndoManager programmatic edit undo/redo round-trip!")
 }
 
 MainActor.assumeIsolated {

@@ -46,6 +46,9 @@ public struct GravityEditMacApp: App {
                 .frame(minWidth: 920, minHeight: 580)
                 .onAppear {
                     appDelegate.workspaceViewModel = workspaceVM
+                    updateManager.confirmBeforeQuitHandler = { [weak workspaceVM] in
+                        workspaceVM?.confirmQuitWithUnsavedDocuments() ?? true
+                    }
                 }
         }
         .windowToolbarStyle(.unified(showsTitle: true))

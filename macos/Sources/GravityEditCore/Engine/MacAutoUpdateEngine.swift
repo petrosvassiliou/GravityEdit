@@ -57,7 +57,7 @@ public enum MacAutoUpdateEngine {
            !ver.isEmpty {
             return ver
         }
-        return "1.3.2"
+        return "1.3.3"
     }
 
     public static var currentBuildNumber: String {
@@ -65,7 +65,7 @@ public enum MacAutoUpdateEngine {
            !bld.isEmpty {
             return bld
         }
-        return "11"
+        return "12"
     }
     public static let bundleIdentifier = "com.gravityedit.mac"
     public static let githubRepoSlug = "petrosvassiliou/GravityEdit"
@@ -237,12 +237,17 @@ public enum MacAutoUpdateEngine {
         DEST_APP=\(dest)
         BACKUP_APP=\(backup)
 
-        # Wait up to 15 seconds for current GravityEdit instance to exit cleanly
+        # Wait up to 30 seconds for current GravityEdit instance to exit cleanly
         ATTEMPTS=0
-        while kill -0 "$TARGET_PID" 2>/dev/null && [ "$ATTEMPTS" -lt 60 ]; do
+        while kill -0 "$TARGET_PID" 2>/dev/null && [ "$ATTEMPTS" -lt 120 ]; do
             sleep 0.25
             ATTEMPTS=$((ATTEMPTS + 1))
         done
+
+        # If user canceled the unsaved-changes quit prompt and the app is still running, abort swap safely!
+        if kill -0 "$TARGET_PID" 2>/dev/null; then
+            exit 0
+        fi
 
         if [ -d "$DEST_APP" ]; then
             rm -rf "$BACKUP_APP"

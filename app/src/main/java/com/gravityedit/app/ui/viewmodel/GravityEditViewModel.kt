@@ -623,18 +623,15 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun renameDocument(documentId: String, newTitle: String) {
-        val cleanTitle = newTitle.trim()
-        if (cleanTitle.isEmpty()) return
+        val cleanInput = newTitle.trim()
+        if (cleanInput.isEmpty()) return
 
         _uiState.update { state ->
             val targetDoc = state.documents.firstOrNull { it.id == documentId } ?: return@update state
+            val cleanTitle = EditorDocument.normalizedRenamedTitle(targetDoc.title, cleanInput)
             if (targetDoc.title == cleanTitle) return@update state
 
-            val resolvedLanguage = if (cleanTitle.contains('.')) {
-                SyntaxLanguage.fromFileName(cleanTitle)
-            } else {
-                targetDoc.language
-            }
+            val resolvedLanguage = SyntaxLanguage.fromFileName(cleanTitle)
 
             val updatedDocs = state.documents.map { doc ->
                 if (doc.id == documentId) {
@@ -657,11 +654,14 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
 
     fun selectSecondaryDocument(documentId: String) {
         _uiState.update { it.copy(secondaryDocumentId = documentId) }
+        refreshAstAndFoldsForActiveDocument()
+        refreshActiveDocSearchMatches()
     }
 
     fun setFocusedPane(paneIndex: Int) {
         _uiState.update { it.copy(focusedPane = paneIndex.coerceIn(0, 1)) }
         refreshAstAndFoldsForActiveDocument()
+        refreshActiveDocSearchMatches()
     }
 
     fun closeDocument(documentId: String) {
@@ -1179,11 +1179,17 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setDocumentLanguage(language: SyntaxLanguage) {
         val doc = _uiState.value.focusedDocument ?: return
+        val updatedTitle = if (doc.isScratchpad) {
+            doc.title
+        } else {
+            EditorDocument.titleSynchronizedWithLanguage(doc.title, language)
+        }
         _uiState.update { state ->
             state.copy(
                 documents = state.documents.map {
-                    if (it.id == doc.id) it.copy(language = language) else it
-                }
+                    if (it.id == doc.id) it.copy(language = language, title = updatedTitle) else it
+                },
+                statusBannerMessage = "File type set to ${language.displayName} (.${language.extensions.firstOrNull() ?: "txt"})"
             )
         }
         refreshAstAndFoldsForActiveDocument()
@@ -1198,6 +1204,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                 focusedPane = if (mode == SplitViewMode.NONE) 0 else state.focusedPane
             )
         }
+        refreshAstAndFoldsForActiveDocument()
+        refreshActiveDocSearchMatches()
     }
 
     fun setZoomPercent(percent: Int) {
@@ -1252,7 +1260,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
 
     fun requestSaveDocument(documentId: String) {
         val doc = _uiState.value.documents.firstOrNull { it.id == documentId } ?: return
-        if (doc.uriString != null) {
+        if (doc.uriString != null && doc.title == doc.savedTitle) {
             saveDocumentToUri(doc.id, Uri.parse(doc.uriString))
         } else {
             _events.tryEmit(GravityEditUiEvent.RequestSaveAsFilePicker(doc.id, doc.title))
@@ -1274,6 +1282,18 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun openFileFromUri(uri: Uri, jumpToLineNumber: Int? = null) {
+        // Handle in-memory open tab URIs (`memory://<docId>`) from Multi-File Search without hitting ContentResolver
+        if (uri.scheme.equals("memory", ignoreCase = true)) {
+            val docId = (uri.host ?: uri.schemeSpecificPart.removePrefix("//")).trim()
+            if (docId.isNotEmpty() && _uiState.value.documents.any { it.id == docId }) {
+                selectDocument(docId)
+                if (jumpToLineNumber != null) {
+                    jumpToLine(jumpToLineNumber)
+                }
+            }
+            return
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             val app = getApplication<Application>()
             val resolver = app.contentResolver
@@ -1300,7 +1320,15 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                 ?: uri.lastPathSegment?.substringAfterLast('/')
                 ?: "Document.ps1"
 
-            val rawBytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return@launch
+            val rawBytes = runCatching {
+                resolver.openInputStream(uri)?.use { it.readBytes() }
+            }.getOrElse { err ->
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(statusBannerMessage = "Unable to open $resolvedName: ${err.message ?: "I/O error"}") }
+                }
+                return@launch
+            } ?: return@launch
+
             val (detectedEncoding, rawText) = decodeBytesWithEncodingDetection(rawBytes)
             val detectedLineEnding = LineEnding.detect(rawText)
             val normalizedText = LineEnding.normalizeToLf(rawText)
@@ -1308,6 +1336,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
 
             val openedDoc = EditorDocument(
                 title = resolvedName,
+                savedTitle = resolvedName,
                 uriString = uri.toString(),
                 content = normalizedText,
                 savedContent = normalizedText,
@@ -1370,6 +1399,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                             if (d.id != documentId) return@map d
                             d.copy(
                                 title = updatedTitle,
+                                savedTitle = updatedTitle,
                                 uriString = targetUri.toString(),
                                 savedContent = d.content,
                                 language = updatedLang
@@ -1893,6 +1923,16 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         recomputeDiff()
     }
 
+    fun swapDiffDocuments() {
+        _uiState.update { state ->
+            state.copy(
+                diffLeftDocId = state.diffRightDocId,
+                diffRightDocId = state.diffLeftDocId
+            )
+        }
+        recomputeDiff()
+    }
+
     fun recomputeDiff() {
         val state = _uiState.value
         val leftDoc = state.documents.firstOrNull { it.id == state.diffLeftDocId }
@@ -1973,16 +2013,24 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
 
     fun addCustomClipping(name: String, triggerPrefix: String, templateBody: String) {
         if (name.isBlank() || templateBody.isBlank()) return
+        val activeLang = _uiState.value.focusedDocument?.language ?: SyntaxLanguage.POWERSHELL
         val custom = Clipping(
             name = name.trim(),
             triggerPrefix = triggerPrefix.trim().ifEmpty { "custom" },
             category = ClippingCategory.USER_CUSTOM,
             description = "User custom clipping",
             templateBody = templateBody,
+            syntaxLanguage = activeLang,
             isBuiltIn = false
         )
         _uiState.update { state ->
             state.copy(clippings = listOf(custom) + state.clippings)
+        }
+    }
+
+    fun deleteCustomClipping(clippingId: String) {
+        _uiState.update { state ->
+            state.copy(clippings = state.clippings.filterNot { !it.isBuiltIn && it.id == clippingId })
         }
     }
 
@@ -2029,8 +2077,25 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     fun runSingleQuickTransform(step: TextFactoryStep) {
         val doc = _uiState.value.focusedDocument ?: return
         viewModelScope.launch {
-            val result = TextTransformEngine.runPipeline(doc.content, listOf(step.copy(enabled = true)))
-            updateDocumentContent(doc.id, result.transformedText)
+            val selStart = doc.safeSelectionStart
+            val selEnd = doc.safeSelectionEnd
+            val hasSelection = selEnd > selStart
+            val input = if (hasSelection) doc.selectedText else doc.content
+            val result = TextTransformEngine.runPipeline(input, listOf(step.copy(enabled = true)))
+            if (hasSelection) {
+                val merged = doc.content.substring(0, selStart) + result.transformedText + doc.content.substring(selEnd)
+                updateDocumentContent(
+                    documentId = doc.id,
+                    newContent = merged,
+                    selectionStart = selStart,
+                    selectionEnd = selStart + result.transformedText.length
+                )
+            } else {
+                updateDocumentContent(doc.id, result.transformedText)
+            }
+            if (result.targetLineEnding != null) {
+                setDocumentLineEnding(result.targetLineEnding)
+            }
             for ((title, extractedContent) in result.extractedDocuments) {
                 createNewDocument(
                     initialTitle = title,

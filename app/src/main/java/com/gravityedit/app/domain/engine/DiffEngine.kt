@@ -174,6 +174,53 @@ object DiffEngine {
         leftLines: List<String>,
         rightLines: List<String>
     ): List<RawEditOp> {
+        var prefix = 0
+        val minLen = minOf(leftLines.size, rightLines.size)
+        while (prefix < minLen && leftLines[prefix] == rightLines[prefix]) {
+            prefix++
+        }
+        var suffix = 0
+        while (prefix + suffix < leftLines.size &&
+            prefix + suffix < rightLines.size &&
+            leftLines[leftLines.size - 1 - suffix] == rightLines[rightLines.size - 1 - suffix]
+        ) {
+            suffix++
+        }
+
+        if (prefix > 0 || suffix > 0) {
+            val out = ArrayList<RawEditOp>(leftLines.size + rightLines.size)
+            for (i in 0 until prefix) {
+                out.add(RawEditOp(DiffChangeType.EQUAL, i, i))
+            }
+            val subLeft = leftLines.subList(prefix, leftLines.size - suffix)
+            val subRight = rightLines.subList(prefix, rightLines.size - suffix)
+            for (op in computeMyersCoreOps(subLeft, subRight)) {
+                out.add(
+                    RawEditOp(
+                        type = op.type,
+                        leftIdx = op.leftIdx?.plus(prefix),
+                        rightIdx = op.rightIdx?.plus(prefix)
+                    )
+                )
+            }
+            for (i in 0 until suffix) {
+                out.add(
+                    RawEditOp(
+                        DiffChangeType.EQUAL,
+                        leftLines.size - suffix + i,
+                        rightLines.size - suffix + i
+                    )
+                )
+            }
+            return out
+        }
+        return computeMyersCoreOps(leftLines, rightLines)
+    }
+
+    private fun computeMyersCoreOps(
+        leftLines: List<String>,
+        rightLines: List<String>
+    ): List<RawEditOp> {
         val n = leftLines.size
         val m = rightLines.size
         val maxD = n + m

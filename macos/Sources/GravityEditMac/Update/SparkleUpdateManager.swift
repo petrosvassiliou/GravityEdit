@@ -223,7 +223,12 @@ public final class SparkleUpdateManager: NSObject, ObservableObject {
         }
     }
 
+    public var confirmBeforeQuitHandler: (() -> Bool)? = nil
+
     public func performAtomicSwapAndRelaunch(stagedBundleURL: URL) {
+        if let confirm = confirmBeforeQuitHandler, !confirm() {
+            return
+        }
         let currentAppURL = Bundle.main.bundleURL
         guard currentAppURL.pathExtension.lowercased() == "app" else {
             // Running via `swift run` during local development: open the staged .app directly

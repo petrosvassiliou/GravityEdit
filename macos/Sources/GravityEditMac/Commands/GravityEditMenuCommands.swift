@@ -140,7 +140,7 @@ public struct GravityEditMenuCommands: Commands {
             .keyboardShortcut("l", modifiers: [.control])
 
             Button("Jump to Function / Outline") {
-                vm.sidebarSection = .functionOutline
+                vm.revealSidebar(section: .functionOutline)
             }
             .keyboardShortcut("j", modifiers: [.command])
         }
@@ -184,6 +184,36 @@ public struct GravityEditMenuCommands: Commands {
                     Button(mode.rawValue) {
                         vm.applyQuickStepToSelectionOrDocument(TextFactoryStep(operationType: .processDuplicateLines, duplicateMode: mode))
                     }
+                }
+            }
+
+            Menu("Prefix & Suffix Lines") {
+                Button("Quote Lines with Single Quotes ('…')") {
+                    vm.applyQuickStepToSelectionOrDocument(
+                        TextFactoryStep(operationType: .prefixSuffixLines, prefixSuffixAction: .addPrefixSuffix, linePrefix: "'", lineSuffix: "',")
+                    )
+                }
+                Button("Bullet Lines (- …)") {
+                    vm.applyQuickStepToSelectionOrDocument(
+                        TextFactoryStep(operationType: .prefixSuffixLines, prefixSuffixAction: .addPrefixSuffix, linePrefix: "- ", lineSuffix: "")
+                    )
+                }
+                Divider()
+                Button("Custom Prefix / Suffix in Text Factory…") {
+                    vm.textFactorySteps = [TextFactoryStep(operationType: .prefixSuffixLines, enabled: true)]
+                    vm.showTextFactorySheet = true
+                }
+            }
+
+            Menu("Process Lines Containing…") {
+                Button("Remove Blank / Whitespace-Only Lines") {
+                    vm.applyQuickStepToSelectionOrDocument(
+                        TextFactoryStep(operationType: .processLinesContaining, matchingLinesAction: .deleteMatching, matchingPattern: #"^\s*$"#, matchingUseRegex: true)
+                    )
+                }
+                Button("Configure Pattern in Text Factory…") {
+                    vm.textFactorySteps = [TextFactoryStep(operationType: .processLinesContaining, enabled: true)]
+                    vm.showTextFactorySheet = true
                 }
             }
 
@@ -233,12 +263,22 @@ public struct GravityEditMenuCommands: Commands {
                 }
             }
 
+            Menu("Convert Line Endings") {
+                ForEach(LineEnding.allCases) { le in
+                    Button(le.displayName) {
+                        vm.applyQuickStepToSelectionOrDocument(
+                            TextFactoryStep(operationType: .convertLineEndings, targetLineEnding: le)
+                        )
+                    }
+                }
+            }
+
             Menu("Encode / Decode") {
                 Button("Base64 Encode") {
                     vm.applyEncodingUtility(TextTransformEngine.base64Encode, label: "Base64 Encoded")
                 }
                 Button("Base64 Decode") {
-                    vm.applyEncodingUtility(TextTransformEngine.base64Decode, label: "Base64 Decoded")
+                    vm.applyEncodingUtility(TextTransformEngine.base64Decode, label: "Base64 Decoded", validateBase64: true)
                 }
                 Divider()
                 Button("URL Percent-Encode") {
@@ -264,6 +304,7 @@ public struct GravityEditMenuCommands: Commands {
             Toggle(vm.tr(.showInvisibles), isOn: $vm.showInvisibles)
             Toggle(vm.tr(.lineNumbers), isOn: $vm.showLineNumbers)
             Toggle(vm.tr(.pageGuide), isOn: $vm.showPageGuides)
+            Toggle("Highlight Current Cursor Line", isOn: $vm.highlightCurrentLine)
 
             Divider()
 
@@ -284,9 +325,15 @@ public struct GravityEditMenuCommands: Commands {
             Divider()
 
             Menu("Syntax & File Type") {
+                let currentLang = vm.focusedDocument?.language
                 ForEach(SyntaxLanguage.allCases) { lang in
-                    Button("\(lang.displayName) (.\(lang.primaryExtension))") {
+                    Button {
                         vm.setFocusedLanguage(lang)
+                    } label: {
+                        HStack {
+                            Text("\(lang.displayName) (.\(lang.primaryExtension))")
+                            if lang == currentLang { Image(systemName: "checkmark") }
+                        }
                     }
                 }
             }
@@ -294,7 +341,7 @@ public struct GravityEditMenuCommands: Commands {
             Divider()
 
             Button("Zoom In") { vm.zoomIn() }
-                .keyboardShortcut("+", modifiers: [.command])
+                .keyboardShortcut("=", modifiers: [.command])
             Button("Zoom Out") { vm.zoomOut() }
                 .keyboardShortcut("-", modifiers: [.command])
             Button("Actual Size (100%)") { vm.zoomReset() }

@@ -479,7 +479,9 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     public var isScratchpad: Bool
     public var language: SyntaxLanguage
     public var encoding: DocumentEncoding
+    public var savedEncoding: DocumentEncoding
     public var lineEnding: LineEnding
+    public var savedLineEnding: LineEnding
     public var selectionStart: Int
     public var selectionEnd: Int
     public var foldedStartLines: Set<Int>
@@ -506,7 +508,9 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
         self.isScratchpad = isScratchpad
         self.language = language
         self.encoding = encoding
+        self.savedEncoding = encoding
         self.lineEnding = lineEnding
+        self.savedLineEnding = lineEnding
         self.selectionStart = selectionStart
         self.selectionEnd = selectionEnd
         self.foldedStartLines = foldedStartLines
@@ -515,6 +519,7 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     public var isDirty: Bool {
         guard !isScratchpad else { return false }
         if content != savedContent { return true }
+        if fileURL != nil && (encoding != savedEncoding || lineEnding != savedLineEnding) { return true }
         if let url = fileURL, url.lastPathComponent != title { return true }
         return false
     }

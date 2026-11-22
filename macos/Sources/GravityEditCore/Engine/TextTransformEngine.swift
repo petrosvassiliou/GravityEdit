@@ -331,7 +331,8 @@ public enum TextTransformEngine {
             return out
         case .camelCase:
             return text.components(separatedBy: "\n").map { line in
-                let words = line.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                let expanded = line.replacingOccurrences(of: #"([a-z0-9])([A-Z])"#, with: "$1 $2", options: .regularExpression)
+                let words = expanded.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
                 guard let first = words.first else { return line }
                 let tail = words.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }.joined()
                 return first.lowercased() + tail
@@ -550,7 +551,18 @@ public enum TextTransformEngine {
         for (key, val) in rules {
             let escapedKey = NSRegularExpression.escapedPattern(for: key)
             let isAlnumKey = key.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
-            let pattern = (wholeWords && isAlnumKey) ? "\\b\(escapedKey)\\b" : escapedKey
+            let pattern: String
+            if wholeWords {
+                if isAlnumKey {
+                    pattern = "\\b\(escapedKey)\\b"
+                } else {
+                    // Symbol aliases such as `%` (ForEach-Object) and `?` (Where-Object) must only
+                    // expand at PowerShell command/pipeline boundaries — never inside "100%", "$?", or URLs!
+                    pattern = "(?:^|(?<=[\\|\\;\\(\\{\\s]))\(escapedKey)(?=\\s|\\{|$)"
+                }
+            } else {
+                pattern = escapedKey
+            }
             var opts: NSRegularExpression.Options = []
             if !caseSensitive { opts.insert(.caseInsensitive) }
             if let rx = try? NSRegularExpression(pattern: pattern, options: opts) {
@@ -614,9 +626,16 @@ public enum TextTransformEngine {
         let resolvedTarget: FormatTarget
         switch target {
         case .auto:
-            if documentLanguage == .json || trimmed.hasPrefix("{") && trimmed.hasSuffix("}") && trimmed.contains("\":") || trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+            if documentLanguage == .json {
                 resolvedTarget = .json
-            } else if documentLanguage == .xml || trimmed.hasPrefix("<") && trimmed.hasSuffix(">") && !trimmed.hasPrefix("<#") {
+            } else if documentLanguage == .xml {
+                resolvedTarget = .xml
+            } else if documentLanguage == .powershell {
+                resolvedTarget = .powershell
+            } else if (trimmed.hasPrefix("{") && trimmed.hasSuffix("}") && trimmed.contains("\":")) ||
+                      (trimmed.hasPrefix("[") && trimmed.hasSuffix("]")) {
+                resolvedTarget = .json
+            } else if trimmed.hasPrefix("<") && trimmed.hasSuffix(">") && !trimmed.hasPrefix("<#") {
                 resolvedTarget = .xml
             } else {
                 resolvedTarget = .powershell
@@ -650,7 +669,14 @@ public enum TextTransformEngine {
             return text
         }
         let data = xmlDoc.xmlData(options: [.nodePrettyPrint])
-        return String(data: data, encoding: .utf8) ?? text
+        guard let pretty = String(data: data, encoding: .utf8) else { return text }
+        let spaces = String(repeating: " ", count: max(1, indentSpaces))
+        return pretty.components(separatedBy: "\n").map { line in
+            let leadSpaces = line.prefix(while: { $0 == " " }).count
+            guard leadSpaces > 0, leadSpaces % 2 == 0 else { return line }
+            let depth = leadSpaces / 2
+            return String(repeating: spaces, count: depth) + line.dropFirst(leadSpaces)
+        }.joined(separator: "\n")
     }
 
     public static func formatPowerShell(_ text: String, indentSpaces: Int = 4) -> String {

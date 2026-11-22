@@ -1237,6 +1237,7 @@ fun SideBySideDiffModal(
     diffResult: DiffResult?,
     onSelectLeftDoc: (String) -> Unit,
     onSelectRightDoc: (String) -> Unit,
+    onSwapDocs: () -> Unit = {},
     onMergeToLeft: (Int) -> Unit,
     onMergeToRight: (Int) -> Unit,
     onDismiss: () -> Unit
@@ -1247,6 +1248,7 @@ fun SideBySideDiffModal(
             diffResult = diffResult,
             onSelectLeftDoc = onSelectLeftDoc,
             onSelectRightDoc = onSelectRightDoc,
+            onSwapDocs = onSwapDocs,
             onMergeToLeft = onMergeToLeft,
             onMergeToRight = onMergeToRight,
             onDismiss = onDismiss
@@ -1289,6 +1291,7 @@ private fun SideBySideDiffBody(
     diffResult: DiffResult?,
     onSelectLeftDoc: (String) -> Unit,
     onSelectRightDoc: (String) -> Unit,
+    onSwapDocs: () -> Unit,
     onMergeToLeft: (Int) -> Unit,
     onMergeToRight: (Int) -> Unit,
     onDismiss: () -> Unit
@@ -1336,10 +1339,11 @@ private fun SideBySideDiffBody(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Left & Right Document Pickers
+        // Left & Right Document Pickers + Swap Button
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Box(modifier = Modifier.weight(1f)) {
                 OutlinedButton(
@@ -1366,6 +1370,10 @@ private fun SideBySideDiffBody(
                         )
                     }
                 }
+            }
+
+            OutlinedButton(onClick = onSwapDocs) {
+                Text("⇄")
             }
 
             Box(modifier = Modifier.weight(1f)) {
@@ -1459,18 +1467,19 @@ private fun DiffComparisonRowItem(
                 color = palette.gutterText,
                 modifier = Modifier.width(34.dp)
             )
-            Text(
-                text = buildCharHighlightedAnnotatedString(
-                    text = row.leftText ?: "",
-                    spans = row.leftCharHighlights,
-                    highlightColor = palette.diffRemovedHighlight,
-                    baseColor = palette.editorForeground
-                ),
-                fontFamily = JetBrainsMonoFontFamily,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Box(modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+                Text(
+                    text = buildCharHighlightedAnnotatedString(
+                        text = row.leftText ?: "",
+                        spans = row.leftCharHighlights,
+                        highlightColor = palette.diffRemovedHighlight,
+                        baseColor = palette.editorForeground
+                    ),
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+            }
         }
 
         // Center Directional Merge Actions (← / →)
@@ -1522,18 +1531,19 @@ private fun DiffComparisonRowItem(
                 color = palette.gutterText,
                 modifier = Modifier.width(34.dp)
             )
-            Text(
-                text = buildCharHighlightedAnnotatedString(
-                    text = row.rightText ?: "",
-                    spans = row.rightCharHighlights,
-                    highlightColor = palette.diffAddedHighlight,
-                    baseColor = palette.editorForeground
-                ),
-                fontFamily = JetBrainsMonoFontFamily,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Box(modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+                Text(
+                    text = buildCharHighlightedAnnotatedString(
+                        text = row.rightText ?: "",
+                        spans = row.rightCharHighlights,
+                        highlightColor = palette.diffAddedHighlight,
+                        baseColor = palette.editorForeground
+                    ),
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -1576,6 +1586,7 @@ fun ClippingsModal(
     onSearchQueryChange: (String) -> Unit,
     onInsertClipping: (Clipping, String) -> Unit,
     onAddCustomClipping: (name: String, trigger: String, body: String) -> Unit,
+    onDeleteCustomClipping: (String) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -1659,10 +1670,12 @@ fun ClippingsModal(
                                 Text(stringResource(R.string.action_cancel))
                             }
                             Button(
+                                enabled = newName.isNotBlank() && newBody.isNotBlank(),
                                 onClick = {
                                     onAddCustomClipping(newName, newTrigger, newBody)
                                     newName = ""
                                     newTrigger = ""
+                                    newBody = "#SELECTION##INSERTION#"
                                     showCreateForm = false
                                 }
                             ) {
@@ -1713,13 +1726,27 @@ fun ClippingsModal(
                                         color = MaterialTheme.colorScheme.primary
                                     )
                                 }
-                                Button(
-                                    onClick = {
-                                        val clipText = clipboardManager.getText()?.text ?: ""
-                                        onInsertClipping(clipping, clipText)
-                                    }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Text(stringResource(R.string.action_insert))
+                                    if (!clipping.isBuiltIn) {
+                                        IconButton(onClick = { onDeleteCustomClipping(clipping.id) }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete Custom Clipping",
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                    Button(
+                                        onClick = {
+                                            val clipText = clipboardManager.getText()?.text ?: ""
+                                            onInsertClipping(clipping, clipText)
+                                        }
+                                    ) {
+                                        Text(stringResource(R.string.action_insert))
+                                    }
                                 }
                             }
                             Spacer(modifier = Modifier.height(6.dp))

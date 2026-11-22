@@ -884,7 +884,127 @@ class GravityEditEnginesTest {
             }
         }
     }
+
+    @Test
+    fun appUpdateEngine_parseReleaseJsonSelectsAndroidApkOverMacOsAssets() {
+        val multiPlatformReleaseJson = org.json.JSONObject(
+            """
+            {
+              "tag_name": "v1.3.3",
+              "name": "GravityEdit v1.3.3 — macOS Liquid Glass & Android Release",
+              "body": "SHA-256: `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`",
+              "published_at": "2026-11-22T12:00:00Z",
+              "html_url": "https://github.com/petrosvassiliou/GravityEdit/releases/tag/v1.3.3",
+              "prerelease": false,
+              "assets": [
+                {
+                  "name": "GravityEdit-macOS-v1.3.3.dmg",
+                  "browser_download_url": "https://github.com/petrosvassiliou/GravityEdit/releases/download/v1.3.3/GravityEdit-macOS-v1.3.3.dmg",
+                  "size": 14500000
+                },
+                {
+                  "name": "GravityEdit-macOS-v1.3.3.app.zip",
+                  "browser_download_url": "https://github.com/petrosvassiliou/GravityEdit/releases/download/v1.3.3/GravityEdit-macOS-v1.3.3.app.zip",
+                  "size": 13900000
+                },
+                {
+                  "name": "appcast.xml",
+                  "browser_download_url": "https://github.com/petrosvassiliou/GravityEdit/releases/download/v1.3.3/appcast.xml",
+                  "size": 1420
+                },
+                {
+                  "name": "GravityEdit-v1.3.3.apk",
+                  "browser_download_url": "https://github.com/petrosvassiliou/GravityEdit/releases/download/v1.3.3/GravityEdit-v1.3.3.apk",
+                  "size": 11200000
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+        val info = AppUpdateManagerEngine.parseReleaseJson(multiPlatformReleaseJson)
+        assertEquals("1.3.3", info.versionName)
+        assertEquals(
+            "https://github.com/petrosvassiliou/GravityEdit/releases/download/v1.3.3/GravityEdit-v1.3.3.apk",
+            info.apkDownloadUrl
+        )
+        assertEquals(11200000L, info.apkSizeBytes)
+        assertEquals(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            info.expectedSha256
+        )
+    }
+
+    @Test
+    fun editorDocument_synchronizesLanguageExtensionAndPreservesExtensionOnStemRename() {
+        assertEquals(
+            "GravityWorkbench.txt",
+            EditorDocument.titleSynchronizedWithLanguage("GravityWorkbench.ps1", SyntaxLanguage.PLAIN_TEXT)
+        )
+        assertEquals(
+            "GravityWorkbench.ps1",
+            EditorDocument.titleSynchronizedWithLanguage("GravityWorkbench.txt", SyntaxLanguage.POWERSHELL)
+        )
+        assertEquals(
+            "ModuleTools.psm1",
+            EditorDocument.titleSynchronizedWithLanguage("ModuleTools.psm1", SyntaxLanguage.POWERSHELL)
+        )
+        assertEquals(
+            "Deploy-Cluster.ps1",
+            EditorDocument.normalizedRenamedTitle("Inventory.ps1", "Deploy-Cluster")
+        )
+        assertEquals(
+            "Deploy-Cluster.txt",
+            EditorDocument.normalizedRenamedTitle("Inventory.ps1", "Deploy-Cluster.txt")
+        )
+
+        val diskDoc = EditorDocument(
+            title = "Deploy.ps1",
+            savedTitle = "Deploy.ps1",
+            uriString = "content://com.android.externalstorage.documents/document/primary%3ADeploy.ps1",
+            content = "Get-Service",
+            savedContent = "Get-Service",
+            language = SyntaxLanguage.POWERSHELL
+        )
+        assertFalse(diskDoc.isDirty)
+        val renamedDoc = diskDoc.copy(
+            title = EditorDocument.titleSynchronizedWithLanguage(diskDoc.title, SyntaxLanguage.PLAIN_TEXT),
+            language = SyntaxLanguage.PLAIN_TEXT
+        )
+        assertEquals("Deploy.txt", renamedDoc.title)
+        assertTrue(renamedDoc.isDirty)
+    }
+
+    @Test
+    fun canonizeAndLargeDiff_preserveUrlsPercentagesAndFastTrimmedDiffOffsets() {
+        val table = "%=ForEach-Object\n?=Where-Object\ngci=Get-ChildItem"
+        val input = "Write-Host \"Progress: 100% https://api.local/items?limit=10 ok=${'$'}?\"\ngci | % { ${'$'}_ } | ? { ${'$'}_.Length -gt 0 }"
+        val transformed = TextTransformEngine.canonizeReplaceTable(
+            text = input,
+            tableRaw = table,
+            caseSensitive = false,
+            wholeWords = true
+        )
+        assertTrue(transformed.contains("Progress: 100% https://api.local/items?limit=10 ok=\$?"))
+        assertTrue(transformed.contains("Get-ChildItem | ForEach-Object { \$_ } | Where-Object { \$_.Length -gt 0 }"))
+
+        val leftLines = (1..1500).map { idx -> "Line-$idx: Get-Service -Name Spooler" }
+        val rightLines = leftLines.toMutableList().also {
+            it[749] = "Line-750: Restart-Service -Name Spooler -Force"
+        }
+        val diff = DiffEngine.computeDiff(
+            leftDocId = "left",
+            leftTitle = "Left.ps1",
+            leftText = leftLines.joinToString("\n"),
+            rightDocId = "right",
+            rightTitle = "Right.ps1",
+            rightText = rightLines.joinToString("\n")
+        )
+        assertEquals(1, diff.modifiedCount)
+        assertEquals(0, diff.addedCount)
+        assertEquals(0, diff.deletedCount)
+        val modRow = diff.rows.first { it.changeType == DiffChangeType.MODIFY }
+        assertEquals(750, modRow.leftLineNumber)
+        assertEquals(750, modRow.rightLineNumber)
+        assertTrue(modRow.rightHighlightRanges.isNotEmpty())
+    }
 }
-
-
-

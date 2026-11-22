@@ -11,7 +11,7 @@
 [![Compose M3](https://img.shields.io/badge/Android-Material%203%20Expressive-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)](#android--googlebook-os-edition-material-3-expressive)
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download macOS DMG &amp; Android APK (v1.3.2)</strong></a>
+  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download macOS DMG &amp; Android APK (v1.3.3)</strong></a>
   &nbsp;•&nbsp;
   <a href="#macos-edition-apple-liquid-glass--sparkle-2-auto-updates">macOS Liquid Glass</a>
   &nbsp;•&nbsp;
@@ -43,19 +43,19 @@
 - **Navigation-Only Liquid Glass Layer:** Uses SwiftUI 26 `GlassEffectContainer`, `.glassEffect(.regular, in:)`, `.glassEffectID(_:in:)`, `.buttonStyle(.glass)`, and `.buttonStyle(.glassProminent)` on the floating `NavigationSplitView` sidebar, unified window toolbar, morphing document tab capsules, bottom status pills, Command Palette (`⇧⌘P`), and inline PowerShell completion card — while keeping the **AppKit `NSTextView` code canvas strictly opaque and high-contrast** (`Daylight Crisp`, `Tahoe Midnight`, `Pitch-Black Pro`) per Apple HIG (*"Never use Liquid Glass in the content layer"*).
 - **Full Accessibility Compliance:** Automatically adapts to macOS `Reduce Transparency`, `Reduce Motion`, and `Increase Contrast` system settings.
 - **Native macOS Menu Bar & Keyboard Equivalents:** Complete macOS Menu Bar (`GravityEdit` → `About`, `Settings…` `⌘,`, `Check for Updates…` `⌥⌘U`; `File`; `Edit`; `Search`; **`Text` exposing all 14 BBEdit transformations directly in the menu bar**; `View`; `Tools`; `Help`), native `NSOpenPanel` / `NSSavePanel`, Dock drag-and-drop file/folder opening, and unsaved-document close/quit confirmation (`NSAlert`).
-- **In-App Automatic Updates:** Integrates **Sparkle 2 (`SPUStandardUpdaterController` + `appcast.xml`)** alongside a built-in **Liquid Glass Software Update sheet** (accessible from the menu bar or by clicking the bottom-left **`v1.3.2`** pill) that checks `petrosvassiliou/GravityEdit` releases in the background, verifies `.app.zip` archives against published **SHA-256** manifests via Apple `CryptoKit`, atomically swaps `GravityEdit.app`, and relaunches automatically.
+- **In-App Automatic Updates:** Integrates **Sparkle 2 (`SPUStandardUpdaterController` + `appcast.xml`)** alongside a built-in **Liquid Glass Software Update sheet** (accessible from the menu bar or by clicking the bottom-left **`v1.3.3`** pill) that checks `petrosvassiliou/GravityEdit` releases in the background, verifies `.app.zip` archives against published **SHA-256** manifests via Apple `CryptoKit`, atomically swaps `GravityEdit.app`, and relaunches automatically.
 
 ---
 
-## What's New in v1.3.2
+## What's New in v1.3.3
 
-- **macOS Liquid Glass UI & TextKit 1 Code Canvas Polish (`v1.3.2`):**
-  - Fixed blank/empty `NSTextView` code canvas on macOS 26/27 Tahoe by replacing `DBL_MAX` (`CGFloat.greatestFiniteMagnitude`) container/view bounds with finite IEEE-754 `Float32`-safe TextKit 1 geometry (`1.0e7`) inside a clipped `GravityEditorContainerView` with synchronous layout sizing and single-line active gutter highlighting.
-  - Positioned the window title and subtitle cleanly inside the `NavigationSplitView` detail column to the right of the sidebar divider with an explicit visible toolbar boundary and non-collapsible `40pt` morphing Document Tab Bar so the editor gutter never overlaps the titlebar.
-  - Replaced the clipped `98pt` segmented split-view picker with unclipped native Liquid Glass toolbar button capsules separated by `ToolbarSpacer(.fixed)`.
-  - Synchronized document filename extensions automatically when switching syntax/file type (e.g., `GravityWorkbench.ps1` → `GravityWorkbench.txt` when selecting `Plain Text`).
-- **Enhanced PowerShell Function & Procedural Script Navigator (`Funktionsnavigator`):** Extracts multi-line `param(...)` parameter signatures on advanced functions, Unicode/German umlaut names, `$Var = { ... }` scriptblocks (`$sb`), `prm`, `pipe`, `# === ... ===` / box / `# Step N:` section headers (`#sec`), and automatic procedural landmarks (`var`, `tbl`, `blk`) for linear admin scripts without `function` blocks — plus Swift, Python, Kotlin, Shell/Zsh, and Markdown outlines.
-- **Googlebook OS & Android Polish:** Zero-hover-shadow Material 3 Expressive controls (`hoveredElevation = 0.dp`) and Google Play Protect clean (`0` sensitive permissions) release APK signed with `v1 + v2 + v3`.
+- **Cross-Platform End-to-End Smoke Audit & Polish (`v1.3.3`):**
+  - **macOS Native Undo/Redo (`⌘Z` / `⇧⌘Z`) & Selection Continuity:** Registered all programmatic edits (BBEdit Text Factory, Replace All, Quick Fixes, Encoding/Base64/URL utilities, Diff Merge, Clippings) onto `NSTextView`'s `NSUndoManager` while preserving selection spans, scratchpad persistence, and unsaved-quit guards during in-app updates.
+  - **Complete 14-Item BBEdit `Text` Menu, Sheet & Keyboard Navigation Polish:** Exposed all **14 of 14** BBEdit operations directly in the macOS `Text` menu bar, added `Scope` (`Selection` / `Active Document` / `All Open Documents`) to Text Factory, added `Swap` + character-level diff highlights to Side-by-Side Diff, added `↑` / `↓` / `Return` / `Escape` navigation to Command Palette (`⇧⌘P`), and excluded string literals when highlighting comments in Swift/Kotlin/Python/YAML/Shell.
+  - **PowerShell Alias Boundary & Formatter Hardening:** Enforced pipeline/command boundary matching on `%` and `?` in Canonize so `"100%"`, `"$?"`, and URLs are never corrupted, and prioritized `.powershell` language over `[`...`]` JSON heuristics in `Format / Prettify`.
+  - **Android & Googlebook OS Hardening:** Filtered multi-platform GitHub release assets strictly for `.apk`, synchronized file extensions when switching syntax language, added `Swap (⇄)` + horizontal scrolling to Side-by-Side Diff, added custom clipping deletion, and accelerated Myers Diff on 1,000+ line files via common prefix/suffix trimming.
+- **macOS Liquid Glass UI & TextKit 1 Code Canvas (`v1.3.2`):** Finite `1.0e7` TextKit 1 canvas geometry, right-aligned detail-column titlebar with `40pt` Liquid Glass tab bar, and unclipped split-view toolbar capsules.
+- **Enhanced PowerShell Function & Procedural Script Navigator (`Funktionsnavigator`):** Extracts multi-line `param(...)` parameter signatures on advanced functions, Unicode/German umlaut names, `$Var = { ... }` scriptblocks (`$sb`), `prm`, `pipe`, `# === ... ===` / box / `# Step N:` section headers (`#sec`), and automatic procedural landmarks (`var`, `tbl`, `blk`) for linear admin scripts without `function` blocks.
 
 ---
 
@@ -189,12 +189,12 @@ GravityEdit/
 ## Installation
 
 ### macOS (macOS 26 Tahoe Liquid Glass & macOS 15 Sequoia+)
-1. Download **`GravityEdit-macOS-v1.3.0.dmg`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
+1. Download **`GravityEdit-macOS-v1.3.3.dmg`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
 2. Open the disk image and drag **`GravityEdit.app`** to **`/Applications`**.
 3. *(First launch without Apple Notarization)* If macOS Gatekeeper prompts on an unsigned/ad-hoc GitHub build, Control-click **`GravityEdit.app`** → **Open** (or run `xattr -dr com.apple.quarantine /Applications/GravityEdit.app`). Subsequent updates can be installed directly inside the app via **GravityEdit → Check for Updates…** (`⌥⌘U`)!
 
 ### Android & Googlebook OS (Android 8.0+ / API 26+)
-1. Download **`GravityEdit-v1.3.0.apk`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest) and open to install or upgrade in-place.
+1. Download **`GravityEdit-v1.3.3.apk`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest) and open to install or upgrade in-place.
 
 ---
 
@@ -208,7 +208,7 @@ cd macos
 swift test
 
 # Build & package GravityEdit.app, .dmg, .app.zip, .sha256 & Sparkle appcast.xml
-./scripts/package_app.sh 1.3.0
+./scripts/package_app.sh 1.3.3
 ```
 
 ### Android & Googlebook OS (JDK 17 + Android SDK 35)

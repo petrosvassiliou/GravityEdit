@@ -162,7 +162,7 @@ object AppUpdateManagerEngine {
             val name = asset.optString("name", "")
             val browserUrl = asset.optString("browser_download_url", "")
             if (name.startsWith("GravityEdit-", ignoreCase = true) &&
-                !name.endsWith(".sha256", ignoreCase = true) &&
+                name.endsWith(".apk", ignoreCase = true) &&
                 browserUrl.startsWith("https://")
             ) {
                 downloadUrl = browserUrl

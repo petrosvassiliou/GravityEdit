@@ -299,6 +299,7 @@ fun GravityEditScaffold(
                 diffResult = uiState.diffResult,
                 onSelectLeftDoc = viewModel::setDiffLeftDocument,
                 onSelectRightDoc = viewModel::setDiffRightDocument,
+                onSwapDocs = viewModel::swapDiffDocuments,
                 onMergeToLeft = viewModel::mergeDiffRowToLeft,
                 onMergeToRight = viewModel::mergeDiffRowToRight,
                 onDismiss = { viewModel.setDiffModalVisible(false) }
@@ -313,6 +314,7 @@ fun GravityEditScaffold(
                 onSearchQueryChange = viewModel::setClippingSearchQuery,
                 onInsertClipping = viewModel::insertClippingIntoActiveDocument,
                 onAddCustomClipping = viewModel::addCustomClipping,
+                onDeleteCustomClipping = viewModel::deleteCustomClipping,
                 onDismiss = { viewModel.setClippingsModalVisible(false) }
             )
         }
@@ -1005,11 +1007,13 @@ private fun LeftSidebarContent(
                             .clip(RoundedCornerShape(14.dp))
                             .combinedClickable(
                                 onClick = {
-                                    if (isSelected && !doc.isScratchpad) {
-                                        editingSidebarDocId = doc.id
-                                    } else {
-                                        editingSidebarDocId = null
+                                    editingSidebarDocId = null
+                                    onSelectDocument(doc.id)
+                                },
+                                onDoubleClick = {
+                                    if (!doc.isScratchpad) {
                                         onSelectDocument(doc.id)
+                                        editingSidebarDocId = doc.id
                                     }
                                 },
                                 onLongClick = { docMenuExpanded = true }
@@ -2129,12 +2133,8 @@ private fun MultiDocumentTabBar(
                             .clip(tabShape)
                             .combinedClickable(
                                 onClick = {
-                                    if (isSelected && !doc.isScratchpad) {
-                                        editingTabDocId = doc.id
-                                    } else {
-                                        editingTabDocId = null
-                                        onSelectTab(doc.id)
-                                    }
+                                    editingTabDocId = null
+                                    onSelectTab(doc.id)
                                 },
                                 onDoubleClick = {
                                     if (!doc.isScratchpad) {
@@ -2165,8 +2165,6 @@ private fun MultiDocumentTabBar(
                                     if (!doc.isScratchpad) {
                                         onSelectTab(doc.id)
                                         editingTabDocId = doc.id
-                                    } else {
-                                        onSelectTab(doc.id)
                                     }
                                 },
                                 onCommitRename = { newName ->
@@ -2275,7 +2273,7 @@ private fun MultiDocumentTabBar(
 
 /**
  * Inline-editable document title component.
- * Clicking on the document's title enters inline rename mode with the filename stem
+ * Double-clicking or choosing Rename enters inline rename mode with the filename stem
  * immediately selected (`0 until dotIdx`) so the user can type a new name without
  * accidentally overwriting the file extension, and press Enter or click away to commit.
  */
@@ -2284,7 +2282,7 @@ private fun InlineEditableDocumentTitle(
     title: String,
     isEditing: Boolean,
     isSelected: Boolean,
-    onStartEditing: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onStartEditing: () -> Unit,
     onCommitRename: (String) -> Unit,
     onCancelRename: () -> Unit
 ) {
@@ -2371,9 +2369,7 @@ private fun InlineEditableDocumentTitle(
             } else {
                 MaterialTheme.colorScheme.onSurface
             },
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .clickable { onStartEditing() }
+            modifier = Modifier.clip(RoundedCornerShape(6.dp))
         )
     }
 }

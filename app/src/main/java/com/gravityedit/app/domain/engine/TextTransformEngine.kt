@@ -679,8 +679,13 @@ object TextTransformEngine {
         var result = text
         for ((searchKey, replacementVal) in pairs) {
             val escapedKey = Regex.escape(searchKey)
-            val patternStr = if (wholeWords && searchKey.first().isLetterOrDigit() && searchKey.last().isLetterOrDigit()) {
-                "\\b$escapedKey\\b"
+            val isAlnumKey = searchKey.all { it.isLetterOrDigit() || it == '_' || it == '-' }
+            val patternStr = if (wholeWords) {
+                if (isAlnumKey) {
+                    "\\b$escapedKey\\b"
+                } else {
+                    "(?:^|(?<=[\\|\\;\\(\\{\\s]))$escapedKey(?=\\s|\\{|$)"
+                }
             } else {
                 escapedKey
             }

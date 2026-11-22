@@ -790,11 +790,9 @@ private fun VirtualizedEditableCodeLine(
 
     val focusRequester = remember { FocusRequester() }
     var hasFocus by remember { mutableStateOf(false) }
-    var lastRequestedLine by remember { mutableIntStateOf(-1) }
 
-    LaunchedEffect(isCurrentLine) {
-        if (isCurrentLine && !hasFocus && lastRequestedLine != entry.lineIndex) {
-            lastRequestedLine = entry.lineIndex
+    LaunchedEffect(isCurrentLine, document.selectionStart, document.selectionEnd) {
+        if (isCurrentLine && !hasFocus) {
             runCatching { focusRequester.requestFocus() }
         }
     }

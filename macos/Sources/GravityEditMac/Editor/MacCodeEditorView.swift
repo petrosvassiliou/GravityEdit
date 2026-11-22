@@ -222,13 +222,28 @@ public final class GravityLineNumberRulerView: NSRulerView {
             return
         }
 
+        let ns = textView.string as NSString
+        guard ns.length > 0, lm.numberOfGlyphs > 0 else {
+            super.mouseDown(with: event)
+            return
+        }
+
         let textPt = NSPoint(
             x: 4,
             y: localPt.y + textView.visibleRect.minY - textView.textContainerOrigin.y
         )
         let glyphIdx = lm.glyphIndex(for: textPt, in: tc)
+        guard glyphIdx < lm.numberOfGlyphs else {
+            super.mouseDown(with: event)
+            return
+        }
+        let lineRect = lm.lineFragmentRect(forGlyphAt: glyphIdx, effectiveRange: nil)
+        guard textPt.y >= lineRect.minY && textPt.y <= lineRect.maxY else {
+            super.mouseDown(with: event)
+            return
+        }
+
         let charIdx = lm.characterIndexForGlyph(at: glyphIdx)
-        let ns = textView.string as NSString
         var lineIdx = 0
         var i = 0
         let limit = min(charIdx, ns.length)
@@ -874,15 +889,25 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
 
             if textDiffers {
                 isProgrammaticUpdate = true
-                let prevSel = tv.selectedRange()
-                tv.string = state.document.content
+                if docChanged {
+                    tv.string = state.document.content
+                    tv.undoManager?.removeAllActions()
+                } else {
+                    let fullOldRange = NSRange(location: 0, length: (tv.string as NSString).length)
+                    if tv.shouldChangeText(in: fullOldRange, replacementString: state.document.content) {
+                        tv.replaceCharacters(in: fullOldRange, with: state.document.content)
+                        tv.didChangeText()
+                    } else {
+                        tv.string = state.document.content
+                    }
+                }
                 let newLen = (tv.string as NSString).length
-                let targetSel = docChanged
-                    ? NSRange(
-                        location: state.document.safeSelectionStart,
-                        length: max(0, state.document.safeSelectionEnd - state.document.safeSelectionStart)
-                    )
-                    : NSRange(location: min(prevSel.location, newLen), length: 0)
+                let selLoc = min(state.document.safeSelectionStart, newLen)
+                let selLen = min(
+                    max(0, state.document.safeSelectionEnd - state.document.safeSelectionStart),
+                    max(0, newLen - selLoc)
+                )
+                let targetSel = NSRange(location: selLoc, length: selLen)
                 tv.setSelectedRange(targetSel)
                 applySyntaxHighlighting(to: tv)
                 recomputeFoldedCharacterRanges(in: tv.string, foldRegions: state.foldRegions, foldedStarts: state.document.foldedStartLines)
@@ -920,7 +945,7 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
                 containerView?.syncTextViewGeometry()
             }
 
-            // Explicit scroll jump request (Function Navigator, Go to Line, Find Match, Diagnostic)
+            // Explicit scroll jump request (Function Navigator, Go to Line, Find Match, Select Line, Diagnostic)
             if let jump = state.scrollJumpRequest, jump.id != lastJumpId, jump.documentId == state.document.id {
                 lastJumpId = jump.id
                 let nsLen = (tv.string as NSString).length
@@ -933,6 +958,7 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
                 tv.showFindIndicator(for: clampedRange)
                 tv.window?.makeFirstResponder(tv)
                 isProgrammaticUpdate = false
+                state.onSelectionChange(clampedRange)
             }
 
             lastDocumentId = state.document.id
@@ -1242,16 +1268,20 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
                         storage.addAttribute(.foregroundColor, value: colors.cmdlet, range: m.range)
                     }
                 }
-                for m in Self.genericStringRegex.matches(in: text, options: [], range: fullRange) {
-                    storage.addAttribute(.foregroundColor, value: colors.stringLiteral, range: m.range)
+                let stringMatches = Self.genericStringRegex.matches(in: text, options: [], range: fullRange)
+                let stringRanges = stringMatches.map(\.range)
+                for m in stringMatches {
+                    storage.addAttributes([.foregroundColor: colors.stringLiteral, .font: regularFont], range: m.range)
                 }
-                if lang == .swift || lang == .kotlin || lang == .json {
-                    for m in Self.slashCommentRegex.matches(in: text, options: [], range: fullRange) {
-                        storage.addAttribute(.foregroundColor, value: colors.comment, range: m.range)
+                if lang == .swift || lang == .kotlin {
+                    for m in Self.slashCommentRegex.matches(in: text, options: [], range: fullRange)
+                    where !stringRanges.contains(where: { NSLocationInRange(m.range.location, $0) }) {
+                        storage.addAttributes([.foregroundColor: colors.comment, .font: regularFont], range: m.range)
                     }
                 } else if lang == .python || lang == .shellBash || lang == .yaml {
-                    for m in Self.hashCommentRegex.matches(in: text, options: [], range: fullRange) {
-                        storage.addAttribute(.foregroundColor, value: colors.comment, range: m.range)
+                    for m in Self.hashCommentRegex.matches(in: text, options: [], range: fullRange)
+                    where !stringRanges.contains(where: { NSLocationInRange(m.range.location, $0) }) {
+                        storage.addAttributes([.foregroundColor: colors.comment, .font: regularFont], range: m.range)
                     }
                 }
             }

@@ -176,6 +176,7 @@ data class DiskBrowserNode(
 data class EditorDocument(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
+    val savedTitle: String = title,
     val uriString: String? = null,
     val content: String = "",
     val savedContent: String = "",
@@ -191,7 +192,7 @@ data class EditorDocument(
     val redoStack: List<EditorSnapshot> = emptyList()
 ) {
     val isDirty: Boolean
-        get() = !isScratchpad && content != savedContent
+        get() = !isScratchpad && (content != savedContent || (uriString != null && title != savedTitle))
 
     val lines: List<String>
         get() = if (content.isEmpty()) listOf("") else content.split('\n')
@@ -277,5 +278,33 @@ data class EditorDocument(
 
     companion object {
         private val WORD_REGEX = Regex("""\S+""")
+
+        fun normalizedRenamedTitle(currentTitle: String, userInput: String): String {
+            val trimmed = userInput.trim()
+            if (trimmed.isEmpty()) return currentTitle
+            val curDot = currentTitle.lastIndexOf('.')
+            val curExt = if (curDot > 0) currentTitle.substring(curDot + 1) else ""
+            val newDot = trimmed.lastIndexOf('.')
+            val newExt = if (newDot > 0) trimmed.substring(newDot + 1) else ""
+            return if (newExt.isEmpty() && curExt.isNotEmpty()) {
+                "$trimmed.$curExt"
+            } else {
+                trimmed
+            }
+        }
+
+        fun titleSynchronizedWithLanguage(currentTitle: String, language: SyntaxLanguage): String {
+            val trimmed = currentTitle.trim()
+            val primaryExt = language.extensions.firstOrNull() ?: "txt"
+            if (trimmed.isEmpty()) return "Untitled.$primaryExt"
+            val dotIdx = trimmed.lastIndexOf('.')
+            val curExt = if (dotIdx > 0) trimmed.substring(dotIdx + 1).lowercase() else ""
+            if (curExt.isNotEmpty() && language.extensions.any { it.equals(curExt, ignoreCase = true) }) {
+                return trimmed
+            }
+            val stem = if (dotIdx > 0) trimmed.substring(0, dotIdx).trim() else trimmed
+            val safeStem = stem.ifEmpty { trimmed }
+            return "$safeStem.$primaryExt"
+        }
     }
 }

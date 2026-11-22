@@ -63,7 +63,7 @@ public struct SettingsSceneView: View {
             HStack {
                 Text("Font Size (\(String(format: "%.1f", vm.fontSize)) pt)")
                 Spacer()
-                Slider(value: $vm.fontSize, in: 10...28, step: 0.5)
+                Slider(value: $vm.fontSize, in: 9...32, step: 0.5)
                     .frame(width: 200)
             }
 
@@ -111,6 +111,7 @@ public struct SettingsSceneView: View {
                 HStack {
                     Spacer()
                     Button("Check for Updates Now…") {
+                        NSApplication.shared.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
                         updateManager.openSoftwareUpdateCenter()
                     }
                     .liquidGlassButton(prominent: true)
