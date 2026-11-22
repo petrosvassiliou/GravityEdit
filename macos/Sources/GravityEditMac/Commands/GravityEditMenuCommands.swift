@@ -190,12 +190,12 @@ public struct GravityEditMenuCommands: Commands {
             Menu("Prefix & Suffix Lines") {
                 Button("Quote Lines with Single Quotes ('…')") {
                     vm.applyQuickStepToSelectionOrDocument(
-                        TextFactoryStep(operationType: .prefixSuffixLines, prefixSuffixAction: .addPrefixSuffix, linePrefix: "'", lineSuffix: "',")
+                        TextFactoryStep(operationType: .prefixSuffixLines, prefixSuffixAction: .insert, linePrefix: "'", lineSuffix: "',")
                     )
                 }
                 Button("Bullet Lines (- …)") {
                     vm.applyQuickStepToSelectionOrDocument(
-                        TextFactoryStep(operationType: .prefixSuffixLines, prefixSuffixAction: .addPrefixSuffix, linePrefix: "- ", lineSuffix: "")
+                        TextFactoryStep(operationType: .prefixSuffixLines, prefixSuffixAction: .insert, linePrefix: "- ", lineSuffix: "")
                     )
                 }
                 Divider()
