@@ -92,7 +92,7 @@ public final class GravityCodeTextView: NSTextView {
         let ranges = selectedRanges.map(\.rangeValue)
         if ranges.count > 1, let str = (insertString as? String) ?? (insertString as? NSAttributedString)?.string {
             let sortedDescending = ranges.sorted { $0.location > $1.location }
-            if shouldChangeText(in: ranges as [NSValue], replacementStrings: Array(repeating: str, count: ranges.count)) {
+            if shouldChangeText(inRanges: ranges as [NSValue], replacementStrings: Array(repeating: str, count: ranges.count)) {
                 textStorage?.beginEditing()
                 for r in sortedDescending {
                     textStorage?.replaceCharacters(in: r, with: str)
@@ -127,7 +127,7 @@ public final class GravityCodeTextView: NSTextView {
                 return nil
             }
             if !deleteRanges.isEmpty,
-               shouldChangeText(in: deleteRanges as [NSValue], replacementStrings: Array(repeating: "", count: deleteRanges.count)) {
+               shouldChangeText(inRanges: deleteRanges as [NSValue], replacementStrings: Array(repeating: "", count: deleteRanges.count)) {
                 textStorage?.beginEditing()
                 for r in deleteRanges.sorted(by: { $0.location > $1.location }) {
                     textStorage?.replaceCharacters(in: r, with: "")

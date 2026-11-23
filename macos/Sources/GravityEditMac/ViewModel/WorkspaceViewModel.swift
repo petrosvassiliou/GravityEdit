@@ -1794,32 +1794,32 @@ public final class WorkspaceViewModel: ObservableObject {
         let token = ScriptRunCancellationToken()
         activeCancellationToken = token
 
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let res = PowerShellRunnerEngine.executeScript(
-                code: codeToEval,
-                language: lang,
-                workingDirectory: workDir,
-                lineNumberBaseOffset: lineOffset,
-                cancellationToken: token
-            )
-            await MainActor.run {
-                guard let self, let curIdx = self.documents.firstIndex(where: { $0.id == docId }) else { return }
-                self.isScriptRunning = false
-                self.activeCancellationToken = nil
-                self.lastExecutionResult = res
-                let formatted = PowerShellRunnerEngine.formatWorksheetInsertion(
-                    in: self.documents[curIdx].content,
-                    selectionRange: selRange,
-                    result: res
+        Task { [weak self] in
+            let res = await Task.detached(priority: .userInitiated) {
+                PowerShellRunnerEngine.executeScript(
+                    code: codeToEval,
+                    language: lang,
+                    workingDirectory: workDir,
+                    lineNumberBaseOffset: lineOffset,
+                    cancellationToken: token
                 )
-                self.documents[curIdx].content = formatted.updatedText
-                self.documents[curIdx].selectionStart = formatted.updatedSelection.location
-                self.documents[curIdx].selectionEnd = NSMaxRange(formatted.updatedSelection)
-                self.persistScratchpadIfNeeded(at: curIdx)
-                self.refreshActiveAnalysis()
-                self.scheduleSessionSave()
-                self.postToast("Worksheet evaluated (\(res.durationMs) ms)")
-            }
+            }.value
+            guard let self, let curIdx = self.documents.firstIndex(where: { $0.id == docId }) else { return }
+            self.isScriptRunning = false
+            self.activeCancellationToken = nil
+            self.lastExecutionResult = res
+            let formatted = PowerShellRunnerEngine.formatWorksheetInsertion(
+                in: self.documents[curIdx].content,
+                selectionRange: selRange,
+                result: res
+            )
+            self.documents[curIdx].content = formatted.updatedText
+            self.documents[curIdx].selectionStart = formatted.updatedSelection.location
+            self.documents[curIdx].selectionEnd = NSMaxRange(formatted.updatedSelection)
+            self.persistScratchpadIfNeeded(at: curIdx)
+            self.refreshActiveAnalysis()
+            self.scheduleSessionSave()
+            self.postToast("Worksheet evaluated (\(res.durationMs) ms)")
         }
     }
 
@@ -1835,20 +1835,20 @@ public final class WorkspaceViewModel: ObservableObject {
         isScriptRunning = true
         showRunnerDrawer = true
 
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let res = PowerShellRunnerEngine.executeScript(
-                code: code,
-                language: language,
-                workingDirectory: workingDirectory,
-                lineNumberBaseOffset: lineNumberBaseOffset,
-                cancellationToken: token
-            )
-            await MainActor.run {
-                guard let self else { return }
-                self.isScriptRunning = false
-                self.activeCancellationToken = nil
-                self.lastExecutionResult = res
-            }
+        Task { [weak self] in
+            let res = await Task.detached(priority: .userInitiated) {
+                PowerShellRunnerEngine.executeScript(
+                    code: code,
+                    language: language,
+                    workingDirectory: workingDirectory,
+                    lineNumberBaseOffset: lineNumberBaseOffset,
+                    cancellationToken: token
+                )
+            }.value
+            guard let self else { return }
+            self.isScriptRunning = false
+            self.activeCancellationToken = nil
+            self.lastExecutionResult = res
         }
     }
 
