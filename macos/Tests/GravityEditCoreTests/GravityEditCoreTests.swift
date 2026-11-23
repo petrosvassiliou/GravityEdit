@@ -382,5 +382,197 @@ final class GravityEditCoreTests: XCTestCase {
         XCTAssertEqual(csvDoc.lineCount, 2)
         XCTAssertEqual(csvDoc.wordCount, 3)
     }
+
+    // MARK: - v1.4.0 Tests (#1 Runner/Worksheet, #2 Dry-Run/Presets/Column/Bookmarks, #3 Huge-File/Watcher, #4 Session/CLI)
+
+    func testPowerShellRunnerWorksheetAndStackTraceLocationParsing() {
+        let script = """
+        $svc = [ordered]@{
+            Name = 'GravityGateway'
+            Port = 8443
+        }
+        $svc | ConvertTo-Json
+        Write-Warning 'Certificate expires soon'
+        Write-Error 'Connection refused'
+        """
+        let res = PowerShellRunnerEngine.executeScript(
+            code: script,
+            language: .powershell,
+            forceEmbeddedPowerShell: true
+        )
+        XCTAssertEqual(res.exitCode, 1)
+        XCTAssertTrue(res.rawCombinedOutput.contains("GravityGateway"))
+        XCTAssertTrue(res.lines.contains(where: { $0.stream == .warning && $0.text.contains("Certificate expires soon") }))
+        let errLine = res.lines.first(where: { $0.stream == .stderr })
+        XCTAssertNotNil(errLine?.location)
+        XCTAssertEqual(errLine?.location?.lineNumber, 7)
+
+        let parsedLoc = PowerShellRunnerEngine.parseExecutionLocation(
+            from: "At /tmp/deploy.ps1:42 char:15",
+            userLineAdjustment: 0
+        )
+        XCTAssertEqual(parsedLoc?.lineNumber, 42)
+        XCTAssertEqual(parsedLoc?.columnNumber, 15)
+
+        let docText = "$x = 20 + 22\n$x"
+        let evalRes = PowerShellRunnerEngine.executeScript(code: docText, language: .powershell, forceEmbeddedPowerShell: true)
+        let worksheet = PowerShellRunnerEngine.formatWorksheetInsertion(
+            in: docText,
+            selectionRange: NSRange(location: 0, length: (docText as NSString).length),
+            result: evalRes
+        )
+        XCTAssertTrue(worksheet.updatedText.contains("Worksheet Output"))
+        XCTAssertTrue(worksheet.updatedText.contains("42"))
+    }
+
+    func testMultiFileDryRunPreviewSelectiveReplaceAndBatchTextFactory() throws {
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent("gravity_v140_\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let fileA = tempDir.appendingPathComponent("Alpha.ps1")
+        let fileB = tempDir.appendingPathComponent("Beta.ps1")
+        try Data("gci -Path /etc   \nWrite-Host 'Alpha'  ".utf8).write(to: fileA)
+        try Data("gci -Path /var   \nWrite-Host 'Beta'".utf8).write(to: fileB)
+
+        let opts = SearchOptions(query: #"\bgci\b"#, replacement: "Get-ChildItem", grepRegex: true, fileFilter: "*.ps1")
+        let previewRes = FindReplaceEngine.previewReplaceInDirectory(rootURL: tempDir, options: opts)
+        guard case .success(let previews) = previewRes else {
+            XCTFail("Expected dry-run preview success")
+            return
+        }
+        XCTAssertEqual(previews.count, 2)
+        XCTAssertEqual(previews[0].lineChanges.first?.afterLine.contains("Get-ChildItem"), true)
+
+        // Apply selectively ONLY to Alpha.ps1
+        let selectiveRes = FindReplaceEngine.replaceInDirectory(
+            rootURL: tempDir,
+            options: opts,
+            selectedFilePaths: [fileA.path]
+        )
+        if case .success(let stats) = selectiveRes {
+            XCTAssertEqual(stats.filesModified, 1)
+            XCTAssertEqual(stats.totalReplacements, 1)
+        } else {
+            XCTFail("Expected selective replace success")
+        }
+        XCTAssertTrue(try String(contentsOf: fileA, encoding: .utf8).contains("Get-ChildItem"))
+        XCTAssertTrue(try String(contentsOf: fileB, encoding: .utf8).contains("gci -Path /var"))
+
+        // Batch Text Factory across folder using built-in preset
+        let preset = SavedTextFactoryPreset.builtInPresets.first!
+        let batchRes = TextTransformEngine.executePipelineInDirectory(
+            rootURL: tempDir,
+            steps: preset.steps,
+            fileFilter: "*.ps1"
+        )
+        if case .success(let batchStats) = batchRes {
+            XCTAssertEqual(batchStats.filesScanned, 2)
+            XCTAssertGreaterThanOrEqual(batchStats.filesModified, 1)
+        } else {
+            XCTFail("Expected batch folder Text Factory success")
+        }
+        // Beta.ps1 should now have trailing whitespace stripped & `gci` canonized!
+        let updatedBeta = try String(contentsOf: fileB, encoding: .utf8)
+        XCTAssertTrue(updatedBeta.contains("Get-ChildItem"))
+    }
+
+    func testColumnRectangularBlockEditingAndLineBookmarks() {
+        let source = "SRV01  Online\nSRV02  Offline\nSRV03  Online"
+        let spec = ColumnBlockSpec(startLine: 1, endLine: 3, startColumn: 1, endColumn: 5)
+        XCTAssertEqual(TextTransformEngine.extractColumnBlock(source, spec: spec), "SRV01\nSRV02\nSRV03")
+
+        let prefixed = TextTransformEngine.applyColumnEdit(
+            source,
+            spec: ColumnBlockSpec(startLine: 1, endLine: 3, startColumn: 1, endColumn: 1),
+            action: .insertAtColumn,
+            insertText: "[PROD] "
+        )
+        XCTAssertTrue(prefixed.hasPrefix("[PROD] SRV01"))
+        XCTAssertTrue(prefixed.contains("\n[PROD] SRV03"))
+
+        let numbered = TextTransformEngine.applyColumnEdit(
+            source,
+            spec: ColumnBlockSpec(startLine: 1, endLine: 3, startColumn: 1, endColumn: 1),
+            action: .numberColumn,
+            insertText: ": ",
+            startNumber: 10,
+            stepNumber: 10,
+            zeroPadWidth: 3
+        )
+        XCTAssertTrue(numbered.contains("010: SRV01"))
+        XCTAssertTrue(numbered.contains("030: SRV03"))
+
+        var doc = EditorDocument(title: "Bookmarks.ps1", content: "L1\nL2\nL3\nL4\nL5", savedContent: "L1\nL2\nL3\nL4\nL5")
+        XCTAssertTrue(doc.toggleBookmark(oneBasedLine: 2))
+        XCTAssertTrue(doc.toggleBookmark(oneBasedLine: 4))
+        XCTAssertEqual(doc.nextBookmarkedLine(after: 1), 2)
+        XCTAssertEqual(doc.nextBookmarkedLine(after: 2), 4)
+        XCTAssertEqual(doc.nextBookmarkedLine(after: 4), 2) // wrap-around
+        XCTAssertEqual(doc.previousBookmarkedLine(before: 4), 2)
+        XCTAssertFalse(doc.toggleBookmark(oneBasedLine: 2))
+        XCTAssertEqual(doc.bookmarkedLines, [4])
+    }
+
+    func testHugeFileThresholdExternalWatcherSessionAndGravityCLIParser() throws {
+        let hugeBody = String(repeating: "2026-11-23 INFO Telemetry OK\n", count: 10_000)
+        let hugeDoc = EditorDocument(title: "Massive.log", content: hugeBody, savedContent: hugeBody, language: .plainText)
+        XCTAssertTrue(hugeDoc.isLargeFileMode)
+
+        let fm = FileManager.default
+        let logURL = fm.temporaryDirectory.appendingPathComponent("live_tail_\(UUID().uuidString).log")
+        defer { try? fm.removeItem(at: logURL) }
+        try Data("Line 1\n".utf8).write(to: logURL)
+        let meta1 = ExternalFileWatcher.inspectDiskMetadata(at: logURL)
+        XCTAssertNotNil(meta1)
+        XCTAssertEqual(ExternalFileWatcher.checkExternalChange(at: logURL, lastKnownModDate: meta1?.modificationTime), .unchanged)
+
+        // Advance mtime & append new line
+        try Data("Line 1\nLine 2\nLine 3\n".utf8).write(to: logURL)
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: logURL.path)
+        if case .modifiedExternally = ExternalFileWatcher.checkExternalChange(at: logURL, lastKnownModDate: meta1?.modificationTime) {
+            let tail = ExternalFileWatcher.readLatestDiskText(at: logURL, maxTailBytes: 14)
+            XCTAssertNotNil(tail)
+            XCTAssertTrue(tail?.text.contains("Line 3") == true)
+        } else {
+            XCTFail("Expected external modification detection")
+        }
+
+        // Session JSON persistence round-trip
+        var savedDoc = EditorDocument(title: "Unsaved.ps1", content: "$a = 1", savedContent: "", bookmarkedLines: [1])
+        savedDoc.selectionStart = 3
+        savedDoc.selectionEnd = 3
+        let session = PersistedWorkspaceSession(
+            openDocuments: [savedDoc],
+            activeDocumentId: savedDoc.id,
+            secondaryDocumentId: savedDoc.id,
+            splitMode: .vertical,
+            mountedFolderPath: "/tmp",
+            recentFilePaths: [logURL.path]
+        )
+        let sessionData = try JSONEncoder().encode(session)
+        let decodedSession = try JSONDecoder().decode(PersistedWorkspaceSession.self, from: sessionData)
+        XCTAssertEqual(decodedSession.splitMode, .vertical)
+        XCTAssertEqual(decodedSession.openDocuments.first?.bookmarkedLines, [1])
+        XCTAssertEqual(decodedSession.recentFilePaths, [logURL.path])
+
+        // `gravity` CLI argument parser
+        let cliJump = GravityCLIParser.parse(arguments: ["scripts/Deploy.ps1:42"], currentDirectoryPath: "/work")
+        if case .openHandoff(let payload) = cliJump {
+            XCTAssertEqual(payload.filesToOpen, ["/work/scripts/Deploy.ps1"])
+            XCTAssertEqual(payload.jumpToLine, 42)
+        } else {
+            XCTFail("Expected openHandoff")
+        }
+
+        let cliDiff = GravityCLIParser.parse(arguments: ["--diff", "a.ps1", "b.ps1"], currentDirectoryPath: "/work")
+        if case .openHandoff(let diffPayload) = cliDiff {
+            XCTAssertEqual(diffPayload.diffLeftPath, "/work/a.ps1")
+            XCTAssertEqual(diffPayload.diffRightPath, "/work/b.ps1")
+        } else {
+            XCTFail("Expected diff openHandoff")
+        }
+    }
 }
 

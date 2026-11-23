@@ -49,6 +49,7 @@ import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
@@ -63,6 +64,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SaveAs
@@ -138,6 +140,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gravityedit.app.R
 import com.gravityedit.app.domain.engine.AppUpdateCheckStatus
 import com.gravityedit.app.domain.engine.PowerShellEngine
+import com.gravityedit.app.domain.engine.ScriptOutputStreamKind
 import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.DiskBrowserNode
 import com.gravityedit.app.domain.model.DocumentEncoding
@@ -149,6 +152,7 @@ import com.gravityedit.app.domain.model.WorkspaceToolPanel
 import com.gravityedit.app.ui.components.AppUpdateModal
 import com.gravityedit.app.ui.components.AssistChip
 import com.gravityedit.app.ui.components.ClippingsModal
+import com.gravityedit.app.ui.components.ColumnBlockEditModal
 import com.gravityedit.app.ui.components.CommandPaletteModal
 import com.gravityedit.app.ui.components.EditorCanvas
 import com.gravityedit.app.ui.components.FindReplaceModal
@@ -265,7 +269,7 @@ fun GravityEditScaffold(
                 onReplaceAll = viewModel::replaceAllInActiveDocument,
                 onExtractToNewFile = viewModel::extractMatchesToNewDocument,
                 onRunMultiFileSearch = viewModel::runMultiFileSearch,
-                onRunMultiFileReplace = viewModel::runMultiFileReplace,
+                onRunMultiFileReplace = { viewModel.runMultiFileReplace() },
                 onOpenMultiFileMatch = { uriStr, lineNum ->
                     viewModel.openFileFromUri(android.net.Uri.parse(uriStr), jumpToLineNumber = lineNum)
                     viewModel.setFindReplaceModalVisible(false)
@@ -274,7 +278,12 @@ fun GravityEditScaffold(
                     viewModel.jumpToLine(match.lineNumber)
                 },
                 onUpdatePlaygroundSample = viewModel::updatePlaygroundSampleText,
-                onDismiss = { viewModel.setFindReplaceModalVisible(false) }
+                onDismiss = { viewModel.setFindReplaceModalVisible(false) },
+                multiFileReplacePreviews = uiState.multiFileReplacePreviews,
+                showMultiFileReplacePreview = uiState.showMultiFileReplacePreview,
+                onPreviewMultiFileReplace = viewModel::previewMultiFileReplace,
+                onToggleMultiFilePreviewSelection = viewModel::toggleMultiFilePreviewSelection,
+                onCommitPreviewedMultiFileReplace = viewModel::commitPreviewedMultiFileReplace
             )
         }
 
@@ -288,8 +297,30 @@ fun GravityEditScaffold(
                 onMoveStepUp = viewModel::moveTextFactoryStepUp,
                 onMoveStepDown = viewModel::moveTextFactoryStepDown,
                 onRunPipeline = viewModel::runTextFactoryPipelineOnActiveDocument,
-                onDismiss = { viewModel.setTextFactoryModalVisible(false) }
+                onDismiss = { viewModel.setTextFactoryModalVisible(false) },
+                scope = uiState.textFactoryScope,
+                presets = uiState.savedTextFactoryPresets,
+                onSelectScope = viewModel::setTextFactoryScope,
+                onLoadPreset = viewModel::loadTextFactoryPreset,
+                onSavePreset = viewModel::saveCurrentPipelineAsPreset
             )
+        }
+
+        if (uiState.showColumnEditModal) {
+            val focusedDoc = uiState.focusedDocument
+            if (focusedDoc != null) {
+                ColumnBlockEditModal(
+                    isCompactMobile = !isDesktopExpanded,
+                    documentContent = focusedDoc.content,
+                    maxLineCount = focusedDoc.lineCount,
+                    spec = uiState.columnBlockSpec,
+                    onUpdateSpec = viewModel::updateColumnBlockSpec,
+                    onApply = { action, insertText, startNum, stepNum, padWidth ->
+                        viewModel.applyColumnBlockOperation(action, insertText, startNum, stepNum, padWidth)
+                    },
+                    onDismiss = { viewModel.setColumnEditModalVisible(false) }
+                )
+            }
         }
 
         if (uiState.showDiffModal) {
@@ -453,10 +484,37 @@ private fun handleGlobalHardwareShortcuts(
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
     val ctrl = event.isCtrlPressed || event.isMetaPressed
-    if (!ctrl) return false
     val shift = event.isShiftPressed
 
+    if (!ctrl && event.key == Key.F8) {
+        viewModel.runSelectionOrCurrentLine()
+        return true
+    }
+    if (!ctrl && event.key == Key.F2) {
+        viewModel.jumpToNextBookmark(forward = !shift)
+        return true
+    }
+    if (!ctrl) return false
+
     return when (event.key) {
+        Key.R -> {
+            viewModel.runActiveScript()
+            true
+        }
+        Key.Enter, Key.NumPadEnter -> {
+            viewModel.evaluateWorksheetInline()
+            true
+        }
+        Key.F2 -> {
+            viewModel.toggleBookmarkOnCurrentLine()
+            true
+        }
+        Key.B -> {
+            if (shift) {
+                viewModel.openColumnEditModal()
+                true
+            } else false
+        }
         Key.P -> {
             viewModel.setCommandPaletteModalVisible(true)
             true
@@ -712,6 +770,16 @@ private fun GooglebookDesktopLayout(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
+                val focusedDesktopDoc = uiState.focusedDocument
+                if (focusedDesktopDoc != null && focusedDesktopDoc.id in uiState.externallyModifiedDocIds) {
+                    ExternalModificationBanner(
+                        fileName = focusedDesktopDoc.title,
+                        onReload = { viewModel.reloadActiveDocumentFromDisk(scrollToBottom = false) },
+                        onKeepEdits = { viewModel.dismissExternalModificationWarning(focusedDesktopDoc.id) }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+
                 // Center Single or Split-View Editor Workspace
                 Box(
                     modifier = Modifier
@@ -725,7 +793,16 @@ private fun GooglebookDesktopLayout(
                         onContentChange = viewModel::updateDocumentContent,
                         onSelectionChange = viewModel::updateDocumentSelection,
                         onToggleFold = viewModel::toggleFoldAtLine,
+                        onToggleBookmark = viewModel::toggleBookmarkAtLine,
                         onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) }
+                    )
+                }
+
+                if (uiState.showRunnerDrawer) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    AndroidScriptRunnerDrawer(
+                        uiState = uiState,
+                        viewModel = viewModel
                     )
                 }
             }
@@ -856,6 +933,14 @@ private fun AndroidMobileCompactLayout(
 
             // Center Virtualized Editor Canvas
             val activeDoc = uiState.focusedDocument
+            if (activeDoc != null && activeDoc.id in uiState.externallyModifiedDocIds) {
+                ExternalModificationBanner(
+                    fileName = activeDoc.title,
+                    onReload = { viewModel.reloadActiveDocumentFromDisk(scrollToBottom = false) },
+                    onKeepEdits = { viewModel.dismissExternalModificationWarning(activeDoc.id) }
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
             if (activeDoc != null) {
                 val mobileScroll = scrollEventTarget?.takeIf { it.documentId == activeDoc.id }
                 EditorCanvas(
@@ -864,6 +949,7 @@ private fun AndroidMobileCompactLayout(
                     astSymbols = uiState.astSymbols,
                     diagnostics = uiState.diagnostics,
                     onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
+                    onToggleBookmark = { ln -> viewModel.toggleBookmarkAtLine(activeDoc.id, ln) },
                     searchMatches = uiState.activeDocSearchMatches,
                     activeSearchMatchIndex = uiState.currentMatchIndex,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -887,6 +973,14 @@ private fun AndroidMobileCompactLayout(
                         viewModel.toggleFoldAtLine(activeDoc.id, line)
                     },
                     modifier = Modifier.weight(1f)
+                )
+            }
+
+            if (uiState.showRunnerDrawer) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                AndroidScriptRunnerDrawer(
+                    uiState = uiState,
+                    viewModel = viewModel
                 )
             }
 
@@ -1449,6 +1543,17 @@ private fun MobileTopActionBar(
                         )
                     }
                     IconButton(
+                        onClick = viewModel::runActiveScript,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Run Script",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                    IconButton(
                         onClick = { viewModel.setFindReplaceModalVisible(true, 0) },
                         modifier = Modifier.size(34.dp)
                     ) {
@@ -1614,6 +1719,12 @@ private fun DesktopTopActionBar(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                ExpressiveToolbarPillButton(
+                    icon = Icons.Default.PlayArrow,
+                    label = "Run",
+                    active = uiState.showRunnerDrawer,
+                    onClick = viewModel::runActiveScript
+                )
                 ExpressiveToolbarPillButton(
                     icon = Icons.Default.Search,
                     label = stringResource(R.string.nav_find_replace),
@@ -1844,6 +1955,28 @@ private fun WorkspaceOverflowDropdownMenu(
                 viewModel.requestMountProjectFolder()
             }
         )
+        val recents = viewModel.uiState.value.recentFileUris
+        if (recents.isNotEmpty()) {
+            HorizontalDivider()
+            recents.take(4).forEach { (name, uriStr) ->
+                DropdownMenuItem(
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.InsertDriveFile, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                    text = { Text("Recent: $name", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    onClick = {
+                        onDismiss()
+                        viewModel.openRecentFile(uriStr)
+                    }
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Clear Recent Files") },
+                onClick = {
+                    onDismiss()
+                    viewModel.clearRecentFiles()
+                }
+            )
+            HorizontalDivider()
+        }
         DropdownMenuItem(
             leadingIcon = { Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp)) },
             text = { Text(stringResource(R.string.action_save)) },
@@ -1915,6 +2048,59 @@ private fun WorkspaceOverflowDropdownMenu(
         HorizontalDivider()
 
         // Navigation & Developer Tools
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("Run PowerShell Script") },
+            trailingIcon = { ShortcutBadge("Ctrl+R") },
+            onClick = {
+                onDismiss()
+                viewModel.runActiveScript()
+            }
+        )
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("Evaluate Inline (BBEdit Worksheet)") },
+            trailingIcon = { ShortcutBadge("Ctrl+↵") },
+            onClick = {
+                onDismiss()
+                viewModel.evaluateWorksheetInline()
+            }
+        )
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.ViewColumn, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("Column / Rectangular Block Edit…") },
+            trailingIcon = { ShortcutBadge("Ctrl+⇧+B") },
+            onClick = {
+                onDismiss()
+                viewModel.openColumnEditModal()
+            }
+        )
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.Bookmark, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("Toggle Line Bookmark") },
+            trailingIcon = { ShortcutBadge("Ctrl+F2") },
+            onClick = {
+                onDismiss()
+                viewModel.toggleBookmarkOnCurrentLine()
+            }
+        )
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.Bookmark, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("Next Bookmark") },
+            trailingIcon = { ShortcutBadge("F2") },
+            onClick = {
+                onDismiss()
+                viewModel.jumpToNextBookmark(forward = true)
+            }
+        )
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("Toggle Live Log Tail") },
+            onClick = {
+                onDismiss()
+                viewModel.toggleLiveTailOnActiveDocument()
+            }
+        )
         DropdownMenuItem(
             leadingIcon = { Icon(Icons.Default.Functions, contentDescription = null, modifier = Modifier.size(18.dp)) },
             text = { Text(stringResource(R.string.go_to_line_title)) },
@@ -2389,6 +2575,7 @@ private fun AdaptiveEditorSplitWorkspace(
     onContentChange: (docId: String, newContent: String, selStart: Int, selEnd: Int) -> Unit,
     onSelectionChange: (docId: String, selStart: Int, selEnd: Int) -> Unit,
     onToggleFold: (docId: String, startLine: Int) -> Unit,
+    onToggleBookmark: (docId: String, oneBasedLine: Int) -> Unit,
     onOpenDiagnostics: () -> Unit
 ) {
     val primaryDoc = uiState.activeDocument ?: return
@@ -2480,6 +2667,7 @@ private fun AdaptiveEditorSplitWorkspace(
                     onSelectionChange(primaryDoc.id, sStart, sEnd)
                 },
                 onToggleFold = { line -> onToggleFold(primaryDoc.id, line) },
+                onToggleBookmark = { ln -> onToggleBookmark(primaryDoc.id, ln) },
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -2492,6 +2680,7 @@ private fun AdaptiveEditorSplitWorkspace(
                     astSymbols = primarySymbols,
                     diagnostics = primaryDiags,
                     onOpenDiagnostics = onOpenDiagnostics,
+                    onToggleBookmark = { ln -> onToggleBookmark(primaryDoc.id, ln) },
                     searchMatches = if (primaryIsFocusedDoc) uiState.activeDocSearchMatches else emptyList(),
                     activeSearchMatchIndex = if (primaryIsFocusedDoc) uiState.currentMatchIndex else -1,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -2523,6 +2712,7 @@ private fun AdaptiveEditorSplitWorkspace(
                     astSymbols = secondarySymbols,
                     diagnostics = secondaryDiags,
                     onOpenDiagnostics = onOpenDiagnostics,
+                    onToggleBookmark = { ln -> onToggleBookmark(secondaryDoc.id, ln) },
                     searchMatches = if (secondaryIsFocusedDoc) uiState.activeDocSearchMatches else emptyList(),
                     activeSearchMatchIndex = if (secondaryIsFocusedDoc) uiState.currentMatchIndex else -1,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -2558,6 +2748,7 @@ private fun AdaptiveEditorSplitWorkspace(
                     astSymbols = primarySymbols,
                     diagnostics = primaryDiags,
                     onOpenDiagnostics = onOpenDiagnostics,
+                    onToggleBookmark = { ln -> onToggleBookmark(primaryDoc.id, ln) },
                     searchMatches = if (primaryIsFocusedDoc) uiState.activeDocSearchMatches else emptyList(),
                     activeSearchMatchIndex = if (primaryIsFocusedDoc) uiState.currentMatchIndex else -1,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -2589,6 +2780,7 @@ private fun AdaptiveEditorSplitWorkspace(
                     astSymbols = secondarySymbols,
                     diagnostics = secondaryDiags,
                     onOpenDiagnostics = onOpenDiagnostics,
+                    onToggleBookmark = { ln -> onToggleBookmark(secondaryDoc.id, ln) },
                     searchMatches = if (secondaryIsFocusedDoc) uiState.activeDocSearchMatches else emptyList(),
                     activeSearchMatchIndex = if (secondaryIsFocusedDoc) uiState.currentMatchIndex else -1,
                     fontSizeSp = uiState.effectiveFontSizeSp,
@@ -2780,6 +2972,33 @@ private fun ExpressiveBottomStatusBar(
                         onClick = onOpenCommandPalette
                     )
 
+                    if (doc.bookmarkedLines.isNotEmpty()) {
+                        Text(
+                            text = "🔖 ${doc.bookmarkedLines.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    if (doc.isLargeFileMode) {
+                        Text(
+                            text = "⚡ Fast Viewport",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+
+                    if (doc.isLiveTailing) {
+                        Text(
+                            text = "📡 Live Tail",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
                     // Selection or Document Stats
                     Text(
                         text = if (selStats.hasSelection) {
@@ -2965,6 +3184,184 @@ private fun StatusInteractivePill(
                 },
                 maxLines = 1
             )
+        }
+    }
+}
+
+@Composable
+private fun ExternalModificationBanner(
+    fileName: String,
+    onReload: () -> Unit,
+    onKeepEdits: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "\"$fileName\" changed externally while you have unsaved edits.",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedButton(onClick = onReload, shape = CircleShape) {
+                Text("Reload", fontSize = 11.5.sp)
+            }
+            OutlinedButton(onClick = onKeepEdits, shape = CircleShape) {
+                Text("Keep Mine", fontSize = 11.5.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AndroidScriptRunnerDrawer(
+    uiState: GravityEditUiState,
+    viewModel: GravityEditViewModel
+) {
+    val result = uiState.lastExecutionResult
+    val allLines = result?.lines.orEmpty()
+    val filtered = if (uiState.runnerStreamFilter == null) {
+        allLines
+    } else {
+        allLines.filter { it.stream == uiState.runnerStreamFilter }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 4.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(176.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Terminal,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = if (result != null) {
+                        "Worksheet Output • ${result.durationMs} ms • exit ${result.exitCode}"
+                    } else {
+                        "PowerShell & Worksheet Output"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
+                AssistChip(
+                    onClick = viewModel::runSelectionOrCurrentLine,
+                    leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                    label = { Text("Run Line", fontSize = 11.sp) },
+                    shape = CircleShape
+                )
+                AssistChip(
+                    onClick = viewModel::evaluateWorksheetInline,
+                    leadingIcon = { Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                    label = { Text("Worksheet", fontSize = 11.sp) },
+                    shape = CircleShape
+                )
+                AssistChip(
+                    onClick = viewModel::shareActiveScriptToExternalTerminal,
+                    leadingIcon = { Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                    label = { Text("Share", fontSize = 11.sp) },
+                    shape = CircleShape
+                )
+                IconButton(
+                    onClick = { viewModel.setRunnerDrawerVisible(false) },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close Output", modifier = Modifier.size(16.dp))
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                if (filtered.isEmpty()) {
+                    item {
+                        Text(
+                            text = "Tap ▶ Run (Ctrl+R), Run Line (F8), or Worksheet (Ctrl+Enter) to evaluate PowerShell pipelines.",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    items(filtered, key = { it.id }) { line ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (line.location != null) {
+                                        Modifier.clickable { viewModel.jumpToExecutionOutputLine(line) }
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = line.stream.badge,
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when (line.stream) {
+                                    ScriptOutputStreamKind.STDERR -> MaterialTheme.colorScheme.error
+                                    ScriptOutputStreamKind.WARNING -> MaterialTheme.colorScheme.tertiary
+                                    else -> MaterialTheme.colorScheme.primary
+                                }
+                            )
+                            Text(
+                                text = line.text,
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 11.5.sp,
+                                color = if (line.stream == ScriptOutputStreamKind.STDERR) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (line.location != null) {
+                                Text(
+                                    text = "Ln ${line.location.lineNumber}:${line.location.columnNumber} ↗",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

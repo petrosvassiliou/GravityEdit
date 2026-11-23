@@ -5,10 +5,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MACOS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-VERSION="${1:-1.3.4}"
+VERSION="${1:-1.4.0}"
 VERSION_CLEAN="${VERSION#v}"
 TAG_NAME="v${VERSION_CLEAN}"
-BUILD_NUMBER="${BUILD_NUMBER:-13}"
+BUILD_NUMBER="${BUILD_NUMBER:-14}"
 APP_NAME="GravityEdit"
 BUNDLE_ID="com.gravityedit.mac"
 
@@ -24,16 +24,22 @@ mkdir -p "${MACOS_BIN_DIR}" "${RESOURCES_DIR}" "${FRAMEWORKS_DIR}"
 
 echo "==> [1/6] Building Universal Release binary (arm64 + x86_64) via SwiftPM..."
 cd "${MACOS_DIR}"
-if swift build -c release --arch arm64 --arch x86_64 --product GravityEdit; then
+if swift build -c release --arch arm64 --arch x86_64 --product GravityEdit && \
+   swift build -c release --arch arm64 --arch x86_64 --product gravity; then
     BIN_PATH="${MACOS_DIR}/.build/apple/Products/Release/GravityEdit"
+    CLI_BIN_PATH="${MACOS_DIR}/.build/apple/Products/Release/gravity"
 else
     echo "Universal cross-arch build unavailable; building native arm64 Release..."
     swift build -c release --product GravityEdit
-    BIN_PATH="$(swift build -c release --show-bin-path)/GravityEdit"
+    swift build -c release --product gravity
+    SHOW_BIN="$(swift build -c release --show-bin-path)"
+    BIN_PATH="${SHOW_BIN}/GravityEdit"
+    CLI_BIN_PATH="${SHOW_BIN}/gravity"
 fi
 
 cp "${BIN_PATH}" "${MACOS_BIN_DIR}/${APP_NAME}"
-chmod +x "${MACOS_BIN_DIR}/${APP_NAME}"
+cp "${CLI_BIN_PATH}" "${MACOS_BIN_DIR}/gravity"
+chmod +x "${MACOS_BIN_DIR}/${APP_NAME}" "${MACOS_BIN_DIR}/gravity"
 
 # Ensure @executable_path/../Frameworks is present in RPATH for Sparkle.framework
 if ! otool -l "${MACOS_BIN_DIR}/${APP_NAME}" | grep -q "@executable_path/../Frameworks"; then
@@ -187,6 +193,7 @@ if [ -f "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Sparkle" ]; then
     codesign "${CODESIGN_ARGS[@]}" "${FRAMEWORKS_DIR}/Sparkle.framework/Versions/B/Sparkle"
 fi
 codesign "${CODESIGN_ARGS[@]}" "${FRAMEWORKS_DIR}/Sparkle.framework"
+codesign "${CODESIGN_ARGS[@]}" "${MACOS_BIN_DIR}/gravity"
 codesign "${CODESIGN_ARGS[@]}" "${MACOS_BIN_DIR}/${APP_NAME}"
 codesign "${CODESIGN_ARGS[@]}" "${APP_BUNDLE}"
 

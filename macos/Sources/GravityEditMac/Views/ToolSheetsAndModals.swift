@@ -277,37 +277,90 @@ public struct FindReplaceSheetView: View {
                     .liquidGlassButton()
                 TextField("Filter (*.ps1;*.swift)", text: $vm.searchOptions.fileFilter)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 170)
-                Button("Search Files") { vm.runMultiFileSearch() }
-                    .liquidGlassButton(prominent: true)
-                Button("Replace in Files") { vm.runMultiFileReplaceAll() }
-                    .liquidGlassButton()
-                    .disabled(vm.multiFileMatches.isEmpty)
-            }
+                    .frame(width: 155)
+                Button("Search Files") {
+                    vm.showMultiFileReplacePreview = false
+                    vm.runMultiFileSearch()
+                }
+                .liquidGlassButton(prominent: true)
 
-            List(vm.multiFileMatches) { fileResult in
-                Section("\(fileResult.relativePath) (\(fileResult.totalMatches))") {
-                    ForEach(fileResult.matches) { m in
-                        Button {
-                            vm.openFile(at: fileResult.fileURL)
-                            vm.jumpToLine(m.lineNumber)
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text("Ln \(m.lineNumber)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(Color.accentColor)
-                                    .frame(width: 56, alignment: .leading)
-                                Text(m.linePreview)
-                                    .font(.system(size: 11.5, design: .monospaced))
-                                    .lineLimit(1)
-                            }
-                        }
-                        .buttonStyle(.plain)
+                Button("Preview Replace…") {
+                    vm.previewMultiFileReplace()
+                }
+                .liquidGlassButton()
+                .disabled(vm.searchOptions.query.isEmpty || vm.mountedFolderURL == nil)
+
+                if vm.showMultiFileReplacePreview {
+                    Button("Apply Selected (\(vm.multiFileReplacePreviews.filter(\.isSelected).count))") {
+                        vm.commitPreviewedMultiFileReplace()
                     }
+                    .liquidGlassButton(prominent: true)
+                    .disabled(!vm.multiFileReplacePreviews.contains(where: \.isSelected))
+                } else {
+                    Button("Replace All Now") { vm.runMultiFileReplaceAll() }
+                        .liquidGlassButton()
+                        .disabled(vm.multiFileMatches.isEmpty)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            if vm.showMultiFileReplacePreview {
+                List(vm.multiFileReplacePreviews) { preview in
+                    Section {
+                        ForEach(preview.lineChanges) { change in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Ln \(change.lineNumber)  −  \(change.beforeLine)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.red)
+                                    .lineLimit(1)
+                                Text("Ln \(change.lineNumber)  +  \(change.afterLine)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.green)
+                                    .lineLimit(1)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    } header: {
+                        HStack(spacing: 8) {
+                            Toggle(
+                                "",
+                                isOn: Binding(
+                                    get: { preview.isSelected },
+                                    set: { _ in vm.toggleMultiFilePreviewSelection(path: preview.fileURL.path) }
+                                )
+                            )
+                            .labelsHidden()
+                            Text("\(preview.relativePath) (\(preview.replacementCount) replacement\(preview.replacementCount == 1 ? "" : "s"))")
+                                .font(.caption.weight(.semibold))
+                            Spacer()
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            } else {
+                List(vm.multiFileMatches) { fileResult in
+                    Section("\(fileResult.relativePath) (\(fileResult.totalMatches))") {
+                        ForEach(fileResult.matches) { m in
+                            Button {
+                                vm.openFile(at: fileResult.fileURL)
+                                vm.jumpToLine(m.lineNumber)
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Text("Ln \(m.lineNumber)")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(Color.accentColor)
+                                        .frame(width: 56, alignment: .leading)
+                                    Text(m.linePreview)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                        .lineLimit(1)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
         }
     }
 
@@ -346,19 +399,51 @@ public struct TextFactorySheetView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedStepId: String? = nil
+    @State private var presetNameDraft: String = ""
+    @State private var showSavePresetBar: Bool = false
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Label("BBEdit Text Factory Pipeline (14 Operations)", systemImage: "wand.and.stars")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Label("BBEdit Text Factory Pipeline", systemImage: "wand.and.stars")
                     .font(.title3.weight(.semibold))
                 Spacer()
+
+                Menu {
+                    Section("Built-in & Saved Presets") {
+                        ForEach(vm.allTextFactoryPresets) { preset in
+                            Button {
+                                vm.loadTextFactoryPreset(preset)
+                                selectedStepId = vm.textFactorySteps.first?.id
+                            } label: {
+                                Text("\(preset.name) (\(preset.steps.count) steps)")
+                            }
+                        }
+                    }
+                    Divider()
+                    Button("Save Current Pipeline as Preset…") {
+                        showSavePresetBar = true
+                    }
+                    if !vm.customTextFactoryPresets.isEmpty {
+                        Menu("Delete Custom Preset") {
+                            ForEach(vm.customTextFactoryPresets) { p in
+                                Button(p.name, role: .destructive) {
+                                    vm.deleteTextFactoryPreset(id: p.id)
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Presets", systemImage: "tray.full")
+                }
+                .liquidGlassButton()
+
                 Picker("Scope:", selection: $vm.textFactoryScope) {
                     ForEach(TextFactoryScope.allCases) { scope in
                         Text(scope.rawValue).tag(scope)
                     }
                 }
-                .frame(width: 220)
+                .frame(width: 225)
 
                 Menu {
                     ForEach(TextOperationType.allCases) { op in
@@ -374,6 +459,31 @@ public struct TextFactorySheetView: View {
                     Label("Add Operation", systemImage: "plus")
                 }
                 .liquidGlassButton()
+            }
+
+            if showSavePresetBar {
+                HStack(spacing: 8) {
+                    Text("Preset Name:")
+                        .font(.caption.weight(.semibold))
+                    TextField("e.g. Clean Admin Logs", text: $presetNameDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 240)
+                    Button("Save Preset") {
+                        vm.saveCurrentPipelineAsPreset(name: presetNameDraft)
+                        presetNameDraft = ""
+                        showSavePresetBar = false
+                    }
+                    .disabled(presetNameDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .liquidGlassButton(prominent: true)
+                    .controlSize(.small)
+                    Button("Cancel") {
+                        showSavePresetBar = false
+                    }
+                    .controlSize(.small)
+                    Spacer()
+                }
+                .padding(8)
+                .liquidGlassCard(cornerRadius: 8)
             }
 
             HSplitView {
@@ -394,6 +504,24 @@ public struct TextFactorySheetView: View {
                                     .lineLimit(1)
                             }
                             Spacer()
+                            Button {
+                                vm.moveTextFactoryStep(id: step.id, delta: -1)
+                            } label: {
+                                Image(systemName: "chevron.up")
+                                    .font(.caption2)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Move Step Up")
+
+                            Button {
+                                vm.moveTextFactoryStep(id: step.id, delta: 1)
+                            } label: {
+                                Image(systemName: "chevron.down")
+                                    .font(.caption2)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Move Step Down")
+
                             Button {
                                 vm.textFactorySteps.removeAll { $0.id == step.id }
                             } label: {
@@ -1240,5 +1368,113 @@ public struct SoftwareUpdateSheetView: View {
         }
         .frame(maxHeight: 165)
         .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+// MARK: - 9. BBEdit Column / Rectangular Block Edit Sheet
+
+public struct ColumnBlockEditSheetView: View {
+    @ObservedObject var vm: WorkspaceViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var action: ColumnEditAction = .insertAtColumn
+    @State private var insertPayload: String = ""
+    @State private var startNumber: Int = 1
+    @State private var stepNumber: Int = 1
+    @State private var zeroPadWidth: Int = 0
+
+    private var maxDocLines: Int {
+        max(1, vm.focusedDocument?.lineCount ?? 1)
+    }
+
+    private var extractedPreview: String {
+        guard let doc = vm.focusedDocument else { return "" }
+        return TextTransformEngine.extractColumnBlock(doc.content, spec: vm.columnBlockSpec)
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("Column / Rectangular Block Edit", systemImage: "rectangle.split.3x3")
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                Text("Tip: Hold Option (⌥) + drag in the editor for live multi-line rectangular typing")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Form {
+                Section("Rectangular Coordinates (1-Based Inclusive)") {
+                    HStack(spacing: 16) {
+                        Stepper("Start Line: \(vm.columnBlockSpec.startLine)", value: $vm.columnBlockSpec.startLine, in: 1...maxDocLines)
+                        Stepper("End Line: \(vm.columnBlockSpec.endLine)", value: $vm.columnBlockSpec.endLine, in: vm.columnBlockSpec.startLine...maxDocLines)
+                    }
+                    HStack(spacing: 16) {
+                        Stepper("Start Column: \(vm.columnBlockSpec.startColumn)", value: $vm.columnBlockSpec.startColumn, in: 1...500)
+                        Stepper("End Column: \(vm.columnBlockSpec.endColumn)", value: $vm.columnBlockSpec.endColumn, in: vm.columnBlockSpec.startColumn...500)
+                    }
+                }
+
+                Section("Operation") {
+                    Picker("Action:", selection: $action) {
+                        ForEach(ColumnEditAction.allCases) { act in
+                            Text(act.rawValue).tag(act)
+                        }
+                    }
+
+                    if action == .insertAtColumn || action == .replaceBlock {
+                        TextField("Text to insert across lines:", text: $insertPayload)
+                            .font(.system(.body, design: .monospaced))
+                    } else if action == .numberColumn {
+                        HStack(spacing: 16) {
+                            Stepper("Start #: \(startNumber)", value: $startNumber, in: 0...100_000)
+                            Stepper("Step: \(stepNumber)", value: $stepNumber, in: 1...1_000)
+                            Stepper("Zero Pad: \(zeroPadWidth)", value: $zeroPadWidth, in: 0...8)
+                        }
+                        TextField("Trailing Separator (e.g. ': ' or '. '):", text: $insertPayload)
+                            .font(.system(.body, design: .monospaced))
+                    }
+                }
+
+                Section("Current Rectangular Slice Preview") {
+                    ScrollView {
+                        Text(extractedPreview.isEmpty ? "(Empty column span)" : extractedPreview)
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(6)
+                    }
+                    .frame(height: 84)
+                }
+            }
+            .formStyle(.grouped)
+
+            HStack {
+                Button("Copy Rectangular Block") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(extractedPreview, forType: .string)
+                    vm.postToast("Copied rectangular block to Clipboard")
+                }
+                .liquidGlassButton()
+
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .liquidGlassButton()
+                Button("Apply Block Edit") {
+                    vm.applyColumnBlockOperation(
+                        action: action,
+                        insertText: insertPayload,
+                        startNumber: startNumber,
+                        stepNumber: stepNumber,
+                        zeroPadWidth: zeroPadWidth
+                    )
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .liquidGlassButton(prominent: true)
+            }
+        }
+        .padding(20)
+        .frame(width: 640, height: 480)
     }
 }

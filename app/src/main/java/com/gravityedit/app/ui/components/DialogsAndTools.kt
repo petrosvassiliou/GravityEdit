@@ -98,6 +98,8 @@ import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.CaseTransformMode
 import com.gravityedit.app.domain.model.CharDiffSpan
 import com.gravityedit.app.domain.model.Clipping
+import com.gravityedit.app.domain.model.ColumnBlockSpec
+import com.gravityedit.app.domain.model.ColumnEditAction
 import com.gravityedit.app.domain.model.DiffChangeType
 import com.gravityedit.app.domain.model.DiffResult
 import com.gravityedit.app.domain.model.DiffRow
@@ -108,15 +110,18 @@ import com.gravityedit.app.domain.model.FormatTarget
 import com.gravityedit.app.domain.model.LineEnding
 import com.gravityedit.app.domain.model.LineNumberAction
 import com.gravityedit.app.domain.model.MatchingLinesAction
+import com.gravityedit.app.domain.model.MultiFileReplacePreviewItem
 import com.gravityedit.app.domain.model.MultiFileSearchMatch
 import com.gravityedit.app.domain.model.PatternPlaygroundEvaluation
 import com.gravityedit.app.domain.model.PrefixSuffixAction
 import com.gravityedit.app.domain.model.QuoteTransformMode
+import com.gravityedit.app.domain.model.SavedTextFactoryPreset
 import com.gravityedit.app.domain.model.SearchMatch
 import com.gravityedit.app.domain.model.SearchOptions
 import com.gravityedit.app.domain.model.SortDirection
 import com.gravityedit.app.domain.model.SyntaxLanguage
 import com.gravityedit.app.domain.model.TabConversionMode
+import com.gravityedit.app.domain.model.TextFactoryScopeMode
 import com.gravityedit.app.domain.model.TextFactoryStep
 import com.gravityedit.app.domain.model.TextOperationType
 import com.gravityedit.app.domain.model.WrapTransformMode
@@ -154,7 +159,12 @@ fun FindReplaceModal(
     onOpenMultiFileMatch: (uriString: String, lineNumber: Int) -> Unit,
     onJumpToMatchInActiveDoc: (SearchMatch) -> Unit,
     onUpdatePlaygroundSample: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    multiFileReplacePreviews: List<MultiFileReplacePreviewItem> = emptyList(),
+    showMultiFileReplacePreview: Boolean = false,
+    onPreviewMultiFileReplace: (() -> Unit)? = null,
+    onToggleMultiFilePreviewSelection: ((String) -> Unit)? = null,
+    onCommitPreviewedMultiFileReplace: (() -> Unit)? = null
 ) {
     val content: @Composable () -> Unit = {
         FindReplaceModalBody(
@@ -177,7 +187,12 @@ fun FindReplaceModal(
             onOpenMultiFileMatch = onOpenMultiFileMatch,
             onJumpToMatchInActiveDoc = onJumpToMatchInActiveDoc,
             onUpdatePlaygroundSample = onUpdatePlaygroundSample,
-            onDismiss = onDismiss
+            onDismiss = onDismiss,
+            multiFileReplacePreviews = multiFileReplacePreviews,
+            showMultiFileReplacePreview = showMultiFileReplacePreview,
+            onPreviewMultiFileReplace = onPreviewMultiFileReplace,
+            onToggleMultiFilePreviewSelection = onToggleMultiFilePreviewSelection,
+            onCommitPreviewedMultiFileReplace = onCommitPreviewedMultiFileReplace
         )
     }
 
@@ -233,7 +248,12 @@ private fun FindReplaceModalBody(
     onOpenMultiFileMatch: (uriString: String, lineNumber: Int) -> Unit,
     onJumpToMatchInActiveDoc: (SearchMatch) -> Unit,
     onUpdatePlaygroundSample: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    multiFileReplacePreviews: List<MultiFileReplacePreviewItem> = emptyList(),
+    showMultiFileReplacePreview: Boolean = false,
+    onPreviewMultiFileReplace: (() -> Unit)? = null,
+    onToggleMultiFilePreviewSelection: ((String) -> Unit)? = null,
+    onCommitPreviewedMultiFileReplace: (() -> Unit)? = null
 ) {
     var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
 
@@ -447,11 +467,11 @@ private fun FindReplaceModalBody(
             }
 
             1 -> {
-                // Multi-File Search & Replace
-                Row(
+                // Multi-File Search & Dry-Run Replace Preview
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     OutlinedTextField(
                         value = searchOptions.fileFilter,
@@ -463,8 +483,22 @@ private fun FindReplaceModalBody(
                     Button(onClick = onRunMultiFileSearch) {
                         Text(stringResource(R.string.btn_find_next))
                     }
-                    OutlinedButton(onClick = onRunMultiFileReplace) {
-                        Text(stringResource(R.string.btn_replace_all))
+                    if (onPreviewMultiFileReplace != null) {
+                        OutlinedButton(onClick = onPreviewMultiFileReplace) {
+                            Text("Preview Replace")
+                        }
+                    }
+                    if (showMultiFileReplacePreview && onCommitPreviewedMultiFileReplace != null) {
+                        Button(
+                            onClick = onCommitPreviewedMultiFileReplace,
+                            enabled = multiFileReplacePreviews.any { it.isSelected }
+                        ) {
+                            Text("Apply Selected (${multiFileReplacePreviews.count { it.isSelected }})")
+                        }
+                    } else {
+                        OutlinedButton(onClick = onRunMultiFileReplace) {
+                            Text(stringResource(R.string.btn_replace_all))
+                        }
                     }
                 }
 
@@ -474,56 +508,111 @@ private fun FindReplaceModalBody(
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-                val totalMultiCount = multiFileMatches.sumOf { it.totalMatches }
-                Text(
-                    text = stringResource(R.string.matches_count, totalMultiCount),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(6.dp))
 
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(multiFileMatches, key = { it.uriString }) { fileMatch ->
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(
-                                    text = "${fileMatch.relativePath} (${fileMatch.totalMatches})",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                fileMatch.matches.take(15).forEach { m ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable { onOpenMultiFileMatch(fileMatch.uriString, m.lineNumber) }
-                                            .padding(horizontal = 4.dp, vertical = 3.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Text(
-                                            text = "Ln ${m.lineNumber}:",
-                                            fontFamily = JetBrainsMonoFontFamily,
-                                            fontSize = 11.5.sp,
-                                            color = MaterialTheme.colorScheme.secondary
+                if (showMultiFileReplacePreview) {
+                    Text(
+                        text = "Dry-Run Replace Preview: ${multiFileReplacePreviews.sumOf { it.replacementCount }} change(s) across ${multiFileReplacePreviews.size} file(s)",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(multiFileReplacePreviews, key = { it.uriString }) { preview ->
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = preview.isSelected,
+                                            onCheckedChange = { onToggleMultiFilePreviewSelection?.invoke(preview.uriString) }
                                         )
                                         Text(
-                                            text = m.linePreview,
+                                            text = "${preview.relativePath} (${preview.replacementCount} replacements)",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    preview.lineChanges.take(8).forEach { chg ->
+                                        Text(
+                                            text = "Ln ${chg.lineNumber} - ${chg.beforeLine}",
                                             fontFamily = JetBrainsMonoFontFamily,
-                                            fontSize = 11.5.sp,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.error,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
+                                        Text(
+                                            text = "Ln ${chg.lineNumber} + ${chg.afterLine}",
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.tertiary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    val totalMultiCount = multiFileMatches.sumOf { it.totalMatches }
+                    Text(
+                        text = stringResource(R.string.matches_count, totalMultiCount),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(multiFileMatches, key = { it.uriString }) { fileMatch ->
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = "${fileMatch.relativePath} (${fileMatch.totalMatches})",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    fileMatch.matches.take(15).forEach { m ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable { onOpenMultiFileMatch(fileMatch.uriString, m.lineNumber) }
+                                                .padding(horizontal = 4.dp, vertical = 3.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "Ln ${m.lineNumber}:",
+                                                fontFamily = JetBrainsMonoFontFamily,
+                                                fontSize = 11.5.sp,
+                                                color = MaterialTheme.colorScheme.secondary
+                                            )
+                                            Text(
+                                                text = m.linePreview,
+                                                fontFamily = JetBrainsMonoFontFamily,
+                                                fontSize = 11.5.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -639,7 +728,12 @@ fun TextFactoryModal(
     onMoveStepUp: (String) -> Unit,
     onMoveStepDown: (String) -> Unit,
     onRunPipeline: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    scope: TextFactoryScopeMode = TextFactoryScopeMode.ACTIVE_DOCUMENT,
+    presets: List<SavedTextFactoryPreset> = SavedTextFactoryPreset.BUILT_IN_PRESETS,
+    onSelectScope: ((TextFactoryScopeMode) -> Unit)? = null,
+    onLoadPreset: ((SavedTextFactoryPreset) -> Unit)? = null,
+    onSavePreset: ((String) -> Unit)? = null
 ) {
     val content: @Composable () -> Unit = {
         TextFactoryModalBody(
@@ -650,7 +744,12 @@ fun TextFactoryModal(
             onMoveStepUp = onMoveStepUp,
             onMoveStepDown = onMoveStepDown,
             onRunPipeline = onRunPipeline,
-            onDismiss = onDismiss
+            onDismiss = onDismiss,
+            scope = scope,
+            presets = presets,
+            onSelectScope = onSelectScope,
+            onLoadPreset = onLoadPreset,
+            onSavePreset = onSavePreset
         )
     }
 
@@ -684,6 +783,7 @@ fun TextFactoryModal(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TextFactoryModalBody(
     steps: List<TextFactoryStep>,
@@ -693,9 +793,17 @@ private fun TextFactoryModalBody(
     onMoveStepUp: (String) -> Unit,
     onMoveStepDown: (String) -> Unit,
     onRunPipeline: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    scope: TextFactoryScopeMode = TextFactoryScopeMode.ACTIVE_DOCUMENT,
+    presets: List<SavedTextFactoryPreset> = SavedTextFactoryPreset.BUILT_IN_PRESETS,
+    onSelectScope: ((TextFactoryScopeMode) -> Unit)? = null,
+    onLoadPreset: ((SavedTextFactoryPreset) -> Unit)? = null,
+    onSavePreset: ((String) -> Unit)? = null
 ) {
     var addMenuExpanded by remember { mutableStateOf(false) }
+    var presetsMenuExpanded by remember { mutableStateOf(false) }
+    var showSavePresetRow by remember { mutableStateOf(false) }
+    var presetNameDraft by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -713,6 +821,80 @@ private fun TextFactoryModalBody(
             )
             IconButton(onClick = onDismiss) {
                 Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Scope Selector Chips + Presets Menu
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            TextFactoryScopeMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = scope == mode,
+                    onClick = { onSelectScope?.invoke(mode) },
+                    label = { Text(mode.label, fontSize = 11.5.sp) }
+                )
+            }
+            Box {
+                OutlinedButton(onClick = { presetsMenuExpanded = true }) {
+                    Text("Presets (${presets.size})", fontSize = 12.sp)
+                }
+                DropdownMenu(
+                    expanded = presetsMenuExpanded,
+                    onDismissRequest = { presetsMenuExpanded = false }
+                ) {
+                    presets.forEach { preset ->
+                        DropdownMenuItem(
+                            text = { Text("${preset.name} (${preset.steps.size} steps)") },
+                            onClick = {
+                                presetsMenuExpanded = false
+                                onLoadPreset?.invoke(preset)
+                            }
+                        )
+                    }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Save Current Pipeline as Preset…", fontWeight = FontWeight.SemiBold) },
+                        onClick = {
+                            presetsMenuExpanded = false
+                            showSavePresetRow = true
+                        }
+                    )
+                }
+            }
+        }
+
+        if (showSavePresetRow) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = presetNameDraft,
+                    onValueChange = { presetNameDraft = it },
+                    label = { Text("Preset Name") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = {
+                        onSavePreset?.invoke(presetNameDraft)
+                        presetNameDraft = ""
+                        showSavePresetRow = false
+                    },
+                    enabled = presetNameDraft.isNotBlank()
+                ) {
+                    Text("Save")
+                }
+                TextButton(onClick = { showSavePresetRow = false }) {
+                    Text("Cancel")
+                }
             }
         }
 
@@ -3375,6 +3557,220 @@ fun AppUpdateModal(
                     .padding(16.dp)
             ) {
                 content()
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 9. BBEDIT COLUMN / RECTANGULAR BLOCK EDIT MODAL
+// =========================================================================
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun ColumnBlockEditModal(
+    isCompactMobile: Boolean,
+    documentContent: String,
+    maxLineCount: Int,
+    spec: ColumnBlockSpec,
+    onUpdateSpec: (ColumnBlockSpec) -> Unit,
+    onApply: (action: ColumnEditAction, insertText: String, startNum: Int, stepNum: Int, padWidth: Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedAction by remember { mutableStateOf(ColumnEditAction.INSERT_AT_COLUMN) }
+    var insertText by remember { mutableStateOf("") }
+    var startNumText by remember { mutableStateOf("1") }
+    var stepNumText by remember { mutableStateOf("1") }
+    var padWidthText by remember { mutableStateOf("0") }
+
+    var startLineStr by remember(spec.startLine) { mutableStateOf(spec.startLine.toString()) }
+    var endLineStr by remember(spec.endLine) { mutableStateOf(spec.endLine.toString()) }
+    var startColStr by remember(spec.startColumn) { mutableStateOf(spec.startColumn.toString()) }
+    var endColStr by remember(spec.endColumn) { mutableStateOf(spec.endColumn.toString()) }
+
+    val extractedPreview = remember(documentContent, spec) {
+        com.gravityedit.app.domain.engine.TextTransformEngine.extractColumnBlock(documentContent, spec)
+    }
+
+    val body: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Column / Rectangular Block Edit", style = MaterialTheme.typography.titleLarge)
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close")
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = startLineStr,
+                    onValueChange = {
+                        startLineStr = it
+                        it.toIntOrNull()?.let { v -> onUpdateSpec(spec.copy(startLine = v.coerceIn(1, maxLineCount.coerceAtLeast(1)))) }
+                    },
+                    label = { Text("Start Line") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = endLineStr,
+                    onValueChange = {
+                        endLineStr = it
+                        it.toIntOrNull()?.let { v -> onUpdateSpec(spec.copy(endLine = v.coerceIn(1, maxLineCount.coerceAtLeast(1)))) }
+                    },
+                    label = { Text("End Line") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = startColStr,
+                    onValueChange = {
+                        startColStr = it
+                        it.toIntOrNull()?.let { v -> onUpdateSpec(spec.copy(startColumn = v.coerceIn(1, 500))) }
+                    },
+                    label = { Text("Start Column") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = endColStr,
+                    onValueChange = {
+                        endColStr = it
+                        it.toIntOrNull()?.let { v -> onUpdateSpec(spec.copy(endColumn = v.coerceIn(1, 500))) }
+                    },
+                    label = { Text("End Column") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                ColumnEditAction.entries.forEach { act ->
+                    FilterChip(
+                        selected = selectedAction == act,
+                        onClick = { selectedAction = act },
+                        label = { Text(act.label, fontSize = 11.5.sp) }
+                    )
+                }
+            }
+
+            if (selectedAction == ColumnEditAction.INSERT_AT_COLUMN || selectedAction == ColumnEditAction.REPLACE_BLOCK) {
+                OutlinedTextField(
+                    value = insertText,
+                    onValueChange = { insertText = it },
+                    label = { Text("Text to insert across rectangular span") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else if (selectedAction == ColumnEditAction.NUMBER_COLUMN) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = startNumText,
+                        onValueChange = { startNumText = it },
+                        label = { Text("Start #") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = stepNumText,
+                        onValueChange = { stepNumText = it },
+                        label = { Text("Step") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = padWidthText,
+                        onValueChange = { padWidthText = it },
+                        label = { Text("Zero Pad") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                OutlinedTextField(
+                    value = insertText,
+                    onValueChange = { insertText = it },
+                    label = { Text("Separator Suffix (e.g. ': ')") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Text("Rectangular Slice Preview:", style = MaterialTheme.typography.labelMedium)
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp, max = 110.dp)
+            ) {
+                Text(
+                    text = extractedPreview.ifEmpty { "(Empty column span)" },
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        onApply(
+                            selectedAction,
+                            insertText,
+                            startNumText.toIntOrNull() ?: 1,
+                            stepNumText.toIntOrNull() ?: 1,
+                            padWidthText.toIntOrNull() ?: 0
+                        )
+                    }
+                ) {
+                    Text("Apply Block Edit")
+                }
+            }
+        }
+    }
+
+    if (isCompactMobile) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = GravityEditThemeDefaults.sheetShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
+            body()
+        }
+    } else {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                shape = GravityEditThemeDefaults.dialogShape,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .width(620.dp)
+                    .padding(16.dp)
+            ) {
+                body()
             }
         }
     }

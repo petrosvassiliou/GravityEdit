@@ -48,6 +48,22 @@ public struct SettingsSceneView: View {
             }
 
             Toggle("Enable live PSScriptAnalyzer PowerShell linting", isOn: $vm.liveScriptAnalyzer)
+            Toggle("Restore open tabs, split layout & mounted folder on launch", isOn: $vm.restoreSessionOnLaunch)
+            Toggle("Auto-reload clean files when modified externally on disk", isOn: $vm.autoReloadCleanExternalFiles)
+
+            Section("Command-Line Helper (`gravity`)") {
+                HStack {
+                    Text("Open files (`gravity a.ps1:42`), diffs (`--diff`), & piped stdin (`pwsh | gravity`)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Copy Symlink Command") {
+                        vm.copyGravityCLIInstallCommand()
+                    }
+                    .liquidGlassButton()
+                    .controlSize(.small)
+                }
+            }
 
             Section("About GravityEdit for macOS") {
                 LabeledContent("Version", value: "v\(MacAutoUpdateEngine.currentAppVersion) (Build \(MacAutoUpdateEngine.currentBuildNumber))")

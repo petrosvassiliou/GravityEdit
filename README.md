@@ -11,7 +11,7 @@
 [![Compose M3](https://img.shields.io/badge/Android-Material%203%20Expressive-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)](#android--googlebook-os-edition-material-3-expressive)
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download macOS DMG &amp; Android APK (v1.3.4)</strong></a>
+  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download macOS DMG &amp; Android APK (v1.4.0)</strong></a>
   &nbsp;•&nbsp;
   <a href="#macos-edition-apple-liquid-glass--sparkle-2-auto-updates">macOS Liquid Glass</a>
   &nbsp;•&nbsp;
@@ -43,12 +43,27 @@
 - **Navigation-Only Liquid Glass Layer:** Uses SwiftUI 26 `GlassEffectContainer`, `.glassEffect(.regular, in:)`, `.glassEffectID(_:in:)`, `.buttonStyle(.glass)`, and `.buttonStyle(.glassProminent)` on the floating `NavigationSplitView` sidebar, unified window toolbar, morphing document tab capsules, bottom status pills, Command Palette (`⇧⌘P`), and inline PowerShell completion card — while keeping the **AppKit `NSTextView` code canvas strictly opaque and high-contrast** (`Daylight Crisp`, `Tahoe Midnight`, `Pitch-Black Pro`) per Apple HIG (*"Never use Liquid Glass in the content layer"*).
 - **Full Accessibility Compliance:** Automatically adapts to macOS `Reduce Transparency`, `Reduce Motion`, and `Increase Contrast` system settings.
 - **Native macOS Menu Bar & Keyboard Equivalents:** Complete macOS Menu Bar (`GravityEdit` → `About`, `Settings…` `⌘,`, `Check for Updates…` `⌥⌘U`; `File`; `Edit`; `Search`; **`Text` exposing all 14 BBEdit transformations directly in the menu bar**; `View`; `Tools`; `Help`), native `NSOpenPanel` / `NSSavePanel`, Dock drag-and-drop file/folder opening, and unsaved-document close/quit confirmation (`NSAlert`).
-- **In-App Automatic Updates:** Integrates **Sparkle 2 (`SPUStandardUpdaterController` + `appcast.xml`)** alongside a built-in **Liquid Glass Software Update sheet** (accessible from the menu bar or by clicking the bottom-left **`v1.3.4`** pill) that checks `petrosvassiliou/GravityEdit` releases in the background, verifies `.app.zip` archives against published **SHA-256** manifests via Apple `CryptoKit`, atomically swaps `GravityEdit.app`, and relaunches automatically.
+- **In-App Automatic Updates:** Integrates **Sparkle 2 (`SPUStandardUpdaterController` + `appcast.xml`)** alongside a built-in **Liquid Glass Software Update sheet** (accessible from the menu bar or by clicking the bottom-left **`v1.4.0`** pill) that checks `petrosvassiliou/GravityEdit` releases in the background, verifies `.app.zip` archives against published **SHA-256** manifests via Apple `CryptoKit`, atomically swaps `GravityEdit.app`, and relaunches automatically.
 
 ---
 
-## What's New in v1.3.4
+## What's New in v1.4.0
 
+- **Integrated PowerShell Runner & BBEdit-Style Shell Worksheet (`⌘R` • `F8` • `⌃Return`):**
+  - Execute active `.ps1` / `.sh` / `.py` scripts (`⌘R` / `Ctrl+R`) or selected lines (`F8`) directly into a collapsible **Output Drawer** with `Output`, `Warning`, `Verbose`, and `Error` stream filtering and **clickable `Ln:Col` stack-trace jumps** back into the editor (backed by local `pwsh` on macOS plus a built-in zero-dependency PowerShell Worksheet evaluator across macOS & Android/Googlebook OS).
+  - **BBEdit Worksheet Mode (`⌃Return` / `Ctrl+Enter`):** Evaluate any PowerShell expression or pipeline inline and insert formatted output directly beneath the selection.
+- **Signature BBEdit Power Features:**
+  - **Multi-File Regex Replace Dry-Run Preview:** Preview line-by-line before/after diffs across directories and selectively check/uncheck files before committing batch replacements.
+  - **Saved Text Factory Presets & Mounted-Folder Batch Scope:** Load built-in or user-saved multi-step presets, reorder pipeline steps, and execute Text Factory pipelines across an entire mounted folder.
+  - **Column / Rectangular Block Editing & Gutter Line Bookmarks:** Hold `Option` (`⌥`)-drag on macOS for multi-line rectangular typing/deletion or open **Column / Block Edit** (`⌃⇧B` / `Ctrl+Shift+B`) to insert, replace, delete, or sequentially number columns — plus 1-click gutter **Line Bookmarks** (`⌘F2` / `F2` / `⇧F2`).
+- **Huge-File Fast Viewport Highlighting (`256 KB – 50 MB+`) & Live Disk Watcher:**
+  - **Viewport-Windowed Syntax Coloring:** Automatically switches large `.log`, `.json`, `.csv`, and `.ps1` files to non-contiguous layout + visible-scroll-window syntax highlighting (`⚡ Fast Viewport`) so scrolling stays locked at 120 Hz.
+  - **External Disk Change Watcher & Live Log Tail (`⌃⌘L`):** Auto-reloads clean files modified on disk, surfaces a non-destructive conflict banner (`Reload from Disk` / `Keep My Edits`) when dirty, and supports real-time **Live Tail** log following.
+- **Full Workspace Session Restore, Recent Files & `gravity` CLI Pipe Helper:**
+  - Restores open tabs, unsaved buffers, cursor/selection offsets, bookmarks, split-view layout, security-scoped mounted folders, and **File → Open Recent** across launches.
+  - Bundles the native **`gravity` CLI executable** (`GravityEdit.app/Contents/MacOS/gravity`) supporting `gravity script.ps1:42`, `gravity --diff left.ps1 right.ps1`, and stdin piping (`pwsh -c "Get-Process" | gravity`).
+
+### Previous Highlights (`v1.3.4` – `v1.3.2`)
 - **Sub-Millisecond (`0 ms`) Instant Tab & Document Switching (`v1.3.4`):**
   - Eliminated the `~500 ms` `NSEvent.doubleClickInterval` (macOS) and `300 ms` `doubleTapTimeoutMillis` (Android) single-click disambiguation wait on Document Tab capsules by firing tab selection immediately (`0.0 ms`) on click while preserving double-click inline rename.
   - Added a warm per-document AppKit `GravityEditorDeckView` pool on macOS so switching between open documents swaps visibility in `< 0.1 ms` with zero re-tokenization, zero `NSLayoutManager` re-layout, preserved scroll positions, and preserved per-tab `⌘Z` / `⇧⌘Z` Undo history — plus `O(1)` cached `lineCount`/`wordCount` and per-document AST/Fold/Linter caches across both platforms.
@@ -126,7 +141,7 @@ Full desktop layout featuring the Expressive `NavigationRail`, drag-resizable **
         <img src="docs/screenshots/06-play-protect-auto-update.png" alt="GravityEdit Auto-Update Center" width="100%" />
       </p>
       <p>
-        Accessible anytime by clicking the bottom-left <code>v1.3.0</code> pill. Uses Sparkle 2 + CryptoKit SHA-256 in-app bundle updates on macOS, and Play Protect–clean trusted browser/Play Store routing on Android.
+        Accessible anytime by clicking the bottom-left <code>v1.4.0</code> pill. Uses Sparkle 2 + CryptoKit SHA-256 in-app bundle updates on macOS, and Play Protect–clean trusted browser/Play Store routing on Android.
       </p>
     </td>
   </tr>
@@ -166,7 +181,12 @@ Full desktop layout featuring the Expressive `NavigationRail`, drag-resizable **
 | Duplicate Line / Select Line | `⌘D` / `⌘L` | `Ctrl + D` / `Ctrl + L` |
 | Toggle Comment / Indent / Outdent | `⌘/` • `⌘]` • `⌘[` | `Ctrl + /` • `Tab` • `Shift + Tab` |
 | Split View (Single / Vertical / Horizontal) | `⌥⌘1` • `⌥⌘2` • `⌥⌘3` | Connected Split Toolbar |
-| Check for Software Updates | `⌥⌘U` (or `v1.3.0` pill) | Tap `v1.3.0` pill |
+| Run Script / Run Selection | `⌘R` / `F8` | `Ctrl + R` / `F8` |
+| Evaluate Inline (BBEdit Worksheet) | `⌃Return` | `Ctrl + Enter` |
+| Column / Rectangular Block Edit | `⌃⇧B` (or `⌥`-drag) | `Ctrl + Shift + B` |
+| Toggle / Next / Prev Bookmark | `⌘F2` • `F2` • `⇧F2` | `Ctrl + F2` • `F2` • `Shift + F2` |
+| Live Log Tail Mode | `⌃⌘L` | Overflow → Live Log Tail |
+| Check for Software Updates | `⌥⌘U` (or `v1.4.0` pill) | Tap `v1.4.0` pill |
 | Settings | `⌘,` | Sidebar / Overflow Settings |
 
 ---
@@ -193,12 +213,13 @@ GravityEdit/
 ## Installation
 
 ### macOS (macOS 26 Tahoe Liquid Glass & macOS 15 Sequoia+)
-1. Download **`GravityEdit-macOS-v1.3.4.dmg`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
+1. Download **`GravityEdit-macOS-v1.4.0.dmg`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
 2. Open the disk image and drag **`GravityEdit.app`** to **`/Applications`**.
-3. *(First launch without Apple Notarization)* If macOS Gatekeeper prompts on an unsigned/ad-hoc GitHub build, Control-click **`GravityEdit.app`** → **Open** (or run `xattr -dr com.apple.quarantine /Applications/GravityEdit.app`). Subsequent updates can be installed directly inside the app via **GravityEdit → Check for Updates…** (`⌥⌘U`)!
+3. *(Optional CLI Helper)* Symlink the bundled `gravity` tool (`sudo ln -sf "/Applications/GravityEdit.app/Contents/MacOS/gravity" /usr/local/bin/gravity`) to open `gravity script.ps1:42`, `--diff`, or pipe stdin (`pwsh -c ... | gravity`).
+4. *(First launch without Apple Notarization)* If macOS Gatekeeper prompts on an unsigned/ad-hoc GitHub build, Control-click **`GravityEdit.app`** → **Open** (or run `xattr -dr com.apple.quarantine /Applications/GravityEdit.app`). Subsequent updates can be installed directly inside the app via **GravityEdit → Check for Updates…** (`⌥⌘U`)!
 
 ### Android & Googlebook OS (Android 8.0+ / API 26+)
-1. Download **`GravityEdit-v1.3.4.apk`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest) and open to install or upgrade in-place.
+1. Download **`GravityEdit-v1.4.0.apk`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest) and open to install or upgrade in-place.
 
 ---
 
@@ -211,8 +232,8 @@ cd macos
 # Run the XCTest unit test suite
 swift test
 
-# Build & package GravityEdit.app, .dmg, .app.zip, .sha256 & Sparkle appcast.xml
-./scripts/package_app.sh 1.3.4
+# Build & package GravityEdit.app (+ gravity CLI), .dmg, .app.zip, .sha256 & Sparkle appcast.xml
+./scripts/package_app.sh 1.4.0
 ```
 
 ### Android & Googlebook OS (JDK 17 + Android SDK 35)

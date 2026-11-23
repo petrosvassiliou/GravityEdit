@@ -43,6 +43,22 @@ public struct GravityEditMenuCommands: Commands {
                 vm.mountProjectFolderWithPanel()
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
+
+            Menu("Open Recent") {
+                if vm.recentFilePaths.isEmpty {
+                    Text("No Recent Documents")
+                } else {
+                    ForEach(vm.recentFilePaths, id: \.self) { path in
+                        Button((path as NSString).lastPathComponent + " — " + ((path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath) {
+                            vm.openRecentFile(path: path)
+                        }
+                    }
+                    Divider()
+                    Button("Clear Recent Menu") {
+                        vm.clearRecentFiles()
+                    }
+                }
+            }
         }
 
         CommandGroup(replacing: .saveItem) {
@@ -98,6 +114,13 @@ public struct GravityEditMenuCommands: Commands {
                 vm.indentSelection(outdent: true)
             }
             .keyboardShortcut("[", modifiers: [.command])
+
+            Divider()
+
+            Button("Column / Rectangular Block Edit…") {
+                vm.openColumnEditSheet()
+            }
+            .keyboardShortcut("b", modifiers: [.control, .shift])
         }
 
         // 4. Dedicated Search Menu
@@ -143,6 +166,27 @@ public struct GravityEditMenuCommands: Commands {
                 vm.revealSidebar(section: .functionOutline)
             }
             .keyboardShortcut("j", modifiers: [.command])
+
+            Divider()
+
+            Button("Toggle Line Bookmark") {
+                vm.toggleBookmarkOnCurrentLine()
+            }
+            .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF2FunctionKey)!)), modifiers: [.command])
+
+            Button("Next Bookmark") {
+                vm.jumpToNextBookmark(forward: true)
+            }
+            .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF2FunctionKey)!)), modifiers: [])
+
+            Button("Previous Bookmark") {
+                vm.jumpToNextBookmark(forward: false)
+            }
+            .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF2FunctionKey)!)), modifiers: [.shift])
+
+            Button("Clear Bookmarks in Document") {
+                vm.clearBookmarksInFocusedDocument()
+            }
         }
 
         // 5. Dedicated BBEdit "Text" Menu (All 14 BBEdit Operations + Base64/URL Utilities!)
@@ -350,6 +394,28 @@ public struct GravityEditMenuCommands: Commands {
 
         // 7. Tools Menu
         CommandMenu("Tools") {
+            Button("Run PowerShell / Active Script") {
+                vm.runActiveScript()
+            }
+            .keyboardShortcut("r", modifiers: [.command])
+
+            Button("Run Selection or Current Line") {
+                vm.runSelectionOrCurrentLine()
+            }
+            .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF8FunctionKey)!)), modifiers: [])
+
+            Button("Evaluate Inline (BBEdit Worksheet)") {
+                vm.evaluateWorksheetInline()
+            }
+            .keyboardShortcut(.return, modifiers: [.control])
+
+            Button(vm.showRunnerDrawer ? "Hide PowerShell Output Drawer" : "Show PowerShell Output Drawer") {
+                vm.showRunnerDrawer.toggle()
+            }
+            .keyboardShortcut("y", modifiers: [.command, .control])
+
+            Divider()
+
             Button("Command Palette…") {
                 vm.showCommandPalette.toggle()
             }
@@ -364,6 +430,15 @@ public struct GravityEditMenuCommands: Commands {
                 vm.showClippingsSheet = true
             }
             .keyboardShortcut("c", modifiers: [.command, .control])
+
+            Button("Toggle Live Log Tail on Active File") {
+                vm.toggleLiveTailOnFocusedDocument()
+            }
+            .keyboardShortcut("l", modifiers: [.command, .control])
+
+            Button("Reload Active File from Disk") {
+                vm.reloadFocusedDocumentFromDisk()
+            }
 
             Divider()
 
@@ -382,6 +457,10 @@ public struct GravityEditMenuCommands: Commands {
                 vm.switchToScratchpad()
             }
             .keyboardShortcut("k", modifiers: [.command, .shift])
+
+            Button("Copy 'gravity' CLI Install Command") {
+                vm.copyGravityCLIInstallCommand()
+            }
         }
 
         // 8. Help Menu

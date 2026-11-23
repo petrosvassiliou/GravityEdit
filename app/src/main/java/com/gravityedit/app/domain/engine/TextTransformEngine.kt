@@ -930,4 +930,115 @@ object TextTransformEngine {
         }
         return delta
     }
+
+    // =========================================================================
+    // 15. BBEDIT COLUMN / RECTANGULAR BLOCK SELECTION & EDITING
+    // =========================================================================
+    fun extractColumnBlock(
+        text: String,
+        spec: com.gravityedit.app.domain.model.ColumnBlockSpec
+    ): String {
+        val lines = LineEnding.normalizeToLf(text).split('\n')
+        if (lines.isEmpty()) return ""
+        val startIdx = (spec.normalizedStartLine - 1).coerceIn(0, lines.lastIndex)
+        val endIdx = (spec.normalizedEndLine - 1).coerceIn(startIdx, lines.lastIndex)
+        val startColIdx = (spec.normalizedStartColumn - 1).coerceAtLeast(0)
+        val endColIdx = (spec.normalizedEndColumn - 1).coerceAtLeast(startColIdx)
+
+        val out = ArrayList<String>(endIdx - startIdx + 1)
+        for (i in startIdx..endIdx) {
+            val line = lines[i]
+            if (startColIdx >= line.length) {
+                out.add("")
+            } else {
+                val sliceEnd = (endColIdx + 1).coerceAtMost(line.length)
+                out.add(line.substring(startColIdx, sliceEnd))
+            }
+        }
+        return out.joinToString("\n")
+    }
+
+    fun applyColumnEdit(
+        text: String,
+        spec: com.gravityedit.app.domain.model.ColumnBlockSpec,
+        action: com.gravityedit.app.domain.model.ColumnEditAction,
+        insertText: String = "",
+        startNumber: Int = 1,
+        stepNumber: Int = 1,
+        zeroPadWidth: Int = 0
+    ): String {
+        val lines = LineEnding.normalizeToLf(text).split('\n').toMutableList()
+        if (lines.isEmpty()) return text
+        val startIdx = (spec.normalizedStartLine - 1).coerceIn(0, lines.lastIndex)
+        val endIdx = (spec.normalizedEndLine - 1).coerceIn(startIdx, lines.lastIndex)
+        val startColIdx = (spec.normalizedStartColumn - 1).coerceAtLeast(0)
+        val endColIdx = (spec.normalizedEndColumn - 1).coerceAtLeast(startColIdx)
+        val rows = insertText.split('\n')
+
+        var currentNum = startNumber
+        for ((offset, i) in (startIdx..endIdx).withIndex()) {
+            val sb = StringBuilder(lines[i])
+            val payload = if (rows.size > 1) rows[offset % rows.size] else insertText
+
+            when (action) {
+                com.gravityedit.app.domain.model.ColumnEditAction.INSERT_AT_COLUMN -> {
+                    while (sb.length < startColIdx) sb.append(' ')
+                    sb.insert(startColIdx, payload)
+                }
+                com.gravityedit.app.domain.model.ColumnEditAction.REPLACE_BLOCK -> {
+                    while (sb.length < startColIdx) sb.append(' ')
+                    val removeEnd = (endColIdx + 1).coerceAtMost(sb.length)
+                    if (startColIdx < removeEnd) {
+                        sb.delete(startColIdx, removeEnd)
+                    }
+                    sb.insert(startColIdx, payload)
+                }
+                com.gravityedit.app.domain.model.ColumnEditAction.DELETE_BLOCK -> {
+                    if (startColIdx < sb.length) {
+                        val removeEnd = (endColIdx + 1).coerceAtMost(sb.length)
+                        sb.delete(startColIdx, removeEnd)
+                    }
+                }
+                com.gravityedit.app.domain.model.ColumnEditAction.NUMBER_COLUMN -> {
+                    while (sb.length < startColIdx) sb.append(' ')
+                    val formatted = if (zeroPadWidth > 1) {
+                        currentNum.toString().padStart(zeroPadWidth, '0') + insertText
+                    } else {
+                        "$currentNum$insertText"
+                    }
+                    sb.insert(startColIdx, formatted)
+                    currentNum += stepNumber
+                }
+            }
+            lines[i] = sb.toString()
+        }
+        return lines.joinToString("\n")
+    }
+
+    // =========================================================================
+    // 16. MULTI-FILE BATCH FOLDER TEXT FACTORY PIPELINE
+    // =========================================================================
+    suspend fun runPipelineAcrossFiles(
+        files: List<SearchableFileSource>,
+        steps: List<com.gravityedit.app.domain.model.TextFactoryStep>,
+        fileFilter: String
+    ): Pair<Int, Int> {
+        val enabledSteps = steps.filter { it.enabled }
+        if (enabledSteps.isEmpty()) return 0 to 0
+        var scanned = 0
+        var modified = 0
+        for (file in files) {
+            val writer = file.contentWriter ?: continue
+            if (!FindReplaceEngine.matchesFileFilter(file.fileName, fileFilter)) continue
+            scanned++
+            val content = file.contentProvider() ?: continue
+            val res = runPipeline(content, enabledSteps)
+            if (res.transformedText != content) {
+                if (writer(res.transformedText)) {
+                    modified++
+                }
+            }
+        }
+        return modified to scanned
+    }
 }

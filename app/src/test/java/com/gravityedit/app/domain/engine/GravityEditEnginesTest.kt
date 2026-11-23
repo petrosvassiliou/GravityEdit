@@ -1030,4 +1030,123 @@ class GravityEditEnginesTest {
         val elapsedMs = (System.nanoTime() - startNs) / 1_000_000.0
         assertTrue("Expected 200 tab-switch metric/outline queries < 50ms, took ${elapsedMs}ms", elapsedMs < 50.0)
     }
+
+    // =========================================================================
+    // v1.4.0 TESTS: RUNNER/WORKSHEET, DRY-RUN REPLACE, PRESETS, COLUMN BLOCK & BOOKMARKS
+    // =========================================================================
+
+    @Test
+    fun powerShellRunnerAndWorksheet_evaluatesPipelinesAndExtractsErrorLocations() {
+        val script = """
+            ${'$'}svc = [ordered]@{
+                Name = 'GravityGateway'
+                Port = 8443
+            }
+            ${'$'}svc | ConvertTo-Json
+            Write-Warning 'Certificate expires soon'
+            Write-Error 'Connection refused'
+        """.trimIndent()
+
+        val result = PowerShellRunnerEngine.executeScript(script)
+        assertEquals(1, result.exitCode)
+        assertTrue(result.rawCombinedOutput.contains("GravityGateway"))
+        assertTrue(result.lines.any { it.stream == ScriptOutputStreamKind.WARNING && it.text.contains("Certificate expires soon") })
+        val errLine = result.lines.firstOrNull { it.stream == ScriptOutputStreamKind.STDERR }
+        assertNotNull(errLine?.location)
+        assertEquals(7, errLine?.location?.lineNumber)
+
+        val loc = PowerShellRunnerEngine.parseExecutionLocation("At /workspace/Deploy.ps1:42 char:9")
+        assertEquals(42, loc?.lineNumber)
+        assertEquals(9, loc?.columnNumber)
+
+        val docText = "${'$'}sum = 20 + 22\n${'$'}sum"
+        val eval = PowerShellRunnerEngine.executeScript(docText)
+        val (worksheetText, cursor) = PowerShellRunnerEngine.formatWorksheetInsertion(
+            documentText = docText,
+            selectionStart = 0,
+            selectionEnd = docText.length,
+            result = eval
+        )
+        assertTrue(worksheetText.contains("Worksheet Output"))
+        assertTrue(worksheetText.contains("42"))
+        assertTrue(cursor > docText.length)
+    }
+
+    @Test
+    fun multiFileDryRunPreviewAndBatchFolderPipeline_applySelectively() = kotlinx.coroutines.runBlocking {
+        val backingFiles = mutableMapOf(
+            "mem://alpha" to "gci -Path /etc   \nWrite-Host 'Alpha'  ",
+            "mem://beta" to "gci -Path /var   \nWrite-Host 'Beta'"
+        )
+        val sources = listOf(
+            SearchableFileSource(
+                uriString = "mem://alpha",
+                fileName = "Alpha.ps1",
+                relativePath = "Alpha.ps1",
+                contentProvider = { backingFiles["mem://alpha"] },
+                contentWriter = { updated -> backingFiles["mem://alpha"] = updated; true }
+            ),
+            SearchableFileSource(
+                uriString = "mem://beta",
+                fileName = "Beta.ps1",
+                relativePath = "Beta.ps1",
+                contentProvider = { backingFiles["mem://beta"] },
+                contentWriter = { updated -> backingFiles["mem://beta"] = updated; true }
+            )
+        )
+
+        val opts = SearchOptions(query = """\bgci\b""", replacement = "Get-ChildItem", grepRegex = true, fileFilter = "*.ps1")
+        val previews = FindReplaceEngine.previewReplaceAcrossFiles(sources, opts)
+        assertEquals(2, previews.size)
+        assertTrue(previews[0].lineChanges.first().afterLine.contains("Get-ChildItem"))
+
+        val (modifiedCount, repCount) = FindReplaceEngine.replaceAcrossFiles(
+            files = sources,
+            options = opts,
+            selectedUris = setOf("mem://alpha")
+        )
+        assertEquals(1, modifiedCount)
+        assertEquals(1, repCount)
+        assertTrue(backingFiles["mem://alpha"]!!.contains("Get-ChildItem"))
+        assertTrue(backingFiles["mem://beta"]!!.contains("gci -Path /var"))
+
+        val preset = com.gravityedit.app.domain.model.SavedTextFactoryPreset.BUILT_IN_PRESETS.first()
+        val (batchModified, batchScanned) = TextTransformEngine.runPipelineAcrossFiles(sources, preset.steps, "*.ps1")
+        assertEquals(2, batchScanned)
+        assertTrue(batchModified >= 1)
+        assertTrue(backingFiles["mem://beta"]!!.contains("Get-ChildItem"))
+    }
+
+    @Test
+    fun columnRectangularBlockBookmarksAndHugeFileMode_behaveDeterministically() {
+        val source = "SRV01  Online\nSRV02  Offline\nSRV03  Online"
+        val extractSpec = com.gravityedit.app.domain.model.ColumnBlockSpec(1, 3, 1, 5)
+        assertEquals("SRV01\nSRV02\nSRV03", TextTransformEngine.extractColumnBlock(source, extractSpec))
+
+        val numbered = TextTransformEngine.applyColumnEdit(
+            text = source,
+            spec = com.gravityedit.app.domain.model.ColumnBlockSpec(1, 3, 1, 1),
+            action = com.gravityedit.app.domain.model.ColumnEditAction.NUMBER_COLUMN,
+            insertText = ": ",
+            startNumber = 10,
+            stepNumber = 10,
+            zeroPadWidth = 3
+        )
+        assertTrue(numbered.contains("010: SRV01"))
+        assertTrue(numbered.contains("030: SRV03"))
+
+        var doc = EditorDocument(title = "Notes.ps1", content = "L1\nL2\nL3\nL4\nL5", savedContent = "L1\nL2\nL3\nL4\nL5")
+        doc = doc.toggleBookmark(2).toggleBookmark(4)
+        assertEquals(2, doc.nextBookmarkedLine(1))
+        assertEquals(4, doc.nextBookmarkedLine(2))
+        assertEquals(2, doc.nextBookmarkedLine(4))
+        assertEquals(2, doc.previousBookmarkedLine(4))
+
+        val hugeDoc = EditorDocument(
+            title = "Huge.log",
+            content = "2026-11-23 INFO OK\n".repeat(15_000),
+            savedContent = ""
+        )
+        assertTrue(hugeDoc.isLargeFileMode)
+    }
 }

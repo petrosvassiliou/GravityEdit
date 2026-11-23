@@ -188,9 +188,36 @@ data class EditorDocument(
     val selectionEnd: Int = 0,
     val scrollLineIndex: Int = 0,
     val foldedStartLines: Set<Int> = emptySet(),
+    val bookmarkedLines: Set<Int> = emptySet(),
+    val isLiveTailing: Boolean = false,
+    val lastKnownDiskModified: Long = 0L,
     val undoStack: List<EditorSnapshot> = emptyList(),
     val redoStack: List<EditorSnapshot> = emptyList()
 ) {
+    val isLargeFileMode: Boolean
+        get() = content.length >= LARGE_FILE_THRESHOLD_CHARS
+
+    fun toggleBookmark(oneBasedLine: Int): EditorDocument {
+        val clamped = oneBasedLine.coerceIn(1, lineCount.coerceAtLeast(1))
+        val updated = if (clamped in bookmarkedLines) {
+            bookmarkedLines - clamped
+        } else {
+            bookmarkedLines + clamped
+        }
+        return copy(bookmarkedLines = updated)
+    }
+
+    fun nextBookmarkedLine(afterOneBasedLine: Int, wrap: Boolean = true): Int? {
+        val sorted = bookmarkedLines.filter { it in 1..lineCount }.sorted()
+        if (sorted.isEmpty()) return null
+        return sorted.firstOrNull { it > afterOneBasedLine } ?: if (wrap) sorted.first() else null
+    }
+
+    fun previousBookmarkedLine(beforeOneBasedLine: Int, wrap: Boolean = true): Int? {
+        val sorted = bookmarkedLines.filter { it in 1..lineCount }.sorted()
+        if (sorted.isEmpty()) return null
+        return sorted.lastOrNull { it < beforeOneBasedLine } ?: if (wrap) sorted.last() else null
+    }
     val isDirty: Boolean
         get() = !isScratchpad && (content != savedContent || (uriString != null && title != savedTitle))
 
@@ -302,6 +329,7 @@ data class EditorDocument(
     }
 
     companion object {
+        const val LARGE_FILE_THRESHOLD_CHARS: Int = 262_144
         private val WORD_REGEX = Regex("""\S+""")
 
         fun normalizedRenamedTitle(currentTitle: String, userInput: String): String {

@@ -17,6 +17,7 @@ public enum TextFactoryScope: String, CaseIterable, Identifiable {
     case selection = "Selection Only"
     case activeDocument = "Active Document"
     case allOpenDocuments = "All Open Documents"
+    case mountedFolder = "Mounted Folder (Batch)"
 
     public var id: String { rawValue }
 }
@@ -57,6 +58,8 @@ public final class WorkspaceViewModel: ObservableObject {
     @AppStorage("gravityedit.editor.liveAnalyzer") public var liveScriptAnalyzer: Bool = true {
         didSet { refreshActiveAnalysis() }
     }
+    @AppStorage("gravityedit.workspace.restoreSession") public var restoreSessionOnLaunch: Bool = true
+    @AppStorage("gravityedit.workspace.autoReloadClean") public var autoReloadCleanExternalFiles: Bool = true
     @AppStorage("gravityedit.appearance.theme") public var themeModeRaw: String = AppearanceThemeMode.system.rawValue
     @AppStorage("gravityedit.appearance.language") public var appLanguageRaw: String = AppLanguage.system.rawValue
 
@@ -115,6 +118,23 @@ public final class WorkspaceViewModel: ObservableObject {
     @Published public var currentDiffResult: DiffResult? = nil
 
     @Published public var customClippings: [Clipping] = []
+    @Published public var customTextFactoryPresets: [SavedTextFactoryPreset] = []
+    @Published public var multiFileReplacePreviews: [MultiFileReplacePreviewItem] = []
+    @Published public var showMultiFileReplacePreview: Bool = false
+
+    // PowerShell Runner & BBEdit Worksheet Output Drawer
+    @Published public var showRunnerDrawer: Bool = false
+    @Published public var isScriptRunning: Bool = false
+    @Published public var lastExecutionResult: ScriptExecutionResult? = nil
+    @Published public var runnerStreamFilter: ScriptOutputStreamKind? = nil
+
+    // Column / Rectangular Block Edit & Bookmarks
+    @Published public var showColumnEditSheet: Bool = false
+    @Published public var columnBlockSpec: ColumnBlockSpec = ColumnBlockSpec()
+
+    // External File Watcher, Live Tail & Recent Files
+    @Published public var externallyModifiedDocumentIds: Set<String> = []
+    @Published public var recentFilePaths: [String] = []
 
     // Sheets, Popovers & Floating Overlays
     @Published public var showNewDocumentSheet: Bool = false
@@ -146,9 +166,14 @@ public final class WorkspaceViewModel: ObservableObject {
     }
 
     private var scratchpadSaveWorkItem: DispatchWorkItem?
+    private var sessionSaveWorkItem: DispatchWorkItem?
     private var analysisWorkItem: DispatchWorkItem?
     private var analysisCache: [String: DocumentAnalysisCacheEntry] = [:]
     private var analysisGeneration: UInt64 = 0
+    private var activeCancellationToken: ScriptRunCancellationToken? = nil
+    private var fileWatchTimer: Timer? = nil
+    private var cliNotificationObserver: NSObjectProtocol? = nil
+    private var activeSecurityScopedFolderURL: URL? = nil
 
     // MARK: - Computed Helpers
 
@@ -183,16 +208,53 @@ public final class WorkspaceViewModel: ObservableObject {
         ClippingsManager.builtInClippings + customClippings
     }
 
+    public var allTextFactoryPresets: [SavedTextFactoryPreset] {
+        SavedTextFactoryPreset.builtInPresets + customTextFactoryPresets
+    }
+
     // MARK: - Initialization & Persistence
 
     public init() {
         loadCustomClippings()
+        loadCustomTextFactoryPresets()
         let scratchpad = loadOrCreateScratchpadDocument()
-        let welcomeScript = Self.createWelcomePowerShellDocument()
-        self.documents = [welcomeScript, scratchpad]
-        self.activeDocumentId = welcomeScript.id
-        self.secondaryDocumentId = scratchpad.id
+
+        if restoreSessionOnLaunch, let restored = loadPersistedWorkspaceSession(scratchpad: scratchpad) {
+            self.documents = restored.openDocuments
+            self.activeDocumentId = restored.activeDocumentId
+            self.secondaryDocumentId = restored.secondaryDocumentId
+            self.splitMode = restored.splitMode
+            self.recentFilePaths = restored.recentFilePaths
+            if let bookmarkData = restored.mountedFolderBookmarkData {
+                var isStale = false
+                if let resolvedURL = try? URL(
+                    resolvingBookmarkData: bookmarkData,
+                    options: [.withSecurityScope],
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &isStale
+                ) {
+                    if resolvedURL.startAccessingSecurityScopedResource() {
+                        activeSecurityScopedFolderURL = resolvedURL
+                    }
+                    self.mountedFolderURL = resolvedURL
+                    reloadDiskBrowserTree()
+                }
+            } else if let folderPath = restored.mountedFolderPath,
+                      FileManager.default.fileExists(atPath: folderPath) {
+                self.mountedFolderURL = URL(fileURLWithPath: folderPath)
+                reloadDiskBrowserTree()
+            }
+        } else {
+            let welcomeScript = Self.createWelcomePowerShellDocument()
+            self.documents = [welcomeScript, scratchpad]
+            self.activeDocumentId = welcomeScript.id
+            self.secondaryDocumentId = scratchpad.id
+        }
+
         refreshActiveAnalysisImmediate()
+        startExternalFileWatchTimer()
+        registerCLIHandoffListener()
+        drainPendingCLIHandoffPayloads()
     }
 
     private var appSupportDirectory: URL {
@@ -210,6 +272,20 @@ public final class WorkspaceViewModel: ObservableObject {
 
     private var customClippingsFileURL: URL {
         appSupportDirectory.appendingPathComponent("custom_clippings.json")
+    }
+
+    private var customPresetsFileURL: URL {
+        appSupportDirectory.appendingPathComponent("text_factory_presets.json")
+    }
+
+    private var sessionFileURL: URL {
+        appSupportDirectory.appendingPathComponent("workspace_session.json")
+    }
+
+    private var cliHandoffDirectoryURL: URL {
+        let dir = appSupportDirectory.appendingPathComponent(GravityCLICommandPayload.payloadQueueDirectoryName, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
     }
 
     private func loadOrCreateScratchpadDocument() -> EditorDocument {
@@ -497,6 +573,7 @@ public final class WorkspaceViewModel: ObservableObject {
         }
         if contentChanged {
             refreshActiveAnalysis()
+            scheduleSessionSave()
         }
     }
 
@@ -506,6 +583,7 @@ public final class WorkspaceViewModel: ObservableObject {
            documents[idx].selectionEnd != selectionRange.location + selectionRange.length {
             documents[idx].selectionStart = selectionRange.location
             documents[idx].selectionEnd = selectionRange.location + selectionRange.length
+            scheduleSessionSave()
         }
     }
 
@@ -685,6 +763,7 @@ public final class WorkspaceViewModel: ObservableObject {
             let lineEnding = LineEnding.detect(rawText)
             let normalized = LineEnding.normalizeToLf(rawText)
             let fileName = url.lastPathComponent
+            let diskMod = ExternalFileWatcher.inspectDiskMetadata(at: url)?.modificationTime
             let doc = EditorDocument(
                 title: fileName,
                 fileURL: url,
@@ -693,13 +772,17 @@ public final class WorkspaceViewModel: ObservableObject {
                 isScratchpad: false,
                 language: SyntaxLanguage.fromFileName(fileName),
                 encoding: encoding,
-                lineEnding: lineEnding
+                lineEnding: lineEnding,
+                lastKnownDiskModDate: diskMod
             )
             let insertAt = max(0, documents.firstIndex(where: \.isScratchpad) ?? documents.count)
             documents.insert(doc, at: insertAt)
             selectTab(doc.id)
+            recordRecentFile(url)
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
-            postToast("Opened \(fileName)")
+            scheduleSessionSave()
+            let fastBadge = doc.isLargeFileMode ? " (Huge-File Fast Viewport)" : ""
+            postToast("Opened \(fileName)\(fastBadge)")
         } catch {
             postToast("Failed to open \(url.lastPathComponent): \(error.localizedDescription)")
         }
@@ -755,8 +838,12 @@ public final class WorkspaceViewModel: ObservableObject {
             documents[idx].savedEncoding = doc.encoding
             documents[idx].savedLineEnding = doc.lineEnding
             documents[idx].language = SyntaxLanguage.fromFileName(url.lastPathComponent)
+            documents[idx].lastKnownDiskModDate = ExternalFileWatcher.inspectDiskMetadata(at: url)?.modificationTime
+            externallyModifiedDocumentIds.remove(doc.id)
+            recordRecentFile(url)
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
             refreshActiveAnalysisImmediate()
+            scheduleSessionSave()
             postToast("Saved \(url.lastPathComponent)")
             return true
         } catch {
@@ -875,9 +962,14 @@ public final class WorkspaceViewModel: ObservableObject {
     }
 
     public func mountProjectFolder(url: URL) {
+        if let prev = activeSecurityScopedFolderURL, prev != url {
+            prev.stopAccessingSecurityScopedResource()
+            activeSecurityScopedFolderURL = nil
+        }
         mountedFolderURL = url
         revealSidebar(section: .diskBrowser)
         reloadDiskBrowserTree()
+        scheduleSessionSave()
         postToast("Mounted \(url.lastPathComponent)")
     }
 
@@ -1268,7 +1360,26 @@ public final class WorkspaceViewModel: ObservableObject {
                 documents.insert(newDoc, at: max(0, documents.count - 1))
             }
             refreshActiveAnalysisImmediate()
+            scheduleSessionSave()
             postToast("Applied pipeline across \(transformedTabs) open document\(transformedTabs == 1 ? "" : "s")")
+
+        case .mountedFolder:
+            guard let root = mountedFolderURL else {
+                postToast("Mount a project folder first to run batch Text Factory")
+                return
+            }
+            switch TextTransformEngine.executePipelineInDirectory(
+                rootURL: root,
+                steps: textFactorySteps,
+                fileFilter: searchOptions.fileFilter
+            ) {
+            case .success(let stats):
+                syncOpenDiskDocumentsAfterBatchOperation()
+                refreshActiveAnalysisImmediate()
+                postToast("Batch Text Factory modified \(stats.filesModified) of \(stats.filesScanned) file(s)")
+            case .failure(let err):
+                postToast("Batch Text Factory failed: \(err.localizedDescription)")
+            }
         }
     }
 
@@ -1468,28 +1579,67 @@ public final class WorkspaceViewModel: ObservableObject {
         }
     }
 
-    public func runMultiFileReplaceAll() {
-        guard let root = mountedFolderURL else { return }
-        switch FindReplaceEngine.replaceInDirectory(rootURL: root, options: searchOptions) {
-        case .success(let res):
-            // Reload any open document tabs backed by files under the mounted directory so tabs never hold stale content
-            for idx in documents.indices {
-                guard !documents[idx].isScratchpad, let url = documents[idx].fileURL,
-                      let data = try? Data(contentsOf: url) else { continue }
-                let (rawText, encoding) = DocumentEncoding.decode(data)
-                let normalized = LineEnding.normalizeToLf(rawText)
-                if documents[idx].content != normalized {
-                    documents[idx].content = normalized
-                    documents[idx].savedContent = normalized
-                    documents[idx].encoding = encoding
-                    documents[idx].savedEncoding = encoding
-                }
+    public func previewMultiFileReplace() {
+        guard let root = mountedFolderURL else {
+            searchErrorMessage = "Mount a project folder first to preview multi-file replacements."
+            return
+        }
+        switch FindReplaceEngine.previewReplaceInDirectory(rootURL: root, options: searchOptions) {
+        case .success(let items):
+            multiFileReplacePreviews = items
+            searchErrorMessage = nil
+            showMultiFileReplacePreview = true
+            if items.isEmpty {
+                postToast("No matching files require replacement")
             }
+        case .failure(let err):
+            multiFileReplacePreviews = []
+            searchErrorMessage = err.localizedDescription
+        }
+    }
+
+    public func toggleMultiFilePreviewSelection(path: String) {
+        guard let idx = multiFileReplacePreviews.firstIndex(where: { $0.fileURL.path == path }) else { return }
+        multiFileReplacePreviews[idx].isSelected.toggle()
+    }
+
+    public func commitPreviewedMultiFileReplace() {
+        let selectedPaths = Set(multiFileReplacePreviews.filter(\.isSelected).map(\.fileURL.path))
+        guard !selectedPaths.isEmpty else {
+            postToast("Select at least one file to apply replacements")
+            return
+        }
+        runMultiFileReplaceAll(selectedPaths: selectedPaths)
+        showMultiFileReplacePreview = false
+    }
+
+    public func runMultiFileReplaceAll(selectedPaths: Set<String>? = nil) {
+        guard let root = mountedFolderURL else { return }
+        switch FindReplaceEngine.replaceInDirectory(rootURL: root, options: searchOptions, selectedFilePaths: selectedPaths) {
+        case .success(let res):
+            syncOpenDiskDocumentsAfterBatchOperation()
             runMultiFileSearch()
+            multiFileReplacePreviews = []
             refreshActiveAnalysisImmediate()
             postToast("Modified \(res.filesModified) files (\(res.totalReplacements) replacements)")
         case .failure(let err):
             searchErrorMessage = err.localizedDescription
+        }
+    }
+
+    private func syncOpenDiskDocumentsAfterBatchOperation() {
+        for idx in documents.indices {
+            guard !documents[idx].isScratchpad, let url = documents[idx].fileURL,
+                  let data = try? Data(contentsOf: url) else { continue }
+            let (rawText, encoding) = DocumentEncoding.decode(data)
+            let normalized = LineEnding.normalizeToLf(rawText)
+            if documents[idx].content != normalized {
+                documents[idx].content = normalized
+                documents[idx].savedContent = normalized
+                documents[idx].encoding = encoding
+                documents[idx].savedEncoding = encoding
+                documents[idx].lastKnownDiskModDate = ExternalFileWatcher.inspectDiskMetadata(at: url)?.modificationTime
+            }
         }
     }
 
@@ -1585,10 +1735,624 @@ public final class WorkspaceViewModel: ObservableObject {
         saveCustomClippings()
     }
 
+    // MARK: - v1.4.0 PowerShell Runner & BBEdit Worksheet Execution
+
+    public func runActiveScript() {
+        guard let doc = focusedDocument else { return }
+        executeCodeInRunner(
+            code: doc.content,
+            language: doc.language,
+            workingDirectory: doc.fileURL?.deletingLastPathComponent() ?? mountedFolderURL,
+            lineNumberBaseOffset: 0
+        )
+    }
+
+    public func runSelectionOrCurrentLine() {
+        guard let doc = focusedDocument else { return }
+        let code: String
+        let lineOffset: Int
+        if doc.safeSelectionEnd > doc.safeSelectionStart {
+            code = doc.selectedText
+            lineOffset = doc.lineIndexForUTF16Offset(doc.safeSelectionStart)
+        } else {
+            let lineIdx = doc.lineIndexForUTF16Offset(doc.safeSelectionStart)
+            let lines = doc.lines
+            code = lines.indices.contains(lineIdx) ? lines[lineIdx] : ""
+            lineOffset = lineIdx
+        }
+        executeCodeInRunner(
+            code: code,
+            language: doc.language,
+            workingDirectory: doc.fileURL?.deletingLastPathComponent() ?? mountedFolderURL,
+            lineNumberBaseOffset: lineOffset
+        )
+    }
+
+    public func evaluateWorksheetInline() {
+        guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+        let doc = documents[idx]
+        let selStart = doc.safeSelectionStart
+        let selEnd = doc.safeSelectionEnd
+        let hasSel = selEnd > selStart
+        let codeToEval: String
+        let lineOffset: Int
+        if hasSel {
+            codeToEval = doc.selectedText
+            lineOffset = doc.lineIndexForUTF16Offset(selStart)
+        } else {
+            let lineIdx = doc.lineIndexForUTF16Offset(selStart)
+            let lines = doc.lines
+            codeToEval = lines.indices.contains(lineIdx) ? lines[lineIdx] : ""
+            lineOffset = lineIdx
+        }
+        let selRange = NSRange(location: selStart, length: max(0, selEnd - selStart))
+        let docId = doc.id
+        let lang = doc.language
+        let workDir = doc.fileURL?.deletingLastPathComponent() ?? mountedFolderURL
+
+        isScriptRunning = true
+        let token = ScriptRunCancellationToken()
+        activeCancellationToken = token
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let res = PowerShellRunnerEngine.executeScript(
+                code: codeToEval,
+                language: lang,
+                workingDirectory: workDir,
+                lineNumberBaseOffset: lineOffset,
+                cancellationToken: token
+            )
+            await MainActor.run {
+                guard let self, let curIdx = self.documents.firstIndex(where: { $0.id == docId }) else { return }
+                self.isScriptRunning = false
+                self.activeCancellationToken = nil
+                self.lastExecutionResult = res
+                let formatted = PowerShellRunnerEngine.formatWorksheetInsertion(
+                    in: self.documents[curIdx].content,
+                    selectionRange: selRange,
+                    result: res
+                )
+                self.documents[curIdx].content = formatted.updatedText
+                self.documents[curIdx].selectionStart = formatted.updatedSelection.location
+                self.documents[curIdx].selectionEnd = NSMaxRange(formatted.updatedSelection)
+                self.persistScratchpadIfNeeded(at: curIdx)
+                self.refreshActiveAnalysis()
+                self.scheduleSessionSave()
+                self.postToast("Worksheet evaluated (\(res.durationMs) ms)")
+            }
+        }
+    }
+
+    private func executeCodeInRunner(
+        code: String,
+        language: SyntaxLanguage,
+        workingDirectory: URL?,
+        lineNumberBaseOffset: Int
+    ) {
+        activeCancellationToken?.cancel()
+        let token = ScriptRunCancellationToken()
+        activeCancellationToken = token
+        isScriptRunning = true
+        showRunnerDrawer = true
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let res = PowerShellRunnerEngine.executeScript(
+                code: code,
+                language: language,
+                workingDirectory: workingDirectory,
+                lineNumberBaseOffset: lineNumberBaseOffset,
+                cancellationToken: token
+            )
+            await MainActor.run {
+                guard let self else { return }
+                self.isScriptRunning = false
+                self.activeCancellationToken = nil
+                self.lastExecutionResult = res
+            }
+        }
+    }
+
+    public func cancelRunningScript() {
+        activeCancellationToken?.cancel()
+        activeCancellationToken = nil
+        isScriptRunning = false
+        postToast("Cancelled running script")
+    }
+
+    public func clearRunnerOutput() {
+        lastExecutionResult = nil
+    }
+
+    public func jumpToExecutionOutputLine(_ outputLine: ScriptOutputLine) {
+        guard let loc = outputLine.location else { return }
+        if let path = loc.filePath, FileManager.default.fileExists(atPath: path) {
+            openFile(at: URL(fileURLWithPath: path))
+        }
+        jumpToLineAndColumn(oneBasedLine: loc.lineNumber, oneBasedColumn: loc.columnNumber)
+    }
+
+    public func jumpToLineAndColumn(oneBasedLine: Int, oneBasedColumn: Int) {
+        guard let doc = focusedDocument,
+              let idx = documents.firstIndex(where: { $0.id == doc.id }) else { return }
+        let clampedLine = min(max(1, oneBasedLine), doc.lineCount)
+        let lineRange = doc.nsRangeForLineIndex(clampedLine - 1)
+        let colOffset = min(max(0, oneBasedColumn - 1), lineRange.length)
+        let targetLoc = lineRange.location + colOffset
+        let targetRange = NSRange(location: targetLoc, length: 0)
+        documents[idx].selectionStart = targetLoc
+        documents[idx].selectionEnd = targetLoc
+        scrollJumpRequest = ScrollJumpRequest(documentId: doc.id, utf16Range: targetRange)
+    }
+
+    // MARK: - v1.4.0 Saved Text Factory Presets
+
+    private func loadCustomTextFactoryPresets() {
+        guard let data = try? Data(contentsOf: customPresetsFileURL),
+              let decoded = try? JSONDecoder().decode([SavedTextFactoryPreset].self, from: data) else {
+            return
+        }
+        customTextFactoryPresets = decoded
+    }
+
+    private func saveCustomTextFactoryPresets() {
+        guard let data = try? JSONEncoder().encode(customTextFactoryPresets) else { return }
+        try? data.write(to: customPresetsFileURL, options: .atomic)
+    }
+
+    public func saveCurrentPipelineAsPreset(name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let preset = SavedTextFactoryPreset(name: trimmed, steps: textFactorySteps, isBuiltIn: false)
+        customTextFactoryPresets.removeAll { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }
+        customTextFactoryPresets.append(preset)
+        saveCustomTextFactoryPresets()
+        postToast("Saved Text Factory preset '\(trimmed)'")
+    }
+
+    public func loadTextFactoryPreset(_ preset: SavedTextFactoryPreset) {
+        textFactorySteps = preset.steps.map { step in
+            var copy = step
+            copy.id = UUID().uuidString
+            return copy
+        }
+        postToast("Loaded preset '\(preset.name)'")
+    }
+
+    public func deleteTextFactoryPreset(id: String) {
+        customTextFactoryPresets.removeAll { $0.id == id }
+        saveCustomTextFactoryPresets()
+    }
+
+    public func moveTextFactoryStep(id: String, delta: Int) {
+        guard let idx = textFactorySteps.firstIndex(where: { $0.id == id }) else { return }
+        let target = idx + delta
+        guard textFactorySteps.indices.contains(target) else { return }
+        textFactorySteps.swapAt(idx, target)
+    }
+
+    // MARK: - v1.4.0 Column / Rectangular Block Editing & Line Bookmarks
+
+    public func openColumnEditSheet() {
+        if let doc = focusedDocument {
+            let (startLn, endLn) = Self.lineSpan(for: doc)
+            let (_, curCol) = doc.cursorLineAndColumn()
+            columnBlockSpec = ColumnBlockSpec(
+                startLine: startLn + 1,
+                endLine: max(startLn + 1, endLn + 1),
+                startColumn: curCol,
+                endColumn: max(curCol, curCol + 4)
+            )
+        }
+        showColumnEditSheet = true
+    }
+
+    public func updateColumnSpecFromMultiRanges(documentId: String, ranges: [NSRange]) {
+        guard ranges.count > 1,
+              let doc = documents.first(where: { $0.id == documentId }),
+              let first = ranges.first,
+              let last = ranges.last else { return }
+        let startLine = doc.lineIndexForUTF16Offset(first.location) + 1
+        let endLine = doc.lineIndexForUTF16Offset(last.location) + 1
+        let lineStart = doc.nsRangeForLineIndex(startLine - 1).location
+        let startCol = max(1, (first.location - lineStart) + 1)
+        let endCol = max(startCol, startCol + max(0, first.length - 1))
+        columnBlockSpec = ColumnBlockSpec(
+            startLine: startLine,
+            endLine: endLine,
+            startColumn: startCol,
+            endColumn: endCol
+        )
+    }
+
+    public func applyColumnBlockOperation(
+        action: ColumnEditAction,
+        insertText: String,
+        startNumber: Int = 1,
+        stepNumber: Int = 1,
+        zeroPadWidth: Int = 0
+    ) {
+        guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+        documents[idx].content = TextTransformEngine.applyColumnEdit(
+            documents[idx].content,
+            spec: columnBlockSpec,
+            action: action,
+            insertText: insertText,
+            startNumber: startNumber,
+            stepNumber: stepNumber,
+            zeroPadWidth: zeroPadWidth
+        )
+        persistScratchpadIfNeeded(at: idx)
+        refreshActiveAnalysisImmediate()
+        scheduleSessionSave()
+        postToast("\(action.rawValue) (Ln \(columnBlockSpec.startLine)–\(columnBlockSpec.endLine))")
+    }
+
+    public func toggleBookmarkOnCurrentLine() {
+        guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+        let (ln, _) = documents[idx].cursorLineAndColumn()
+        let added = documents[idx].toggleBookmark(oneBasedLine: ln)
+        scheduleSessionSave()
+        postToast(added ? "Bookmarked line \(ln)" : "Removed bookmark on line \(ln)")
+    }
+
+    public func toggleBookmark(documentId: String, oneBasedLine: Int) {
+        guard let idx = documents.firstIndex(where: { $0.id == documentId }) else { return }
+        _ = documents[idx].toggleBookmark(oneBasedLine: oneBasedLine)
+        scheduleSessionSave()
+    }
+
+    public func jumpToNextBookmark(forward: Bool = true) {
+        guard let doc = focusedDocument else { return }
+        let (curLn, _) = doc.cursorLineAndColumn()
+        let target = forward
+            ? doc.nextBookmarkedLine(after: curLn, wrap: true)
+            : doc.previousBookmarkedLine(before: curLn, wrap: true)
+        if let target {
+            jumpToLine(target)
+        } else {
+            postToast("No bookmarks in active document (press ⌘F2 or click gutter to add)")
+        }
+    }
+
+    public func clearBookmarksInFocusedDocument() {
+        guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+        let count = documents[idx].bookmarkedLines.count
+        documents[idx].bookmarkedLines.removeAll()
+        scheduleSessionSave()
+        postToast("Cleared \(count) bookmark\(count == 1 ? "" : "s")")
+    }
+
+    // MARK: - v1.4.0 External Disk Watcher & Live Log Tail
+
+    private func startExternalFileWatchTimer() {
+        fileWatchTimer?.invalidate()
+        fileWatchTimer = Timer.scheduledTimer(withTimeInterval: 1.25, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.pollExternalDiskChanges()
+            }
+        }
+    }
+
+    public func pollExternalDiskChanges() {
+        for idx in documents.indices {
+            let doc = documents[idx]
+            guard !doc.isScratchpad, let url = doc.fileURL else { continue }
+            switch ExternalFileWatcher.checkExternalChange(at: url, lastKnownModDate: doc.lastKnownDiskModDate) {
+            case .unchanged, .deletedOnDisk:
+                continue
+            case .modifiedExternally(let newMeta):
+                if doc.isLiveTailing {
+                    if let latest = ExternalFileWatcher.readLatestDiskText(at: url, maxTailBytes: 2_000_000) {
+                        documents[idx].content = latest.text
+                        documents[idx].savedContent = latest.text
+                        documents[idx].encoding = latest.encoding
+                        documents[idx].savedEncoding = latest.encoding
+                        documents[idx].lineEnding = latest.lineEnding
+                        documents[idx].savedLineEnding = latest.lineEnding
+                        documents[idx].lastKnownDiskModDate = latest.metadata.modificationTime
+                        let lastRange = documents[idx].nsRangeForLineIndex(max(0, documents[idx].lineCount - 1))
+                        scrollJumpRequest = ScrollJumpRequest(documentId: doc.id, utf16Range: lastRange)
+                        refreshActiveAnalysis()
+                    }
+                } else if !doc.isDirty && autoReloadCleanExternalFiles {
+                    if let latest = ExternalFileWatcher.readLatestDiskText(at: url) {
+                        documents[idx].content = latest.text
+                        documents[idx].savedContent = latest.text
+                        documents[idx].encoding = latest.encoding
+                        documents[idx].savedEncoding = latest.encoding
+                        documents[idx].lineEnding = latest.lineEnding
+                        documents[idx].savedLineEnding = latest.lineEnding
+                        documents[idx].lastKnownDiskModDate = latest.metadata.modificationTime
+                        externallyModifiedDocumentIds.remove(doc.id)
+                        refreshActiveAnalysis()
+                        postToast("Auto-reloaded \(doc.title) from disk")
+                    }
+                } else {
+                    documents[idx].lastKnownDiskModDate = newMeta.modificationTime
+                    externallyModifiedDocumentIds.insert(doc.id)
+                }
+            }
+        }
+    }
+
+    public func reloadFocusedDocumentFromDisk() {
+        guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }),
+              let url = documents[idx].fileURL,
+              let latest = ExternalFileWatcher.readLatestDiskText(at: url) else {
+            return
+        }
+        documents[idx].content = latest.text
+        documents[idx].savedContent = latest.text
+        documents[idx].encoding = latest.encoding
+        documents[idx].savedEncoding = latest.encoding
+        documents[idx].lineEnding = latest.lineEnding
+        documents[idx].savedLineEnding = latest.lineEnding
+        documents[idx].lastKnownDiskModDate = latest.metadata.modificationTime
+        externallyModifiedDocumentIds.remove(documents[idx].id)
+        refreshActiveAnalysisImmediate()
+        postToast("Reloaded \(documents[idx].title) from disk")
+    }
+
+    public func dismissExternalModificationWarning(id: String) {
+        externallyModifiedDocumentIds.remove(id)
+    }
+
+    public func toggleLiveTailOnFocusedDocument() {
+        guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+        guard documents[idx].fileURL != nil else {
+            postToast("Save document to disk first to enable Live Tail")
+            return
+        }
+        documents[idx].isLiveTailing.toggle()
+        let active = documents[idx].isLiveTailing
+        if active {
+            reloadFocusedDocumentFromDisk()
+            jumpToLine(documents[idx].lineCount)
+        }
+        postToast(active ? "Live Tail enabled for \(documents[idx].title)" : "Live Tail paused")
+    }
+
+    // MARK: - v1.4.0 Workspace Session Restoration, Recent Files & `gravity` CLI IPC
+
+    private func recordRecentFile(_ url: URL) {
+        let path = url.standardizedFileURL.path
+        recentFilePaths.removeAll { $0 == path }
+        recentFilePaths.insert(path, at: 0)
+        if recentFilePaths.count > 15 {
+            recentFilePaths = Array(recentFilePaths.prefix(15))
+        }
+    }
+
+    public func openRecentFile(path: String) {
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: path) else {
+            recentFilePaths.removeAll { $0 == path }
+            scheduleSessionSave()
+            postToast("File no longer exists on disk")
+            return
+        }
+        openFile(at: url)
+    }
+
+    public func clearRecentFiles() {
+        recentFilePaths.removeAll()
+        NSDocumentController.shared.clearRecentDocuments(nil)
+        scheduleSessionSave()
+        postToast("Cleared Recent Files")
+    }
+
+    public func scheduleSessionSave() {
+        sessionSaveWorkItem?.cancel()
+        let docsSnapshot: [EditorDocument] = documents.map { doc in
+            // Avoid duplicating multi-megabyte disk-backed clean files inside workspace_session.json
+            if !doc.isDirty, doc.fileURL != nil, doc.content.utf8.count > 262_144 {
+                var light = doc
+                light.content = ""
+                light.savedContent = ""
+                return light
+            }
+            return doc
+        }
+        let activeId = activeDocumentId
+        let secondaryId = secondaryDocumentId
+        let mode = splitMode
+        let folderURL = mountedFolderURL
+        let recents = recentFilePaths
+        let targetSessionURL = sessionFileURL
+
+        let work = DispatchWorkItem {
+            let bookmark = try? folderURL?.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            let session = PersistedWorkspaceSession(
+                openDocuments: docsSnapshot,
+                activeDocumentId: activeId,
+                secondaryDocumentId: secondaryId,
+                splitMode: mode,
+                mountedFolderPath: folderURL?.path,
+                mountedFolderBookmarkData: bookmark,
+                recentFilePaths: recents
+            )
+            if let encoded = try? JSONEncoder().encode(session) {
+                try? encoded.write(to: targetSessionURL, options: .atomic)
+            }
+        }
+        sessionSaveWorkItem = work
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.55, execute: work)
+    }
+
+    private func loadPersistedWorkspaceSession(scratchpad: EditorDocument) -> PersistedWorkspaceSession? {
+        guard let data = try? Data(contentsOf: sessionFileURL),
+              var decoded = try? JSONDecoder().decode(PersistedWorkspaceSession.self, from: data),
+              !decoded.openDocuments.isEmpty else {
+            return nil
+        }
+
+        var hydrated: [EditorDocument] = []
+        for var doc in decoded.openDocuments {
+            if doc.isScratchpad {
+                continue
+            }
+            if let url = doc.fileURL {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    if !doc.isDirty, let latest = ExternalFileWatcher.readLatestDiskText(at: url) {
+                        doc.content = latest.text
+                        doc.savedContent = latest.text
+                        doc.encoding = latest.encoding
+                        doc.savedEncoding = latest.encoding
+                        doc.lineEnding = latest.lineEnding
+                        doc.savedLineEnding = latest.lineEnding
+                        doc.lastKnownDiskModDate = latest.metadata.modificationTime
+                    }
+                    hydrated.append(doc)
+                } else if doc.isDirty {
+                    doc.fileURL = nil
+                    hydrated.append(doc)
+                }
+            } else {
+                hydrated.append(doc)
+            }
+        }
+        if hydrated.isEmpty {
+            hydrated.append(Self.createWelcomePowerShellDocument())
+        }
+        hydrated.append(scratchpad)
+        decoded.openDocuments = hydrated
+        if !hydrated.contains(where: { $0.id == decoded.activeDocumentId }) {
+            decoded.activeDocumentId = hydrated.first?.id ?? scratchpad.id
+        }
+        if !hydrated.contains(where: { $0.id == decoded.secondaryDocumentId }) {
+            decoded.secondaryDocumentId = scratchpad.id
+        }
+        return decoded
+    }
+
+    private func registerCLIHandoffListener() {
+        cliNotificationObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name(GravityCLICommandPayload.distributedNotificationName),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.drainPendingCLIHandoffPayloads()
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            }
+        }
+    }
+
+    public func drainPendingCLIHandoffPayloads() {
+        let fm = FileManager.default
+        let dir = cliHandoffDirectoryURL
+        guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        let jsonFiles = items.filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for file in jsonFiles {
+            defer { try? fm.removeItem(at: file) }
+            guard let data = try? Data(contentsOf: file),
+                  let payload = try? JSONDecoder().decode(GravityCLICommandPayload.self, from: data) else {
+                continue
+            }
+            applyCLIHandoffPayload(payload)
+        }
+    }
+
+    public func applyCLIHandoffPayload(_ payload: GravityCLICommandPayload) {
+        // 1. Stdin pipe payload (`pwsh -c ... | gravity`)
+        if let stdinPath = payload.stdinTempFilePath,
+           let data = try? Data(contentsOf: URL(fileURLWithPath: stdinPath)) {
+            try? FileManager.default.removeItem(atPath: stdinPath)
+            let (rawText, encoding) = DocumentEncoding.decode(data)
+            let normalized = LineEnding.normalizeToLf(rawText)
+            let inferredLang: SyntaxLanguage = {
+                let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") { return .json }
+                if trimmed.hasPrefix("<?xml") || trimmed.hasPrefix("<") { return .xml }
+                if trimmed.contains("function ") || trimmed.contains("$") { return .powershell }
+                return .plainText
+            }()
+            let baseTitle = payload.stdinTitle ?? "Pipe-\(documents.count)"
+            let title = EditorDocument.titleSynchronizedWithLanguage(currentTitle: baseTitle, language: inferredLang)
+            let doc = EditorDocument(
+                title: title,
+                content: normalized,
+                savedContent: "",
+                language: inferredLang,
+                encoding: encoding,
+                lineEnding: .lf
+            )
+            let insertAt = max(0, documents.firstIndex(where: \.isScratchpad) ?? documents.count)
+            documents.insert(doc, at: insertAt)
+            selectTab(doc.id)
+            postToast("Opened piped stdin in \(title)")
+        }
+
+        // 2. Side-by-side `--diff left right`
+        if let leftPath = payload.diffLeftPath, let rightPath = payload.diffRightPath {
+            let leftURL = URL(fileURLWithPath: leftPath)
+            let rightURL = URL(fileURLWithPath: rightPath)
+            openFile(at: leftURL)
+            let leftDocId = documents.first(where: { $0.fileURL?.standardizedFileURL == leftURL.standardizedFileURL })?.id ?? activeDocumentId
+            openFile(at: rightURL)
+            let rightDocId = documents.first(where: { $0.fileURL?.standardizedFileURL == rightURL.standardizedFileURL })?.id ?? activeDocumentId
+            diffLeftDocumentId = leftDocId
+            diffRightDocumentId = rightDocId
+            recomputeDiff()
+            showDiffSheet = true
+            return
+        }
+
+        // 3. Open files or folders + optional `:line` jump
+        for rawPath in payload.filesToOpen {
+            let url = URL(fileURLWithPath: rawPath)
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
+                if isDir.boolValue {
+                    mountProjectFolder(url: url)
+                } else {
+                    openFile(at: url)
+                }
+            } else {
+                // Create new buffer targeted at requested path
+                let lang = SyntaxLanguage.fromFileName(url.lastPathComponent)
+                let doc = EditorDocument(
+                    title: url.lastPathComponent,
+                    fileURL: url,
+                    content: "",
+                    savedContent: "",
+                    language: lang
+                )
+                let insertAt = max(0, documents.firstIndex(where: \.isScratchpad) ?? documents.count)
+                documents.insert(doc, at: insertAt)
+                selectTab(doc.id)
+            }
+        }
+        if let jumpLn = payload.jumpToLine {
+            jumpToLine(jumpLn)
+        }
+    }
+
+    public func copyGravityCLIInstallCommand() {
+        let bundleExeDir = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/gravity").path
+        let cmd = "sudo ln -sf \"\(bundleExeDir)\" /usr/local/bin/gravity"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(cmd, forType: .string)
+        postToast("Copied `gravity` CLI symlink command to Clipboard")
+    }
+
     // MARK: - Command Palette Catalog
 
     public func buildCommandPaletteItems(updateManager: SparkleUpdateManager) -> [CommandPaletteItem] {
         [
+            CommandPaletteItem(id: "run_ps", title: "Run PowerShell / Active Script", subtitle: "Execute in pwsh or built-in Worksheet drawer", shortcutHint: "⌘R", sfSymbol: "play.fill") { [weak self] in
+                self?.runActiveScript()
+            },
+            CommandPaletteItem(id: "run_sel", title: "Run Selection or Current Line", subtitle: "Execute selected PowerShell statements in Output drawer", shortcutHint: "F8", sfSymbol: "play.rectangle") { [weak self] in
+                self?.runSelectionOrCurrentLine()
+            },
+            CommandPaletteItem(id: "worksheet_eval", title: "Evaluate Inline (BBEdit Worksheet Mode)", subtitle: "Insert evaluated PowerShell output directly below selection", shortcutHint: "⌃↩", sfSymbol: "terminal") { [weak self] in
+                self?.evaluateWorksheetInline()
+            },
             CommandPaletteItem(id: "new_doc", title: "New Document…", subtitle: "Create PowerShell, Swift, JSON, Markdown, or Shell file", shortcutHint: "⌘N", sfSymbol: "doc.badge.plus") { [weak self] in
                 self?.showNewDocumentSheet = true
             },
@@ -1605,12 +2369,24 @@ public final class WorkspaceViewModel: ObservableObject {
                 self?.findSheetInitialTab = .document
                 self?.showFindReplaceSheet = true
             },
-            CommandPaletteItem(id: "find_dir", title: "Multi-File Search in Folder", subtitle: "Recursively search & batch-replace across mounted project", shortcutHint: "⇧⌘F", sfSymbol: "doc.text.magnifyingglass") { [weak self] in
+            CommandPaletteItem(id: "find_dir", title: "Multi-File Search & Dry-Run Replace", subtitle: "Recursively search, preview diffs & batch-replace across folder", shortcutHint: "⇧⌘F", sfSymbol: "doc.text.magnifyingglass") { [weak self] in
                 self?.findSheetInitialTab = .directory
                 self?.showFindReplaceSheet = true
             },
-            CommandPaletteItem(id: "text_factory", title: "Open BBEdit Text Factory…", subtitle: "Chain 14 deterministic text & code transformations", shortcutHint: "⇧⌘T", sfSymbol: "wand.and.stars") { [weak self] in
+            CommandPaletteItem(id: "text_factory", title: "Open BBEdit Text Factory…", subtitle: "Chain 14 transformations, saved presets & batch folder runs", shortcutHint: "⇧⌘T", sfSymbol: "wand.and.stars") { [weak self] in
                 self?.showTextFactorySheet = true
+            },
+            CommandPaletteItem(id: "col_block", title: "Column / Rectangular Block Edit…", subtitle: "Insert, replace, delete, or number columns across lines", shortcutHint: "⌃⇧B", sfSymbol: "rectangle.split.3x3") { [weak self] in
+                self?.openColumnEditSheet()
+            },
+            CommandPaletteItem(id: "bookmark_toggle", title: "Toggle Line Bookmark", subtitle: "Pin or unpin current line in gutter", shortcutHint: "⌘F2", sfSymbol: "bookmark.fill") { [weak self] in
+                self?.toggleBookmarkOnCurrentLine()
+            },
+            CommandPaletteItem(id: "bookmark_next", title: "Jump to Next Bookmark", subtitle: "Cycle through bookmarked lines in active document", shortcutHint: "F2", sfSymbol: "bookmark") { [weak self] in
+                self?.jumpToNextBookmark(forward: true)
+            },
+            CommandPaletteItem(id: "live_tail", title: "Toggle Live Log Tail Mode", subtitle: "Follow external log appends in real time", shortcutHint: "⌃⌘L", sfSymbol: "dot.radiowaves.left.and.right") { [weak self] in
+                self?.toggleLiveTailOnFocusedDocument()
             },
             CommandPaletteItem(id: "format_code", title: "Format / Prettify Document", subtitle: "Auto-indent PowerShell, JSON, or XML", shortcutHint: "⌃⌥F", sfSymbol: "text.alignleft") { [weak self] in
                 self?.applyQuickStepToSelectionOrDocument(TextFactoryStep(operationType: .formatPrettify))
@@ -1623,6 +2399,9 @@ public final class WorkspaceViewModel: ObservableObject {
             },
             CommandPaletteItem(id: "clippings", title: "Insert PowerShell Clipping / Snippet…", subtitle: "Expand CmdletBinding, Pester, REST, or custom templates", shortcutHint: "⌃⌘C", sfSymbol: "text.badge.plus") { [weak self] in
                 self?.showClippingsSheet = true
+            },
+            CommandPaletteItem(id: "cli_install", title: "Copy 'gravity' CLI Install Command", subtitle: "Symlink `gravity` terminal pipe & diff helper to /usr/local/bin", shortcutHint: "", sfSymbol: "apple.terminal") { [weak self] in
+                self?.copyGravityCLIInstallCommand()
             },
             CommandPaletteItem(id: "split_v", title: "Toggle Side-by-Side Vertical Split", subtitle: "View two documents side by side", shortcutHint: "⌥⌘2", sfSymbol: "rectangle.split.2x1") { [weak self] in
                 guard let self else { return }

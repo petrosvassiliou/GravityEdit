@@ -53,3 +53,20 @@ data class PatternPlaygroundEvaluation(
     val replacementPreview: String = "",
     val executionTimeMicros: Long = 0L
 )
+
+@Immutable
+data class MultiFileReplaceLineChange(
+    val lineNumber: Int,
+    val beforeLine: String,
+    val afterLine: String
+)
+
+@Immutable
+data class MultiFileReplacePreviewItem(
+    val uriString: String,
+    val fileName: String,
+    val relativePath: String,
+    val replacementCount: Int,
+    val lineChanges: List<MultiFileReplaceLineChange>,
+    val isSelected: Boolean = true
+)

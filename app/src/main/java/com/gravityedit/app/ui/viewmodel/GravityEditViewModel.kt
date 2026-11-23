@@ -26,12 +26,18 @@ import com.gravityedit.app.domain.engine.DiffEngine
 import com.gravityedit.app.domain.engine.FindReplaceEngine
 import com.gravityedit.app.domain.engine.PowerShellDiagnostic
 import com.gravityedit.app.domain.engine.PowerShellEngine
+import com.gravityedit.app.domain.engine.PowerShellRunnerEngine
+import com.gravityedit.app.domain.engine.ScriptExecutionResult
+import com.gravityedit.app.domain.engine.ScriptOutputLine
+import com.gravityedit.app.domain.engine.ScriptOutputStreamKind
 import com.gravityedit.app.domain.engine.SearchableFileSource
 import com.gravityedit.app.domain.engine.TextTransformEngine
 import com.gravityedit.app.domain.engine.UpdateDistributionChannel
 import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.Clipping
 import com.gravityedit.app.domain.model.ClippingCategory
+import com.gravityedit.app.domain.model.ColumnBlockSpec
+import com.gravityedit.app.domain.model.ColumnEditAction
 import com.gravityedit.app.domain.model.DiffResult
 import com.gravityedit.app.domain.model.DiskBrowserNode
 import com.gravityedit.app.domain.model.DocumentEncoding
@@ -39,12 +45,15 @@ import com.gravityedit.app.domain.model.EditorDocument
 import com.gravityedit.app.domain.model.EditorSnapshot
 import com.gravityedit.app.domain.model.FoldRegion
 import com.gravityedit.app.domain.model.LineEnding
+import com.gravityedit.app.domain.model.MultiFileReplacePreviewItem
 import com.gravityedit.app.domain.model.MultiFileSearchMatch
 import com.gravityedit.app.domain.model.PatternPlaygroundEvaluation
+import com.gravityedit.app.domain.model.SavedTextFactoryPreset
 import com.gravityedit.app.domain.model.SearchMatch
 import com.gravityedit.app.domain.model.SearchOptions
 import com.gravityedit.app.domain.model.SplitViewMode
 import com.gravityedit.app.domain.model.SyntaxLanguage
+import com.gravityedit.app.domain.model.TextFactoryScopeMode
 import com.gravityedit.app.domain.model.TextFactoryStep
 import com.gravityedit.app.domain.model.TextOperationType
 import com.gravityedit.app.domain.model.WorkspaceToolPanel
@@ -101,17 +110,33 @@ data class GravityEditUiState(
     val diskBrowserRootName: String = "Project",
     val diskBrowserNodes: List<DiskBrowserNode> = emptyList(),
 
-    // Find & Replace, Multi-File Search, and Regex Playground
+    // Find & Replace, Multi-File Search, Dry-Run Preview, and Regex Playground
     val searchOptions: SearchOptions = SearchOptions(),
     val activeDocSearchMatches: List<SearchMatch> = emptyList(),
     val currentMatchIndex: Int = -1,
     val multiFileSearchMatches: List<MultiFileSearchMatch> = emptyList(),
+    val multiFileReplacePreviews: List<MultiFileReplacePreviewItem> = emptyList(),
+    val showMultiFileReplacePreview: Boolean = false,
     val isMultiFileSearching: Boolean = false,
     val playgroundSampleText: String = DEFAULT_PLAYGROUND_SAMPLE,
     val playgroundEvaluation: PatternPlaygroundEvaluation = PatternPlaygroundEvaluation(isValidRegex = true),
 
-    // Text Factory Pipeline
+    // Text Factory Pipeline & Saved Presets
     val textFactorySteps: List<TextFactoryStep> = DEFAULT_TEXT_FACTORY_STEPS,
+    val textFactoryScope: TextFactoryScopeMode = TextFactoryScopeMode.ACTIVE_DOCUMENT,
+    val savedTextFactoryPresets: List<SavedTextFactoryPreset> = SavedTextFactoryPreset.BUILT_IN_PRESETS,
+
+    // PowerShell Runner & BBEdit Worksheet Drawer
+    val showRunnerDrawer: Boolean = false,
+    val isScriptRunning: Boolean = false,
+    val lastExecutionResult: ScriptExecutionResult? = null,
+    val runnerStreamFilter: ScriptOutputStreamKind? = null,
+
+    // Column / Rectangular Block Edit, External Watcher & Recent Files
+    val showColumnEditModal: Boolean = false,
+    val columnBlockSpec: ColumnBlockSpec = ColumnBlockSpec(),
+    val externallyModifiedDocIds: Set<String> = emptySet(),
+    val recentFileUris: List<Pair<String, String>> = emptyList(),
 
     // Clippings & Snippets
     val clippings: List<Clipping> = ClippingsManager.BUILT_IN_CLIPPINGS,
@@ -322,6 +347,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         val CODE_FOLDING = booleanPreferencesKey("code_folding")
         val SCRATCHPAD_CONTENT = stringPreferencesKey("scratchpad_content")
         val MOUNTED_FOLDER_URI = stringPreferencesKey("mounted_folder_uri")
+        val RECENT_FILES_RAW = stringPreferencesKey("recent_files_raw")
+        val WORKSPACE_SESSION_JSON = stringPreferencesKey("workspace_session_json")
         val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
         val UPDATE_INCLUDE_PRERELEASES = booleanPreferencesKey("update_include_prereleases")
     }
@@ -343,6 +370,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
 
     private var astParseJob: Job? = null
     private var scratchpadSaveJob: Job? = null
+    private var sessionSaveJob: Job? = null
+    private var externalWatchJob: Job? = null
     private val analysisCache = java.util.concurrent.ConcurrentHashMap<String, CachedDocAnalysis>()
     private var untitledCounter = 2
 
@@ -350,6 +379,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         loadPersistedStateAndInitialize()
         refreshAstAndFoldsForActiveDocument()
         recomputePlayground()
+        startExternalSafWatcher()
     }
 
     private fun createInitialState(): GravityEditUiState {
@@ -404,11 +434,21 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             val savedFolding = prefs[PrefKeys.CODE_FOLDING] ?: true
             val savedScratchpad = prefs[PrefKeys.SCRATCHPAD_CONTENT]
             val savedFolderUri = prefs[PrefKeys.MOUNTED_FOLDER_URI]
+            val savedRecentRaw = prefs[PrefKeys.RECENT_FILES_RAW] ?: ""
+            val savedSessionJson = prefs[PrefKeys.WORKSPACE_SESSION_JSON]
             val savedAutoCheckUpdates = prefs[PrefKeys.AUTO_CHECK_UPDATES] ?: true
             val savedIncludePreReleases = prefs[PrefKeys.UPDATE_INCLUDE_PRERELEASES] ?: false
 
+            val parsedRecents: List<Pair<String, String>> = savedRecentRaw.lines()
+                .mapNotNull { row ->
+                    val sep = row.indexOf('\t')
+                    if (sep > 0) row.substring(0, sep) to row.substring(sep + 1) else null
+                }
+
+            val restoredSession = savedSessionJson?.let { deserializeWorkspaceSession(it, savedScratchpad) }
+
             _uiState.update { state ->
-                val updatedDocs = if (!savedScratchpad.isNullOrEmpty()) {
+                val updatedDocs = restoredSession?.first ?: if (!savedScratchpad.isNullOrEmpty()) {
                     state.documents.map { doc ->
                         if (doc.isScratchpad) {
                             doc.copy(content = savedScratchpad, savedContent = savedScratchpad)
@@ -421,6 +461,9 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 state.copy(
                     documents = updatedDocs,
+                    activeDocumentId = restoredSession?.second ?: state.activeDocumentId,
+                    splitViewMode = restoredSession?.third ?: state.splitViewMode,
+                    recentFileUris = parsedRecents,
                     themeMode = savedTheme,
                     appLocaleTag = savedLocale,
                     fontSizeSp = savedFontSize,
@@ -821,6 +864,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         if (isScratchpadModified) {
             scheduleScratchpadPersistence()
         }
+        scheduleSessionPersistence()
         refreshAstAndFoldsForActiveDocument()
         refreshActiveDocSearchMatches()
     }
@@ -1404,17 +1448,21 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                 savedContent = normalizedText,
                 language = detectedLang,
                 encoding = detectedEncoding,
-                lineEnding = detectedLineEnding
+                lineEnding = detectedLineEnding,
+                lastKnownDiskModified = docFile?.lastModified() ?: 0L
             )
 
             withContext(Dispatchers.Main) {
+                recordRecentFile(resolvedName, uri.toString())
                 _uiState.update { state ->
+                    val fastBadge = if (openedDoc.isLargeFileMode) " • Fast Viewport" else ""
                     state.copy(
                         documents = state.documents + openedDoc,
                         activeDocumentId = openedDoc.id,
-                        statusBannerMessage = "Opened $resolvedName (${detectedEncoding.displayName}, ${detectedLineEnding.badge})"
+                        statusBannerMessage = "Opened $resolvedName (${detectedEncoding.displayName}, ${detectedLineEnding.badge}$fastBadge)"
                     )
                 }
+                scheduleSessionPersistence()
                 refreshAstAndFoldsForActiveDocument()
                 refreshActiveDocSearchMatches()
                 if (jumpToLineNumber != null) {
@@ -1799,18 +1847,59 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun runMultiFileReplace() {
+    fun previewMultiFileReplace() {
         val state = _uiState.value
         if (state.searchOptions.query.isEmpty()) return
         _uiState.update { it.copy(isMultiFileSearching = true) }
 
         viewModelScope.launch {
             val sources = collectSearchableFileSources()
-            val (filesModified, totalReplacements) = FindReplaceEngine.replaceAcrossFiles(sources, state.searchOptions)
+            val previews = FindReplaceEngine.previewReplaceAcrossFiles(sources, state.searchOptions)
+            _uiState.update {
+                it.copy(
+                    multiFileReplacePreviews = previews,
+                    showMultiFileReplacePreview = true,
+                    isMultiFileSearching = false,
+                    statusBannerMessage = if (previews.isEmpty()) "No matching files require replacement" else null
+                )
+            }
+        }
+    }
+
+    fun toggleMultiFilePreviewSelection(uriString: String) {
+        _uiState.update { state ->
+            state.copy(
+                multiFileReplacePreviews = state.multiFileReplacePreviews.map {
+                    if (it.uriString == uriString) it.copy(isSelected = !it.isSelected) else it
+                }
+            )
+        }
+    }
+
+    fun commitPreviewedMultiFileReplace() {
+        val selected = _uiState.value.multiFileReplacePreviews.filter { it.isSelected }.map { it.uriString }.toSet()
+        if (selected.isEmpty()) return
+        runMultiFileReplace(selectedUris = selected)
+    }
+
+    fun runMultiFileReplace(selectedUris: Set<String>? = null) {
+        val state = _uiState.value
+        if (state.searchOptions.query.isEmpty()) return
+        _uiState.update { it.copy(isMultiFileSearching = true) }
+
+        viewModelScope.launch {
+            val sources = collectSearchableFileSources()
+            val (filesModified, totalReplacements) = FindReplaceEngine.replaceAcrossFiles(
+                files = sources,
+                options = state.searchOptions,
+                selectedUris = selectedUris
+            )
             val refreshedResults = FindReplaceEngine.searchAcrossFiles(sources, state.searchOptions)
             _uiState.update {
                 it.copy(
                     multiFileSearchMatches = refreshedResults,
+                    multiFileReplacePreviews = emptyList(),
+                    showMultiFileReplacePreview = false,
                     isMultiFileSearching = false,
                     statusBannerMessage = "Replaced $totalReplacements match(es) across $filesModified file(s)"
                 )
@@ -1945,28 +2034,92 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun setTextFactoryScope(scope: TextFactoryScopeMode) {
+        _uiState.update { it.copy(textFactoryScope = scope) }
+    }
+
+    fun saveCurrentPipelineAsPreset(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        _uiState.update { state ->
+            val preset = SavedTextFactoryPreset(name = trimmed, steps = state.textFactorySteps, isBuiltIn = false)
+            val filtered = state.savedTextFactoryPresets.filterNot { !it.isBuiltIn && it.name.equals(trimmed, ignoreCase = true) }
+            state.copy(
+                savedTextFactoryPresets = filtered + preset,
+                statusBannerMessage = "Saved Text Factory preset '$trimmed'"
+            )
+        }
+    }
+
+    fun loadTextFactoryPreset(preset: SavedTextFactoryPreset) {
+        _uiState.update { state ->
+            state.copy(
+                textFactorySteps = preset.steps.map { it.copy(id = java.util.UUID.randomUUID().toString()) },
+                statusBannerMessage = "Loaded preset '${preset.name}'"
+            )
+        }
+    }
+
+    fun deleteTextFactoryPreset(presetId: String) {
+        _uiState.update { state ->
+            state.copy(savedTextFactoryPresets = state.savedTextFactoryPresets.filterNot { !it.isBuiltIn && it.id == presetId })
+        }
+    }
+
     fun runTextFactoryPipelineOnActiveDocument() {
         val state = _uiState.value
-        val doc = state.focusedDocument ?: return
         val steps = state.textFactorySteps
         viewModelScope.launch {
-            val result = TextTransformEngine.runPipeline(doc.content, steps)
-            updateDocumentContent(doc.id, result.transformedText)
-            if (result.targetLineEnding != null) {
-                setDocumentLineEnding(result.targetLineEnding)
-            }
-            for ((title, extractedContent) in result.extractedDocuments) {
-                createNewDocument(
-                    initialTitle = title,
-                    initialContent = extractedContent,
-                    language = SyntaxLanguage.PLAIN_TEXT
-                )
-            }
-            _uiState.update {
-                it.copy(
-                    showTextFactoryModal = false,
-                    statusBannerMessage = result.summary
-                )
+            when (state.textFactoryScope) {
+                TextFactoryScopeMode.SELECTION -> {
+                    val doc = state.focusedDocument ?: return@launch
+                    val s = doc.safeSelectionStart
+                    val e = doc.safeSelectionEnd
+                    if (e <= s) {
+                        _uiState.update { it.copy(statusBannerMessage = "Select text first or switch scope to Active Document") }
+                        return@launch
+                    }
+                    val result = TextTransformEngine.runPipeline(doc.selectedText, steps)
+                    val merged = doc.content.substring(0, s) + result.transformedText + doc.content.substring(e)
+                    updateDocumentContent(doc.id, merged, s, s + result.transformedText.length)
+                    _uiState.update { it.copy(showTextFactoryModal = false, statusBannerMessage = "${result.summary} (Selection)") }
+                }
+                TextFactoryScopeMode.ACTIVE_DOCUMENT -> {
+                    val doc = state.focusedDocument ?: return@launch
+                    val result = TextTransformEngine.runPipeline(doc.content, steps)
+                    updateDocumentContent(doc.id, result.transformedText)
+                    if (result.targetLineEnding != null) {
+                        setDocumentLineEnding(result.targetLineEnding)
+                    }
+                    for ((title, extractedContent) in result.extractedDocuments) {
+                        createNewDocument(initialTitle = title, initialContent = extractedContent, language = SyntaxLanguage.PLAIN_TEXT)
+                    }
+                    _uiState.update { it.copy(showTextFactoryModal = false, statusBannerMessage = result.summary) }
+                }
+                TextFactoryScopeMode.ALL_OPEN_DOCUMENTS -> {
+                    var count = 0
+                    for (doc in state.documents.filterNot { it.isScratchpad }) {
+                        val res = TextTransformEngine.runPipeline(doc.content, steps)
+                        updateDocumentContent(doc.id, res.transformedText)
+                        count++
+                    }
+                    _uiState.update {
+                        it.copy(
+                            showTextFactoryModal = false,
+                            statusBannerMessage = "Applied pipeline across $count open document(s)"
+                        )
+                    }
+                }
+                TextFactoryScopeMode.MOUNTED_FOLDER -> {
+                    val sources = collectSearchableFileSources().filterNot { it.uriString.startsWith("memory://") }
+                    val (modified, scanned) = TextTransformEngine.runPipelineAcrossFiles(sources, steps, state.searchOptions.fileFilter)
+                    _uiState.update {
+                        it.copy(
+                            showTextFactoryModal = false,
+                            statusBannerMessage = "Batch Text Factory modified $modified of $scanned file(s)"
+                        )
+                    }
+                }
             }
         }
     }
@@ -2393,6 +2546,406 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         val url = _uiState.value.latestReleaseInfo?.htmlUrl
             ?: AppUpdateManagerEngine.GITHUB_RELEASES_WEB_URL
         AppUpdateManagerEngine.openUrlInBrowser(context, url)
+    }
+
+    // =========================================================================
+    // v1.4.0 POWERSHELL RUNNER, BBEDIT WORKSHEET, BOOKMARKS, COLUMN EDIT & SESSION
+    // =========================================================================
+
+    fun setRunnerDrawerVisible(visible: Boolean) {
+        _uiState.update { it.copy(showRunnerDrawer = visible) }
+    }
+
+    fun setRunnerStreamFilter(filter: ScriptOutputStreamKind?) {
+        _uiState.update { it.copy(runnerStreamFilter = filter) }
+    }
+
+    fun clearRunnerOutput() {
+        _uiState.update { it.copy(lastExecutionResult = null) }
+    }
+
+    fun runActiveScript() {
+        val doc = _uiState.value.focusedDocument ?: return
+        _uiState.update { it.copy(isScriptRunning = true, showRunnerDrawer = true) }
+        viewModelScope.launch(Dispatchers.Default) {
+            val res = PowerShellRunnerEngine.executeScript(doc.content, lineNumberBaseOffset = 0)
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(isScriptRunning = false, lastExecutionResult = res) }
+            }
+        }
+    }
+
+    fun runSelectionOrCurrentLine() {
+        val doc = _uiState.value.focusedDocument ?: return
+        val hasSel = doc.safeSelectionEnd > doc.safeSelectionStart
+        val lineOffset = doc.lineIndexForOffset(doc.safeSelectionStart)
+        val snippet = if (hasSel) {
+            doc.selectedText
+        } else {
+            doc.lines.getOrElse(lineOffset) { "" }
+        }
+        _uiState.update { it.copy(isScriptRunning = true, showRunnerDrawer = true) }
+        viewModelScope.launch(Dispatchers.Default) {
+            val res = PowerShellRunnerEngine.executeScript(snippet, lineNumberBaseOffset = lineOffset)
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(isScriptRunning = false, lastExecutionResult = res) }
+            }
+        }
+    }
+
+    fun evaluateWorksheetInline() {
+        val doc = _uiState.value.focusedDocument ?: return
+        val selStart = doc.safeSelectionStart
+        val selEnd = doc.safeSelectionEnd
+        val lineOffset = doc.lineIndexForOffset(selStart)
+        val snippet = if (selEnd > selStart) doc.selectedText else doc.lines.getOrElse(lineOffset) { "" }
+        _uiState.update { it.copy(isScriptRunning = true) }
+        viewModelScope.launch(Dispatchers.Default) {
+            val res = PowerShellRunnerEngine.executeScript(snippet, lineNumberBaseOffset = lineOffset)
+            val (updatedText, newCursor) = PowerShellRunnerEngine.formatWorksheetInsertion(
+                documentText = doc.content,
+                selectionStart = selStart,
+                selectionEnd = selEnd,
+                result = res
+            )
+            withContext(Dispatchers.Main) {
+                updateDocumentContent(doc.id, updatedText, newCursor, newCursor)
+                _uiState.update {
+                    it.copy(
+                        isScriptRunning = false,
+                        lastExecutionResult = res,
+                        statusBannerMessage = "Worksheet evaluated (${res.durationMs} ms)"
+                    )
+                }
+            }
+        }
+    }
+
+    fun jumpToExecutionOutputLine(line: ScriptOutputLine) {
+        val loc = line.location ?: return
+        jumpToLine(loc.lineNumber)
+    }
+
+    fun shareActiveScriptToExternalTerminal() {
+        val doc = _uiState.value.focusedDocument ?: return
+        val app = getApplication<Application>()
+        runCatching {
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, doc.title)
+                putExtra(Intent.EXTRA_TEXT, doc.content)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val chooser = Intent.createChooser(sendIntent, "Send ${doc.title} to Terminal / Shell").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            app.startActivity(chooser)
+        }
+    }
+
+    fun openColumnEditModal() {
+        val doc = _uiState.value.focusedDocument
+        val spec = if (doc != null) {
+            val sLn = doc.lineIndexForOffset(doc.safeSelectionStart) + 1
+            val eLn = doc.lineIndexForOffset(doc.safeSelectionEnd).coerceAtLeast(sLn - 1) + 1
+            val (_, col) = doc.cursorLineAndColumn()
+            ColumnBlockSpec(startLine = sLn, endLine = maxOf(sLn, eLn), startColumn = col, endColumn = col + 4)
+        } else {
+            ColumnBlockSpec()
+        }
+        _uiState.update { it.copy(showColumnEditModal = true, columnBlockSpec = spec) }
+    }
+
+    fun setColumnEditModalVisible(visible: Boolean) {
+        _uiState.update { it.copy(showColumnEditModal = visible) }
+    }
+
+    fun updateColumnBlockSpec(spec: ColumnBlockSpec) {
+        _uiState.update { it.copy(columnBlockSpec = spec) }
+    }
+
+    fun applyColumnBlockOperation(
+        action: ColumnEditAction,
+        insertText: String,
+        startNumber: Int = 1,
+        stepNumber: Int = 1,
+        zeroPadWidth: Int = 0
+    ) {
+        val state = _uiState.value
+        val doc = state.focusedDocument ?: return
+        val updated = TextTransformEngine.applyColumnEdit(
+            text = doc.content,
+            spec = state.columnBlockSpec,
+            action = action,
+            insertText = insertText,
+            startNumber = startNumber,
+            stepNumber = stepNumber,
+            zeroPadWidth = zeroPadWidth
+        )
+        updateDocumentContent(doc.id, updated)
+        _uiState.update {
+            it.copy(
+                showColumnEditModal = false,
+                statusBannerMessage = "${action.label} (Ln ${state.columnBlockSpec.normalizedStartLine}–${state.columnBlockSpec.normalizedEndLine})"
+            )
+        }
+    }
+
+    fun toggleBookmarkOnCurrentLine() {
+        val doc = _uiState.value.focusedDocument ?: return
+        val (ln, _) = doc.cursorLineAndColumn()
+        toggleBookmarkAtLine(doc.id, ln)
+    }
+
+    fun toggleBookmarkAtLine(documentId: String, oneBasedLine: Int) {
+        var added = false
+        _uiState.update { state ->
+            val updatedDocs = state.documents.map { doc ->
+                if (doc.id != documentId) return@map doc
+                val next = doc.toggleBookmark(oneBasedLine)
+                added = oneBasedLine in next.bookmarkedLines
+                next
+            }
+            state.copy(
+                documents = updatedDocs,
+                statusBannerMessage = if (added) "Bookmarked line $oneBasedLine" else "Removed bookmark on line $oneBasedLine"
+            )
+        }
+        scheduleSessionPersistence()
+    }
+
+    fun jumpToNextBookmark(forward: Boolean = true) {
+        val doc = _uiState.value.focusedDocument ?: return
+        val (curLn, _) = doc.cursorLineAndColumn()
+        val target = if (forward) {
+            doc.nextBookmarkedLine(curLn, wrap = true)
+        } else {
+            doc.previousBookmarkedLine(curLn, wrap = true)
+        }
+        if (target != null) {
+            jumpToLine(target)
+        } else {
+            _uiState.update { it.copy(statusBannerMessage = "No bookmarks in active document (tap gutter line number to bookmark)") }
+        }
+    }
+
+    fun clearBookmarksInActiveDocument() {
+        val doc = _uiState.value.focusedDocument ?: return
+        _uiState.update { state ->
+            state.copy(
+                documents = state.documents.map { if (it.id == doc.id) it.copy(bookmarkedLines = emptySet()) else it },
+                statusBannerMessage = "Cleared bookmarks in ${doc.title}"
+            )
+        }
+        scheduleSessionPersistence()
+    }
+
+    fun toggleLiveTailOnActiveDocument() {
+        val doc = _uiState.value.focusedDocument ?: return
+        if (doc.uriString == null) {
+            _uiState.update { it.copy(statusBannerMessage = "Save document to storage first to enable Live Tail") }
+            return
+        }
+        val nextTail = !doc.isLiveTailing
+        _uiState.update { state ->
+            state.copy(
+                documents = state.documents.map { if (it.id == doc.id) it.copy(isLiveTailing = nextTail) else it },
+                statusBannerMessage = if (nextTail) "Live Tail enabled for ${doc.title}" else "Live Tail paused"
+            )
+        }
+        if (nextTail) {
+            reloadActiveDocumentFromDisk(scrollToBottom = true)
+        }
+    }
+
+    fun reloadActiveDocumentFromDisk(scrollToBottom: Boolean = false) {
+        val doc = _uiState.value.focusedDocument ?: return
+        val uriStr = doc.uriString ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            val uri = Uri.parse(uriStr)
+            val docFile = DocumentFile.fromSingleUri(app, uri)
+            val rawBytes = runCatching {
+                app.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            }.getOrNull() ?: return@launch
+            val (enc, rawText) = decodeBytesWithEncodingDetection(rawBytes)
+            val le = LineEnding.detect(rawText)
+            val normalized = LineEnding.normalizeToLf(rawText)
+            val modTime = docFile?.lastModified() ?: System.currentTimeMillis()
+            withContext(Dispatchers.Main) {
+                _uiState.update { state ->
+                    state.copy(
+                        documents = state.documents.map { d ->
+                            if (d.id == doc.id) {
+                                d.copy(
+                                    content = normalized,
+                                    savedContent = normalized,
+                                    encoding = enc,
+                                    lineEnding = le,
+                                    lastKnownDiskModified = modTime
+                                )
+                            } else d
+                        },
+                        externallyModifiedDocIds = state.externallyModifiedDocIds - doc.id,
+                        statusBannerMessage = if (scrollToBottom) state.statusBannerMessage else "Reloaded ${doc.title} from disk"
+                    )
+                }
+                refreshAstAndFoldsForActiveDocument()
+                if (scrollToBottom) {
+                    val refreshed = _uiState.value.documents.firstOrNull { it.id == doc.id }
+                    if (refreshed != null) jumpToLine(refreshed.lineCount)
+                }
+            }
+        }
+    }
+
+    fun dismissExternalModificationWarning(documentId: String) {
+        _uiState.update { it.copy(externallyModifiedDocIds = it.externallyModifiedDocIds - documentId) }
+    }
+
+    private fun startExternalSafWatcher() {
+        externalWatchJob?.cancel()
+        externalWatchJob = viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                delay(2_000L)
+                val snapshot = _uiState.value.documents.filter { !it.isScratchpad && it.uriString != null }
+                if (snapshot.isEmpty()) continue
+                val app = getApplication<Application>()
+                for (doc in snapshot) {
+                    val uri = runCatching { Uri.parse(doc.uriString) }.getOrNull() ?: continue
+                    val df = DocumentFile.fromSingleUri(app, uri) ?: continue
+                    val diskMod = df.lastModified()
+                    if (diskMod > 0L && doc.lastKnownDiskModified > 0L && diskMod != doc.lastKnownDiskModified) {
+                        withContext(Dispatchers.Main) {
+                            if (doc.isLiveTailing) {
+                                reloadActiveDocumentFromDisk(scrollToBottom = true)
+                            } else if (!doc.isDirty) {
+                                reloadActiveDocumentFromDisk(scrollToBottom = false)
+                            } else {
+                                _uiState.update { st ->
+                                    st.copy(
+                                        documents = st.documents.map {
+                                            if (it.id == doc.id) it.copy(lastKnownDiskModified = diskMod) else it
+                                        },
+                                        externallyModifiedDocIds = st.externallyModifiedDocIds + doc.id
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun recordRecentFile(fileName: String, uriString: String) {
+        val next = (listOf(fileName to uriString) + _uiState.value.recentFileUris.filterNot { it.second == uriString }).take(12)
+        _uiState.update { it.copy(recentFileUris = next) }
+        val serialized = next.joinToString("\n") { "${it.first}\t${it.second}" }
+        viewModelScope.launch(Dispatchers.IO) {
+            dataStore.edit { it[PrefKeys.RECENT_FILES_RAW] = serialized }
+        }
+    }
+
+    fun openRecentFile(uriString: String) {
+        runCatching { openFileFromUri(Uri.parse(uriString)) }
+    }
+
+    fun clearRecentFiles() {
+        _uiState.update { it.copy(recentFileUris = emptyList(), statusBannerMessage = "Cleared Recent Files") }
+        viewModelScope.launch(Dispatchers.IO) {
+            dataStore.edit { it.remove(PrefKeys.RECENT_FILES_RAW) }
+        }
+    }
+
+    private fun scheduleSessionPersistence() {
+        sessionSaveJob?.cancel()
+        sessionSaveJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(600L)
+            val state = _uiState.value
+            val root = org.json.JSONObject()
+            root.put("activeDocumentId", state.activeDocumentId)
+            root.put("splitViewMode", state.splitViewMode.name)
+            val arr = org.json.JSONArray()
+            for (doc in state.documents) {
+                if (doc.isScratchpad) continue
+                // Skip serializing huge clean disk-backed contents into DataStore
+                val serializeBody = doc.isDirty || doc.uriString == null || doc.content.length <= 200_000
+                val obj = org.json.JSONObject()
+                obj.put("id", doc.id)
+                obj.put("title", doc.title)
+                obj.put("savedTitle", doc.savedTitle)
+                obj.put("uriString", doc.uriString ?: "")
+                obj.put("content", if (serializeBody) doc.content else "")
+                obj.put("savedContent", if (serializeBody) doc.savedContent else "")
+                obj.put("language", doc.language.name)
+                obj.put("encoding", doc.encoding.name)
+                obj.put("lineEnding", doc.lineEnding.name)
+                obj.put("selectionStart", doc.selectionStart)
+                obj.put("selectionEnd", doc.selectionEnd)
+                val bmArr = org.json.JSONArray()
+                doc.bookmarkedLines.sorted().forEach { bmArr.put(it) }
+                obj.put("bookmarks", bmArr)
+                arr.put(obj)
+            }
+            root.put("documents", arr)
+            val jsonStr = root.toString()
+            dataStore.edit { it[PrefKeys.WORKSPACE_SESSION_JSON] = jsonStr }
+        }
+    }
+
+    private fun deserializeWorkspaceSession(
+        rawJson: String,
+        savedScratchpad: String?
+    ): Triple<List<EditorDocument>, String, SplitViewMode>? {
+        return runCatching {
+            val root = org.json.JSONObject(rawJson)
+            val activeId = root.optString("activeDocumentId", "")
+            val split = runCatching {
+                SplitViewMode.valueOf(root.optString("splitViewMode", SplitViewMode.NONE.name))
+            }.getOrDefault(SplitViewMode.NONE)
+            val arr = root.optJSONArray("documents") ?: return null
+            val restored = ArrayList<EditorDocument>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val uriStr = obj.optString("uriString", "").takeIf { it.isNotEmpty() }
+                val bmArr = obj.optJSONArray("bookmarks")
+                val bookmarks = LinkedHashSet<Int>()
+                if (bmArr != null) {
+                    for (b in 0 until bmArr.length()) bookmarks.add(bmArr.getInt(b))
+                }
+                restored.add(
+                    EditorDocument(
+                        id = obj.getString("id"),
+                        title = obj.getString("title"),
+                        savedTitle = obj.optString("savedTitle", obj.getString("title")),
+                        uriString = uriStr,
+                        content = obj.optString("content", ""),
+                        savedContent = obj.optString("savedContent", ""),
+                        isScratchpad = false,
+                        language = runCatching { SyntaxLanguage.valueOf(obj.getString("language")) }.getOrDefault(SyntaxLanguage.POWERSHELL),
+                        encoding = runCatching { DocumentEncoding.valueOf(obj.getString("encoding")) }.getOrDefault(DocumentEncoding.UTF_8),
+                        lineEnding = runCatching { LineEnding.valueOf(obj.getString("lineEnding")) }.getOrDefault(LineEnding.LF),
+                        selectionStart = obj.optInt("selectionStart", 0),
+                        selectionEnd = obj.optInt("selectionEnd", 0),
+                        bookmarkedLines = bookmarks
+                    )
+                )
+            }
+            if (restored.isEmpty()) return null
+            val scratchBody = savedScratchpad?.takeIf { it.isNotEmpty() } ?: INITIAL_SCRATCHPAD_CONTENT
+            val scratchpad = EditorDocument(
+                id = SCRATCHPAD_DOC_ID,
+                title = "Scratchpad.ps1",
+                content = scratchBody,
+                savedContent = scratchBody,
+                isScratchpad = true,
+                language = SyntaxLanguage.POWERSHELL
+            )
+            val fullList = restored + scratchpad
+            val validActive = if (fullList.any { it.id == activeId }) activeId else fullList.first().id
+            Triple(fullList, validActive, split)
+        }.getOrNull()
     }
 
     companion object {

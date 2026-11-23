@@ -88,6 +88,66 @@ public final class GravityCodeTextView: NSTextView {
         super.keyDown(with: event)
     }
 
+    public override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        let ranges = selectedRanges.map(\.rangeValue)
+        if ranges.count > 1, let str = (insertString as? String) ?? (insertString as? NSAttributedString)?.string {
+            let sortedDescending = ranges.sorted { $0.location > $1.location }
+            if shouldChangeText(in: ranges as [NSValue], replacementStrings: Array(repeating: str, count: ranges.count)) {
+                textStorage?.beginEditing()
+                for r in sortedDescending {
+                    textStorage?.replaceCharacters(in: r, with: str)
+                }
+                textStorage?.endEditing()
+                didChangeText()
+                // Advance multi-cursors cleanly across lines
+                let strLen = (str as NSString).length
+                var cumulativeDelta = 0
+                var newRanges: [NSValue] = []
+                for r in ranges.sorted(by: { $0.location < $1.location }) {
+                    let newLoc = r.location + cumulativeDelta + strLen
+                    newRanges.append(NSValue(range: NSRange(location: newLoc, length: 0)))
+                    cumulativeDelta += strLen - r.length
+                }
+                setSelectedRanges(newRanges, affinity: .downstream, stillSelecting: false)
+                return
+            }
+        }
+        super.insertText(insertString, replacementRange: replacementRange)
+    }
+
+    public override func deleteBackward(_ sender: Any?) {
+        let ranges = selectedRanges.map(\.rangeValue)
+        if ranges.count > 1 {
+            let nsLen = (string as NSString).length
+            let deleteRanges: [NSRange] = ranges.compactMap { r in
+                if r.length > 0 { return r }
+                if r.location > 0 && r.location <= nsLen {
+                    return NSRange(location: r.location - 1, length: 1)
+                }
+                return nil
+            }
+            if !deleteRanges.isEmpty,
+               shouldChangeText(in: deleteRanges as [NSValue], replacementStrings: Array(repeating: "", count: deleteRanges.count)) {
+                textStorage?.beginEditing()
+                for r in deleteRanges.sorted(by: { $0.location > $1.location }) {
+                    textStorage?.replaceCharacters(in: r, with: "")
+                }
+                textStorage?.endEditing()
+                didChangeText()
+                var cumulativeRemoved = 0
+                var newRanges: [NSValue] = []
+                for r in deleteRanges.sorted(by: { $0.location < $1.location }) {
+                    let newLoc = max(0, r.location - cumulativeRemoved)
+                    newRanges.append(NSValue(range: NSRange(location: newLoc, length: 0)))
+                    cumulativeRemoved += r.length
+                }
+                setSelectedRanges(newRanges, affinity: .downstream, stillSelecting: false)
+                return
+            }
+        }
+        super.deleteBackward(sender)
+    }
+
     public override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
 
@@ -194,8 +254,10 @@ public final class GravityLineNumberRulerView: NSRulerView {
     public var editorFontSize: CGFloat = 13.5
     public var foldRegionsByStartLine: [Int: FoldRegion] = [:]
     public var foldedStartLines: Set<Int> = []
+    public var bookmarkedLines: Set<Int> = []
     public var diagnosticsByLine: [Int: DiagnosticSeverity] = [:]
     public var onToggleFoldAtLine: ((Int) -> Void)?
+    public var onToggleBookmarkAtLine: ((Int) -> Void)?
 
     public init(textView: NSTextView) {
         super.init(scrollView: textView.enclosingScrollView, orientation: .verticalRuler)
@@ -216,14 +278,13 @@ public final class GravityLineNumberRulerView: NSRulerView {
         }
 
         let localPt = convert(event.locationInWindow, from: nil)
-        // Rightmost 18pt column is the code-folding chevron hit zone
-        guard localPt.x >= ruleThickness - 20 else {
-            super.mouseDown(with: event)
-            return
-        }
-
         let ns = textView.string as NSString
         guard ns.length > 0, lm.numberOfGlyphs > 0 else {
+            if localPt.x < ruleThickness - 20 {
+                onToggleBookmarkAtLine?(1)
+                needsDisplay = true
+                return
+            }
             super.mouseDown(with: event)
             return
         }
@@ -252,8 +313,14 @@ public final class GravityLineNumberRulerView: NSRulerView {
             i += 1
         }
 
-        if foldRegionsByStartLine[lineIdx] != nil {
-            onToggleFoldAtLine?(lineIdx)
+        // Rightmost 20pt column is the code-folding chevron hit zone; left area toggles line bookmark
+        if localPt.x >= ruleThickness - 20 {
+            if foldRegionsByStartLine[lineIdx] != nil {
+                onToggleFoldAtLine?(lineIdx)
+                needsDisplay = true
+            }
+        } else {
+            onToggleBookmarkAtLine?(lineIdx + 1)
             needsDisplay = true
         }
     }
@@ -346,6 +413,13 @@ public final class GravityLineNumberRulerView: NSRulerView {
                     let drawY = yInRuler + max(0, (lineRect.height - sz.height) * 0.5)
                     numStr.draw(at: NSPoint(x: ruleThickness - 20 - sz.width, y: drawY), withAttributes: attrs)
 
+                    // Bookmark ribbon badge on left edge
+                    if bookmarkedLines.contains(lineNumber) {
+                        NSColor.controlAccentColor.setFill()
+                        let bmRect = NSRect(x: 2, y: yInRuler + (lineRect.height - 10) * 0.5, width: 4, height: 10)
+                        NSBezierPath(roundedRect: bmRect, xRadius: 1.5, yRadius: 1.5).fill()
+                    }
+
                     // Diagnostic severity dot on left edge
                     if let sev = diagnosticsByLine[lineNumber] {
                         let dotColor: NSColor
@@ -355,7 +429,8 @@ public final class GravityLineNumberRulerView: NSRulerView {
                         case .info: dotColor = .systemCyan
                         }
                         dotColor.setFill()
-                        let dotRect = NSRect(x: 5, y: yInRuler + (lineRect.height - 6) * 0.5, width: 6, height: 6)
+                        let dotX: CGFloat = bookmarkedLines.contains(lineNumber) ? 8 : 5
+                        let dotRect = NSRect(x: dotX, y: yInRuler + (lineRect.height - 6) * 0.5, width: 6, height: 6)
                         NSBezierPath(ovalIn: dotRect).fill()
                     }
 
@@ -419,6 +494,8 @@ public struct MacCodeEditorView: View {
     public let onContentChange: (String, NSRange) -> Void
     public let onSelectionChange: (NSRange) -> Void
     public let onToggleFold: (Int) -> Void
+    public let onToggleBookmark: (Int) -> Void
+    public let onMultiRangesChange: ([NSRange]) -> Void
     public let onFocusGained: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -444,6 +521,8 @@ public struct MacCodeEditorView: View {
         onContentChange: @escaping (String, NSRange) -> Void,
         onSelectionChange: @escaping (NSRange) -> Void,
         onToggleFold: @escaping (Int) -> Void,
+        onToggleBookmark: @escaping (Int) -> Void = { _ in },
+        onMultiRangesChange: @escaping ([NSRange]) -> Void = { _ in },
         onFocusGained: @escaping () -> Void
     ) {
         self.document = document
@@ -463,6 +542,8 @@ public struct MacCodeEditorView: View {
         self.onContentChange = onContentChange
         self.onSelectionChange = onSelectionChange
         self.onToggleFold = onToggleFold
+        self.onToggleBookmark = onToggleBookmark
+        self.onMultiRangesChange = onMultiRangesChange
         self.onFocusGained = onFocusGained
     }
 
@@ -489,6 +570,8 @@ public struct MacCodeEditorView: View {
                 onContentChange: onContentChange,
                 onSelectionChange: onSelectionChange,
                 onToggleFold: onToggleFold,
+                onToggleBookmark: onToggleBookmark,
+                onMultiRangesChange: onMultiRangesChange,
                 onFocusGained: onFocusGained
             )
 
@@ -681,6 +764,8 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
     let onContentChange: (String, NSRange) -> Void
     let onSelectionChange: (NSRange) -> Void
     let onToggleFold: (Int) -> Void
+    let onToggleBookmark: (Int) -> Void
+    let onMultiRangesChange: ([NSRange]) -> Void
     let onFocusGained: () -> Void
 
     func makeNSView(context: Context) -> GravityEditorDeckView {
@@ -828,6 +913,9 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
         ruler.onToggleFoldAtLine = { [weak coordinator] startLine in
             coordinator?.parent.onToggleFold(startLine)
         }
+        ruler.onToggleBookmarkAtLine = { [weak coordinator] oneBasedLine in
+            coordinator?.parent.onToggleBookmark(oneBasedLine)
+        }
         scrollView.verticalRulerView = ruler
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = showLineNumbers
@@ -900,6 +988,7 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
         private var lastJumpId: UUID? = nil
         private var lastCompletionAcceptNonce: UUID? = nil
         private var foldedCharRanges: [NSRange] = []
+        private var lastViewportStyledWindow: NSRange = NSRange(location: NSNotFound, length: 0)
 
         init(parent: MacCodeEditorRepresentable) {
             self.parent = parent
@@ -911,6 +1000,9 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
 
         @objc func clipViewBoundsOrFrameDidChange(_ notification: Notification) {
             containerView?.syncTextViewGeometry()
+            if let tv = textView, (tv.string as NSString).length > 260_000 {
+                refreshLargeFileViewportHighlightingIfNeeded(tv: tv)
+            }
             rulerView?.needsDisplay = true
             textView?.needsDisplay = true
         }
@@ -974,6 +1066,7 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
             for r in state.foldRegions { foldMap[r.startLine] = r }
             ruler.foldRegionsByStartLine = foldMap
             ruler.foldedStartLines = state.document.foldedStartLines
+            ruler.bookmarkedLines = state.document.bookmarkedLines
 
             var diagMap: [Int: DiagnosticSeverity] = [:]
             for d in state.diagnostics {
@@ -1166,24 +1259,33 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard !isProgrammaticUpdate, let tv = textView else { return }
             isProgrammaticUpdate = true
+            let nsLen = (tv.string as NSString).length
             applySyntaxHighlighting(to: tv)
             recomputeFoldedCharacterRanges(
                 in: tv.string,
                 foldRegions: parent.foldRegions,
                 foldedStarts: parent.document.foldedStartLines
             )
-            tv.sizeToFit()
+            if nsLen <= 64_000 {
+                tv.sizeToFit()
+            }
             containerView?.syncTextViewGeometry()
             isProgrammaticUpdate = false
 
             parent.onContentChange(tv.string, tv.selectedRange())
-            recomputeCompletions(forceShow: false)
+            if nsLen <= 260_000 {
+                recomputeCompletions(forceShow: false)
+            }
             rulerView?.needsDisplay = true
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard !isProgrammaticUpdate, let tv = textView else { return }
             parent.onSelectionChange(tv.selectedRange())
+            let multi = tv.selectedRanges.map(\.rangeValue)
+            if multi.count > 1 {
+                parent.onMultiRangesChange(multi)
+            }
             tv.needsDisplay = true
             rulerView?.needsDisplay = true
         }
@@ -1300,21 +1402,95 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
             ]
 
             let lang = parent.document.language
-            if lang == .plainText {
+            if lang == .plainText || ns.length == 0 {
+                lastViewportStyledWindow = NSRange(location: NSNotFound, length: 0)
                 storage.endEditing()
                 return
             }
 
-            // Cap full-file token coloring above 250 KB so giant log files stay instant
-            guard ns.length > 0 && ns.length <= 260_000 else {
+            // Huge-File Fast Mode (> 260 KB): enable non-contiguous layout & highlight ONLY the visible scroll window!
+            if ns.length > 260_000 {
+                tv.layoutManager?.allowsNonContiguousLayout = true
+                lastViewportStyledWindow = NSRange(location: NSNotFound, length: 0)
                 storage.endEditing()
+                refreshLargeFileViewportHighlightingIfNeeded(tv: tv, force: true)
                 return
             }
 
+            tv.layoutManager?.allowsNonContiguousLayout = false
+            colorSyntaxTokens(in: storage, text: text, ns: ns, targetRange: fullRange, lang: lang, regularFont: regularFont, semiboldFont: semiboldFont, colors: colors)
+            storage.endEditing()
+        }
+
+        func refreshLargeFileViewportHighlightingIfNeeded(tv: GravityCodeTextView, force: Bool = false) {
+            guard let storage = tv.textStorage,
+                  let lm = tv.layoutManager,
+                  let tc = tv.textContainer else { return }
+            let lang = parent.document.language
+            guard lang != .plainText else { return }
+
+            let text = storage.string
+            let ns = text as NSString
+            guard ns.length > 260_000 else { return }
+
+            let visRect = tv.visibleRect
+            let visGlyphs = lm.glyphRange(forBoundingRect: visRect, in: tc)
+            let visChars = lm.characterRange(forGlyphRange: visGlyphs, actualGlyphRange: nil)
+
+            let overscan = 4_000
+            let rawStart = max(0, visChars.location - overscan)
+            let rawEnd = min(ns.length, NSMaxRange(visChars) + overscan)
+            let alignedWindow = ns.lineRange(for: NSRange(location: rawStart, length: max(0, rawEnd - rawStart)))
+
+            if !force && lastViewportStyledWindow.location != NSNotFound {
+                let coversVisible = alignedWindow.location >= lastViewportStyledWindow.location
+                    && NSMaxRange(alignedWindow) <= NSMaxRange(lastViewportStyledWindow)
+                if coversVisible { return }
+                if abs(alignedWindow.location - lastViewportStyledWindow.location) < 900 {
+                    return
+                }
+            }
+            lastViewportStyledWindow = alignedWindow
+
+            let regularFont = NSFont.monospacedSystemFont(ofSize: parent.fontSize, weight: .regular)
+            let semiboldFont = NSFont.monospacedSystemFont(ofSize: parent.fontSize, weight: .semibold)
+            let colors = parent.syntaxColors
+            let prevProgrammatic = isProgrammaticUpdate
+            isProgrammaticUpdate = true
+            storage.beginEditing()
+            storage.addAttributes([.font: regularFont, .foregroundColor: colors.plainText], range: alignedWindow)
+            colorSyntaxTokens(
+                in: storage,
+                text: text,
+                ns: ns,
+                targetRange: alignedWindow,
+                lang: lang,
+                regularFont: regularFont,
+                semiboldFont: semiboldFont,
+                colors: colors
+            )
+            storage.endEditing()
+            isProgrammaticUpdate = prevProgrammatic
+        }
+
+        private func colorSyntaxTokens(
+            in storage: NSTextStorage,
+            text: String,
+            ns: NSString,
+            targetRange: NSRange,
+            lang: SyntaxLanguage,
+            regularFont: NSFont,
+            semiboldFont: NSFont,
+            colors: EditorSyntaxColors
+        ) {
+            guard targetRange.length > 0, NSMaxRange(targetRange) <= ns.length else { return }
             if lang == .powershell {
-                let lines = text.components(separatedBy: "\n")
+                let slice = (targetRange.location == 0 && targetRange.length == ns.length)
+                    ? text
+                    : ns.substring(with: targetRange)
+                let lines = slice.components(separatedBy: "\n")
                 let states = PowerShellEngine.computeLineStates(lines, language: .powershell)
-                var lineStartOffset = 0
+                var lineStartOffset = targetRange.location
 
                 for (idx, line) in lines.enumerated() {
                     let nsLine = line as NSString
@@ -1375,39 +1551,37 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
                     lineStartOffset += nsLine.length + 1
                 }
             } else {
-                // Fast regex highlighting for Swift, JSON, XML, YAML, Markdown, Python, Kotlin, Shell
-                for m in Self.genericNumberRegex.matches(in: text, options: [], range: fullRange) {
+                // Fast regex highlighting over targetRange (full file or huge-file visible window)
+                for m in Self.genericNumberRegex.matches(in: text, options: [], range: targetRange) {
                     storage.addAttribute(.foregroundColor, value: colors.number, range: m.range)
                 }
                 if lang == .swift || lang == .kotlin {
-                    for m in Self.swiftKeywordsRegex.matches(in: text, options: [], range: fullRange) {
+                    for m in Self.swiftKeywordsRegex.matches(in: text, options: [], range: targetRange) {
                         storage.addAttributes([.foregroundColor: colors.keyword, .font: semiboldFont], range: m.range)
                     }
                 }
                 if lang == .xml || lang == .htmlCss {
-                    for m in Self.xmlTagRegex.matches(in: text, options: [], range: fullRange) {
+                    for m in Self.xmlTagRegex.matches(in: text, options: [], range: targetRange) {
                         storage.addAttribute(.foregroundColor, value: colors.cmdlet, range: m.range)
                     }
                 }
-                let stringMatches = Self.genericStringRegex.matches(in: text, options: [], range: fullRange)
+                let stringMatches = Self.genericStringRegex.matches(in: text, options: [], range: targetRange)
                 let stringRanges = stringMatches.map(\.range)
                 for m in stringMatches {
                     storage.addAttributes([.foregroundColor: colors.stringLiteral, .font: regularFont], range: m.range)
                 }
                 if lang == .swift || lang == .kotlin {
-                    for m in Self.slashCommentRegex.matches(in: text, options: [], range: fullRange)
+                    for m in Self.slashCommentRegex.matches(in: text, options: [], range: targetRange)
                     where !stringRanges.contains(where: { NSLocationInRange(m.range.location, $0) }) {
                         storage.addAttributes([.foregroundColor: colors.comment, .font: regularFont], range: m.range)
                     }
                 } else if lang == .python || lang == .shellBash || lang == .yaml {
-                    for m in Self.hashCommentRegex.matches(in: text, options: [], range: fullRange)
+                    for m in Self.hashCommentRegex.matches(in: text, options: [], range: targetRange)
                     where !stringRanges.contains(where: { NSLocationInRange(m.range.location, $0) }) {
                         storage.addAttributes([.foregroundColor: colors.comment, .font: regularFont], range: m.range)
                     }
                 }
             }
-
-            storage.endEditing()
         }
     }
 }

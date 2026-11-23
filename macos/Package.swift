@@ -15,6 +15,10 @@ let package = Package(
         .executable(
             name: "GravityEdit",
             targets: ["GravityEditMac"]
+        ),
+        .executable(
+            name: "gravity",
+            targets: ["GravityCLI"]
         )
     ],
     dependencies: [
@@ -43,6 +47,14 @@ let package = Package(
                     "-Xlinker", "-rpath",
                     "-Xlinker", "@executable_path/../Frameworks"
                 ])
+            ]
+        ),
+        .executableTarget(
+            name: "GravityCLI",
+            dependencies: ["GravityEditCore"],
+            path: "Sources/GravityCLI",
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
             ]
         ),
         .testTarget(

@@ -1,6 +1,8 @@
 package com.gravityedit.app.domain.engine
 
 import com.gravityedit.app.domain.model.CaptureGroupMatch
+import com.gravityedit.app.domain.model.MultiFileReplaceLineChange
+import com.gravityedit.app.domain.model.MultiFileReplacePreviewItem
 import com.gravityedit.app.domain.model.MultiFileSearchMatch
 import com.gravityedit.app.domain.model.PatternPlaygroundEvaluation
 import com.gravityedit.app.domain.model.SearchMatch
@@ -500,12 +502,70 @@ object FindReplaceEngine {
     }
 
     /**
-     * Multi-File Replace across [files] matching [options.fileFilter]. Returns the pair of
-     * `(filesModifiedCount, totalReplacementsCount)`.
+     * Dry-run Multi-File Replace preview across [files] matching [options.fileFilter].
+     */
+    suspend fun previewReplaceAcrossFiles(
+        files: List<SearchableFileSource>,
+        options: SearchOptions
+    ): List<MultiFileReplacePreviewItem> = withContext(Dispatchers.Default) {
+        if (options.query.isEmpty()) return@withContext emptyList()
+        val scopedOptions = options.copy(searchInSelectionOnly = false)
+        val previews = ArrayList<MultiFileReplacePreviewItem>()
+
+        for (file in files) {
+            if (file.contentWriter == null) continue
+            if (!matchesFileFilter(file.fileName, options.fileFilter)) continue
+            val content = file.contentProvider() ?: continue
+            val (updated, count) = replaceAll(content, scopedOptions)
+            if (count > 0 && updated != content) {
+                val beforeLines = content.split('\n')
+                val afterLines = updated.split('\n')
+                val maxLines = minOf(beforeLines.size, afterLines.size)
+                val changes = ArrayList<MultiFileReplaceLineChange>()
+                for (idx in 0 until maxLines) {
+                    if (beforeLines[idx] != afterLines[idx]) {
+                        changes.add(
+                            MultiFileReplaceLineChange(
+                                lineNumber = idx + 1,
+                                beforeLine = beforeLines[idx],
+                                afterLine = afterLines[idx]
+                            )
+                        )
+                        if (changes.size >= 35) break
+                    }
+                }
+                if (changes.isEmpty()) {
+                    changes.add(
+                        MultiFileReplaceLineChange(
+                            lineNumber = 1,
+                            beforeLine = beforeLines.firstOrNull() ?: "",
+                            afterLine = afterLines.firstOrNull() ?: ""
+                        )
+                    )
+                }
+                previews.add(
+                    MultiFileReplacePreviewItem(
+                        uriString = file.uriString,
+                        fileName = file.fileName,
+                        relativePath = file.relativePath,
+                        replacementCount = count,
+                        lineChanges = changes,
+                        isSelected = true
+                    )
+                )
+            }
+        }
+        previews
+    }
+
+    /**
+     * Multi-File Replace across [files] matching [options.fileFilter] (and optional [selectedUris]).
+     * Returns the pair of `(filesModifiedCount, totalReplacementsCount)`.
      */
     suspend fun replaceAcrossFiles(
         files: List<SearchableFileSource>,
-        options: SearchOptions
+        options: SearchOptions,
+        selectedUris: Set<String>? = null
     ): Pair<Int, Int> = withContext(Dispatchers.Default) {
         if (options.query.isEmpty()) return@withContext 0 to 0
         val scopedOptions = options.copy(searchInSelectionOnly = false)
@@ -513,6 +573,7 @@ object FindReplaceEngine {
         var totalReplacements = 0
 
         for (file in files) {
+            if (selectedUris != null && file.uriString !in selectedUris) continue
             val writer = file.contentWriter ?: continue
             if (!matchesFileFilter(file.fileName, options.fileFilter)) continue
             val content = file.contentProvider() ?: continue

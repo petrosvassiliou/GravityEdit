@@ -493,6 +493,12 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     public var selectionStart: Int
     public var selectionEnd: Int
     public var foldedStartLines: Set<Int>
+    public var bookmarkedLines: Set<Int>
+    public var isLiveTailing: Bool
+    public var lastKnownDiskModDate: TimeInterval?
+
+    /// Documents above 256 KB automatically activate Huge-File Viewport Highlighting & off-main-thread indexing.
+    public static let largeFileThresholdBytes: Int = 262_144
 
     private var cachedLineCount: Int
     private var cachedWordCount: Int
@@ -500,7 +506,7 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, title, fileURL, content, savedContent, isScratchpad
         case language, encoding, savedEncoding, lineEnding, savedLineEnding
-        case selectionStart, selectionEnd, foldedStartLines
+        case selectionStart, selectionEnd, foldedStartLines, bookmarkedLines, isLiveTailing, lastKnownDiskModDate
     }
 
     public init(
@@ -515,7 +521,10 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
         lineEnding: LineEnding = .lf,
         selectionStart: Int = 0,
         selectionEnd: Int = 0,
-        foldedStartLines: Set<Int> = []
+        foldedStartLines: Set<Int> = [],
+        bookmarkedLines: Set<Int> = [],
+        isLiveTailing: Bool = false,
+        lastKnownDiskModDate: TimeInterval? = nil
     ) {
         let metrics = Self.computeLineAndWordCounts(in: content)
         self.id = id
@@ -532,6 +541,9 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
         self.selectionStart = selectionStart
         self.selectionEnd = selectionEnd
         self.foldedStartLines = foldedStartLines
+        self.bookmarkedLines = bookmarkedLines
+        self.isLiveTailing = isLiveTailing
+        self.lastKnownDiskModDate = lastKnownDiskModDate
         self.cachedLineCount = metrics.lines
         self.cachedWordCount = metrics.words
     }
@@ -556,9 +568,47 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
         self.savedLineEnding = try c.decodeIfPresent(LineEnding.self, forKey: .savedLineEnding) ?? decodedLE
         self.selectionStart = try c.decode(Int.self, forKey: .selectionStart)
         self.selectionEnd = try c.decode(Int.self, forKey: .selectionEnd)
-        self.foldedStartLines = try c.decode(Set<Int>.self, forKey: .foldedStartLines)
+        self.foldedStartLines = try c.decodeIfPresent(Set<Int>.self, forKey: .foldedStartLines) ?? []
+        self.bookmarkedLines = try c.decodeIfPresent(Set<Int>.self, forKey: .bookmarkedLines) ?? []
+        self.isLiveTailing = try c.decodeIfPresent(Bool.self, forKey: .isLiveTailing) ?? false
+        self.lastKnownDiskModDate = try c.decodeIfPresent(TimeInterval.self, forKey: .lastKnownDiskModDate)
         self.cachedLineCount = metrics.lines
         self.cachedWordCount = metrics.words
+    }
+
+    public var isLargeFileMode: Bool {
+        content.utf8.count >= Self.largeFileThresholdBytes
+    }
+
+    /// Toggles a 1-based line bookmark and returns `true` if the line is now bookmarked.
+    @discardableResult
+    public mutating func toggleBookmark(oneBasedLine: Int) -> Bool {
+        let clamped = min(max(1, oneBasedLine), max(1, lineCount))
+        if bookmarkedLines.contains(clamped) {
+            bookmarkedLines.remove(clamped)
+            return false
+        } else {
+            bookmarkedLines.insert(clamped)
+            return true
+        }
+    }
+
+    public func nextBookmarkedLine(after oneBasedLine: Int, wrap: Bool = true) -> Int? {
+        let sorted = bookmarkedLines.filter { $0 >= 1 && $0 <= lineCount }.sorted()
+        guard !sorted.isEmpty else { return nil }
+        if let next = sorted.first(where: { $0 > oneBasedLine }) {
+            return next
+        }
+        return wrap ? sorted.first : nil
+    }
+
+    public func previousBookmarkedLine(before oneBasedLine: Int, wrap: Bool = true) -> Int? {
+        let sorted = bookmarkedLines.filter { $0 >= 1 && $0 <= lineCount }.sorted()
+        guard !sorted.isEmpty else { return nil }
+        if let prev = sorted.last(where: { $0 < oneBasedLine }) {
+            return prev
+        }
+        return wrap ? sorted.last : nil
     }
 
     private static func computeLineAndWordCounts(in text: String) -> (lines: Int, words: Int) {
@@ -1401,5 +1451,247 @@ public struct TextFactoryResult: Equatable, Sendable {
         self.targetLineEnding = targetLineEnding
         self.stepsExecuted = stepsExecuted
         self.summary = summary
+    }
+}
+
+// MARK: - v1.4.0 Multi-File Replace Preview, Saved Text Factory Presets, Column Block, Runner & Session Models
+
+public struct MultiFileReplaceLineChange: Identifiable, Equatable, Sendable {
+    public var id: Int { lineNumber }
+    public let lineNumber: Int
+    public let beforeLine: String
+    public let afterLine: String
+
+    public init(lineNumber: Int, beforeLine: String, afterLine: String) {
+        self.lineNumber = lineNumber
+        self.beforeLine = beforeLine
+        self.afterLine = afterLine
+    }
+}
+
+public struct MultiFileReplacePreviewItem: Identifiable, Equatable, Sendable {
+    public var id: String { fileURL.path }
+    public let fileURL: URL
+    public let fileName: String
+    public let relativePath: String
+    public let replacementCount: Int
+    public let lineChanges: [MultiFileReplaceLineChange]
+    public var isSelected: Bool
+
+    public init(
+        fileURL: URL,
+        fileName: String,
+        relativePath: String,
+        replacementCount: Int,
+        lineChanges: [MultiFileReplaceLineChange],
+        isSelected: Bool = true
+    ) {
+        self.fileURL = fileURL
+        self.fileName = fileName
+        self.relativePath = relativePath
+        self.replacementCount = replacementCount
+        self.lineChanges = lineChanges
+        self.isSelected = isSelected
+    }
+}
+
+public struct SavedTextFactoryPreset: Identifiable, Equatable, Codable, Sendable {
+    public let id: String
+    public var name: String
+    public var steps: [TextFactoryStep]
+    public var isBuiltIn: Bool
+
+    public init(
+        id: String = UUID().uuidString,
+        name: String,
+        steps: [TextFactoryStep],
+        isBuiltIn: Bool = false
+    ) {
+        self.id = id
+        self.name = name
+        self.steps = steps
+        self.isBuiltIn = isBuiltIn
+    }
+
+    public static let builtInPresets: [SavedTextFactoryPreset] = [
+        SavedTextFactoryPreset(
+            id: "preset-clean-format-ps1",
+            name: "Clean & Prettify PowerShell",
+            steps: [
+                TextFactoryStep(operationType: .zapGremlins, enabled: true),
+                TextFactoryStep(operationType: .stripTrailingWhitespace, enabled: true),
+                TextFactoryStep(operationType: .canonizeReplaceTable, enabled: true),
+                TextFactoryStep(operationType: .formatPrettify, enabled: true)
+            ],
+            isBuiltIn: true
+        ),
+        SavedTextFactoryPreset(
+            id: "preset-dedup-sort-logs",
+            name: "Deduplicate & Sort Log Lines",
+            steps: [
+                TextFactoryStep(operationType: .stripTrailingWhitespace, enabled: true),
+                TextFactoryStep(operationType: .processLinesContaining, enabled: true, matchingLinesAction: .deleteMatching, matchingPattern: #"^\s*$"#, matchingUseRegex: true),
+                TextFactoryStep(operationType: .processDuplicateLines, enabled: true, duplicateMode: .leaveOne),
+                TextFactoryStep(operationType: .sortLines, enabled: true, sortDirection: .ascending)
+            ],
+            isBuiltIn: true
+        ),
+        SavedTextFactoryPreset(
+            id: "preset-unix-lf-detab",
+            name: "Normalize Unix LF + Detab (4 Spaces)",
+            steps: [
+                TextFactoryStep(operationType: .zapGremlins, enabled: true),
+                TextFactoryStep(operationType: .entabDetab, enabled: true, tabConversionMode: .detabTabsToSpaces, tabWidth: 4),
+                TextFactoryStep(operationType: .stripTrailingWhitespace, enabled: true),
+                TextFactoryStep(operationType: .convertLineEndings, enabled: true, targetLineEnding: .lf)
+            ],
+            isBuiltIn: true
+        )
+    ]
+}
+
+public enum ColumnEditAction: String, CaseIterable, Codable, Identifiable, Sendable {
+    case insertAtColumn = "Insert Text at Column"
+    case replaceBlock = "Replace Rectangular Block"
+    case deleteBlock = "Delete Rectangular Block"
+    case numberColumn = "Insert Sequential Numbers at Column"
+
+    public var id: String { rawValue }
+}
+
+public struct ColumnBlockSpec: Equatable, Codable, Sendable {
+    /// 1-based inclusive line and column coordinates.
+    public var startLine: Int
+    public var endLine: Int
+    public var startColumn: Int
+    public var endColumn: Int
+
+    public init(startLine: Int = 1, endLine: Int = 1, startColumn: Int = 1, endColumn: Int = 1) {
+        self.startLine = max(1, min(startLine, endLine))
+        self.endLine = max(1, max(startLine, endLine))
+        self.startColumn = max(1, min(startColumn, endColumn))
+        self.endColumn = max(1, max(startColumn, endColumn))
+    }
+}
+
+public enum ScriptOutputStreamKind: String, Codable, Sendable {
+    case stdout
+    case warning
+    case verbose
+    case stderr
+    case info
+}
+
+public struct ScriptExecutionLocation: Equatable, Codable, Sendable {
+    public let lineNumber: Int
+    public let columnNumber: Int
+    public let filePath: String?
+
+    public init(lineNumber: Int, columnNumber: Int = 1, filePath: String? = nil) {
+        self.lineNumber = max(1, lineNumber)
+        self.columnNumber = max(1, columnNumber)
+        self.filePath = filePath
+    }
+}
+
+public struct ScriptOutputLine: Identifiable, Equatable, Codable, Sendable {
+    public let id: UUID
+    public let stream: ScriptOutputStreamKind
+    public let text: String
+    public let location: ScriptExecutionLocation?
+
+    public init(
+        id: UUID = UUID(),
+        stream: ScriptOutputStreamKind,
+        text: String,
+        location: ScriptExecutionLocation? = nil
+    ) {
+        self.id = id
+        self.stream = stream
+        self.text = text
+        self.location = location
+    }
+}
+
+public struct ScriptExecutionResult: Equatable, Codable, Sendable {
+    public let engineDescription: String
+    public let usedNativePwsh: Bool
+    public let exitCode: Int32
+    public let durationMs: Int64
+    public let lines: [ScriptOutputLine]
+    public let rawCombinedOutput: String
+
+    public var succeeded: Bool { exitCode == 0 }
+
+    public init(
+        engineDescription: String,
+        usedNativePwsh: Bool,
+        exitCode: Int32,
+        durationMs: Int64,
+        lines: [ScriptOutputLine],
+        rawCombinedOutput: String
+    ) {
+        self.engineDescription = engineDescription
+        self.usedNativePwsh = usedNativePwsh
+        self.exitCode = exitCode
+        self.durationMs = durationMs
+        self.lines = lines
+        self.rawCombinedOutput = rawCombinedOutput
+    }
+}
+
+public struct PersistedWorkspaceSession: Codable, Sendable {
+    public var openDocuments: [EditorDocument]
+    public var activeDocumentId: String
+    public var secondaryDocumentId: String
+    public var splitMode: SplitViewMode
+    public var mountedFolderPath: String?
+    public var mountedFolderBookmarkData: Data?
+    public var recentFilePaths: [String]
+
+    public init(
+        openDocuments: [EditorDocument],
+        activeDocumentId: String,
+        secondaryDocumentId: String,
+        splitMode: SplitViewMode,
+        mountedFolderPath: String? = nil,
+        mountedFolderBookmarkData: Data? = nil,
+        recentFilePaths: [String] = []
+    ) {
+        self.openDocuments = openDocuments
+        self.activeDocumentId = activeDocumentId
+        self.secondaryDocumentId = secondaryDocumentId
+        self.splitMode = splitMode
+        self.mountedFolderPath = mountedFolderPath
+        self.mountedFolderBookmarkData = mountedFolderBookmarkData
+        self.recentFilePaths = recentFilePaths
+    }
+}
+
+public struct GravityCLICommandPayload: Codable, Equatable, Sendable {
+    public static let distributedNotificationName = "com.gravityedit.mac.cliCommand"
+    public static let payloadQueueDirectoryName = "cli_handoff"
+
+    public var filesToOpen: [String]
+    public var jumpToLine: Int?
+    public var diffLeftPath: String?
+    public var diffRightPath: String?
+    public var stdinTempFilePath: String?
+    public var stdinTitle: String?
+
+    public init(
+        filesToOpen: [String] = [],
+        jumpToLine: Int? = nil,
+        diffLeftPath: String? = nil,
+        diffRightPath: String? = nil,
+        stdinTempFilePath: String? = nil,
+        stdinTitle: String? = nil
+    ) {
+        self.filesToOpen = filesToOpen
+        self.jumpToLine = jumpToLine
+        self.diffLeftPath = diffLeftPath
+        self.diffRightPath = diffRightPath
+        self.stdinTempFilePath = stdinTempFilePath
+        self.stdinTitle = stdinTitle
     }
 }

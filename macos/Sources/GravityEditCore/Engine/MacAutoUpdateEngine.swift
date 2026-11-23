@@ -57,7 +57,7 @@ public enum MacAutoUpdateEngine {
            !ver.isEmpty {
             return ver
         }
-        return "1.3.4"
+        return "1.4.0"
     }
 
     public static var currentBuildNumber: String {

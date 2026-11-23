@@ -235,3 +235,82 @@ data class TextFactoryResult(
     val stepsExecuted: Int = 0,
     val summary: String = ""
 )
+
+enum class TextFactoryScopeMode(val label: String) {
+    SELECTION("Selection Only"),
+    ACTIVE_DOCUMENT("Active Document"),
+    ALL_OPEN_DOCUMENTS("All Open Documents"),
+    MOUNTED_FOLDER("Mounted Folder (Batch)")
+}
+
+@Immutable
+data class SavedTextFactoryPreset(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val steps: List<TextFactoryStep>,
+    val isBuiltIn: Boolean = false
+) {
+    companion object {
+        val BUILT_IN_PRESETS: List<SavedTextFactoryPreset> = listOf(
+            SavedTextFactoryPreset(
+                id = "preset_clean_prettify_ps1",
+                name = "Clean & Prettify PowerShell",
+                steps = listOf(
+                    TextFactoryStep(operationType = TextOperationType.ZAP_GREMLINS, enabled = true),
+                    TextFactoryStep(operationType = TextOperationType.STRIP_TRAILING_WHITESPACE, enabled = true),
+                    TextFactoryStep(operationType = TextOperationType.CANONIZE_REPLACE_TABLE, enabled = true),
+                    TextFactoryStep(operationType = TextOperationType.FORMAT_PRETTIFY, enabled = true)
+                ),
+                isBuiltIn = true
+            ),
+            SavedTextFactoryPreset(
+                id = "preset_dedup_sort_logs",
+                name = "Deduplicate & Sort Log Lines",
+                steps = listOf(
+                    TextFactoryStep(operationType = TextOperationType.STRIP_TRAILING_WHITESPACE, enabled = true),
+                    TextFactoryStep(
+                        operationType = TextOperationType.PROCESS_LINES_CONTAINING,
+                        enabled = true,
+                        matchingLinesAction = MatchingLinesAction.DELETE_MATCHING,
+                        matchingPattern = """^\s*$""",
+                        matchingUseRegex = true
+                    ),
+                    TextFactoryStep(operationType = TextOperationType.PROCESS_DUPLICATE_LINES, enabled = true),
+                    TextFactoryStep(operationType = TextOperationType.SORT_LINES, enabled = true)
+                ),
+                isBuiltIn = true
+            ),
+            SavedTextFactoryPreset(
+                id = "preset_unix_lf_detab",
+                name = "Normalize Unix LF + Detab (4 Spaces)",
+                steps = listOf(
+                    TextFactoryStep(operationType = TextOperationType.ZAP_GREMLINS, enabled = true),
+                    TextFactoryStep(operationType = TextOperationType.ENTAB_DETAB, enabled = true),
+                    TextFactoryStep(operationType = TextOperationType.STRIP_TRAILING_WHITESPACE, enabled = true),
+                    TextFactoryStep(operationType = TextOperationType.CONVERT_LINE_ENDINGS, enabled = true, targetLineEnding = LineEnding.LF)
+                ),
+                isBuiltIn = true
+            )
+        )
+    }
+}
+
+enum class ColumnEditAction(val label: String) {
+    INSERT_AT_COLUMN("Insert Text at Column"),
+    REPLACE_BLOCK("Replace Rectangular Block"),
+    DELETE_BLOCK("Delete Rectangular Block"),
+    NUMBER_COLUMN("Insert Sequential Numbers at Column")
+}
+
+@Immutable
+data class ColumnBlockSpec(
+    val startLine: Int = 1,
+    val endLine: Int = 1,
+    val startColumn: Int = 1,
+    val endColumn: Int = 1
+) {
+    val normalizedStartLine: Int get() = minOf(startLine, endLine).coerceAtLeast(1)
+    val normalizedEndLine: Int get() = maxOf(startLine, endLine).coerceAtLeast(1)
+    val normalizedStartColumn: Int get() = minOf(startColumn, endColumn).coerceAtLeast(1)
+    val normalizedEndColumn: Int get() = maxOf(startColumn, endColumn).coerceAtLeast(1)
+}

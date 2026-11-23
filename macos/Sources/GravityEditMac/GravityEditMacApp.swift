@@ -24,7 +24,11 @@ public final class GravityEditAppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let vm = workspaceViewModel else { return .terminateNow }
-        return vm.confirmQuitWithUnsavedDocuments() ? .terminateNow : .terminateCancel
+        let allow = vm.confirmQuitWithUnsavedDocuments()
+        if allow {
+            vm.scheduleSessionSave()
+        }
+        return allow ? .terminateNow : .terminateCancel
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

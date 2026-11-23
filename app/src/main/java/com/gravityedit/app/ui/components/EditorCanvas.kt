@@ -149,7 +149,8 @@ fun EditorCanvas(
     scrollRequestId: Long = 0L,
     astSymbols: List<AstSymbol> = emptyList(),
     diagnostics: List<PowerShellDiagnostic> = emptyList(),
-    onOpenDiagnostics: (() -> Unit)? = null
+    onOpenDiagnostics: (() -> Unit)? = null,
+    onToggleBookmark: ((oneBasedLine: Int) -> Unit)? = null
 ) {
     val palette = GravityEditThemeDefaults.syntaxPalette
     val codeStyle = remember(fontSizeSp) { editorCodeTextStyle(fontSizeSp = fontSizeSp) }
@@ -166,8 +167,13 @@ fun EditorCanvas(
     }
 
     val lines = remember(document.content) { document.lines }
-    val lineStates = remember(lines, document.language) {
-        PowerShellEngine.computeLineStates(lines, document.language)
+    // Huge-File Fast Viewport Mode (>= 256 KB): skip O(N) full-file state scan; LazyColumn highlights only visible rows!
+    val lineStates = remember(lines, document.language, document.isLargeFileMode) {
+        if (document.isLargeFileMode) {
+            emptyList()
+        } else {
+            PowerShellEngine.computeLineStates(lines, document.language)
+        }
     }
 
     val lineStartOffsets = remember(lines) {
@@ -368,6 +374,7 @@ fun EditorCanvas(
                         EditorLineGutterCell(
                             lineNumber = entry.lineNumber,
                             isCurrentLine = isCurrentLine,
+                            isBookmarked = entry.lineNumber in document.bookmarkedLines,
                             foldRegion = entry.foldRegionStartingHere,
                             isFolded = entry.isFolded,
                             enableCodeFolding = enableCodeFolding,
@@ -383,6 +390,8 @@ fun EditorCanvas(
                                 )
                                 if (lineDiagnostics.isNotEmpty()) {
                                     onOpenDiagnostics?.invoke()
+                                } else {
+                                    onToggleBookmark?.invoke(entry.lineNumber)
                                 }
                             },
                             onToggleFold = {
@@ -645,6 +654,7 @@ private fun PowerShellInlineCompletionPopup(
 private fun EditorLineGutterCell(
     lineNumber: Int,
     isCurrentLine: Boolean,
+    isBookmarked: Boolean,
     foldRegion: FoldRegion?,
     isFolded: Boolean,
     enableCodeFolding: Boolean,
@@ -663,6 +673,15 @@ private fun EditorLineGutterCell(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.End
     ) {
+        if (isBookmarked) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(11.dp)
+                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+        }
         if (highestDiagnosticSeverity != null) {
             val dotColor = when (highestDiagnosticSeverity) {
                 DiagnosticSeverity.ERROR -> MaterialTheme.colorScheme.error

@@ -37,7 +37,15 @@ public struct GravityEditMainWindow: View {
                 VStack(spacing: 0) {
                     liquidGlassDocumentTabStrip
                     Divider().opacity(0.35)
+                    if let doc = vm.focusedDocument, vm.externallyModifiedDocumentIds.contains(doc.id) {
+                        externalDiskConflictBanner(for: doc)
+                        Divider().opacity(0.35)
+                    }
                     editorSplitWorkspace
+                    if vm.showRunnerDrawer {
+                        Divider().opacity(0.5)
+                        scriptRunnerBottomDrawer
+                    }
                     Divider().opacity(0.35)
                     liquidGlassBottomStatusBar
                 }
@@ -105,6 +113,9 @@ public struct GravityEditMainWindow: View {
         }
         .sheet(isPresented: $vm.showDiagnosticsSheet) {
             DiagnosticsSheetView(vm: vm)
+        }
+        .sheet(isPresented: $vm.showColumnEditSheet) {
+            ColumnBlockEditSheetView(vm: vm)
         }
         .sheet(isPresented: $updateManager.isUpdateSheetPresented) {
             SoftwareUpdateSheetView(updateManager: updateManager)
@@ -577,6 +588,18 @@ public struct GravityEditMainWindow: View {
     @ViewBuilder
     private var toolbarWorkbenchButtons: some View {
         Button {
+            if vm.isScriptRunning {
+                vm.cancelRunningScript()
+            } else {
+                vm.runActiveScript()
+            }
+        } label: {
+            Image(systemName: vm.isScriptRunning ? "stop.fill" : "play.fill")
+                .foregroundStyle(vm.isScriptRunning ? Color.red : Color.green)
+        }
+        .help(vm.isScriptRunning ? "Stop Running Script" : "Run PowerShell / Active Script (⌘R)")
+
+        Button {
             vm.findSheetInitialTab = .document
             vm.showFindReplaceSheet = true
         } label: {
@@ -816,6 +839,12 @@ public struct GravityEditMainWindow: View {
                 onToggleFold: { line in
                     vm.toggleFold(documentId: doc.id, startLine: line)
                 },
+                onToggleBookmark: { oneBasedLine in
+                    vm.toggleBookmark(documentId: doc.id, oneBasedLine: oneBasedLine)
+                },
+                onMultiRangesChange: { ranges in
+                    vm.updateColumnSpecFromMultiRanges(documentId: doc.id, ranges: ranges)
+                },
                 onFocusGained: {
                     if vm.isSecondaryPaneFocused {
                         vm.isSecondaryPaneFocused = false
@@ -851,6 +880,12 @@ public struct GravityEditMainWindow: View {
                 },
                 onToggleFold: { line in
                     vm.toggleFold(documentId: doc.id, startLine: line)
+                },
+                onToggleBookmark: { oneBasedLine in
+                    vm.toggleBookmark(documentId: doc.id, oneBasedLine: oneBasedLine)
+                },
+                onMultiRangesChange: { ranges in
+                    vm.updateColumnSpecFromMultiRanges(documentId: doc.id, ranges: ranges)
                 },
                 onFocusGained: {
                     if !vm.isSecondaryPaneFocused {
@@ -981,6 +1016,81 @@ public struct GravityEditMainWindow: View {
 
             Spacer()
 
+            // Bookmarks Quick Pill
+            if let doc, !doc.bookmarkedLines.isEmpty {
+                Button {
+                    vm.jumpToNextBookmark(forward: true)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bookmark.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.accentColor)
+                        Text("\(doc.bookmarkedLines.count)")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .liquidGlassCapsule()
+                }
+                .buttonStyle(.plain)
+                .help("Cycle Bookmarks (F2 / ⇧F2)")
+            }
+
+            // Huge-File Fast Viewport Badge
+            if doc?.isLargeFileMode == true {
+                HStack(spacing: 4) {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.yellow)
+                    Text("Fast Viewport")
+                        .font(.system(size: 10.5, weight: .semibold))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .liquidGlassCapsule()
+                .help("Huge-file viewport-windowed syntax highlighting active (> 256 KB)")
+            }
+
+            // Live Log Tail Toggle Pill
+            if doc?.fileURL != nil {
+                Button {
+                    vm.toggleLiveTailOnFocusedDocument()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(doc?.isLiveTailing == true ? Color.green : Color.secondary)
+                        Text(doc?.isLiveTailing == true ? "Live Tail" : "Tail")
+                            .font(.system(size: 10.5, weight: .medium))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .liquidGlassCapsule(tint: doc?.isLiveTailing == true ? .green.opacity(0.22) : nil)
+                }
+                .buttonStyle(.plain)
+                .help("Follow external file appends in real time (⌃⌘L)")
+            }
+
+            // PowerShell Output Drawer Toggle Pill
+            Button {
+                withAnimation(.snappy(duration: 0.2)) {
+                    vm.showRunnerDrawer.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(vm.showRunnerDrawer ? Color.accentColor : Color.secondary)
+                    Text("Output")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .liquidGlassCapsule(tint: vm.showRunnerDrawer ? Color.accentColor.opacity(0.2) : nil)
+            }
+            .buttonStyle(.plain)
+            .help("Toggle PowerShell & Worksheet Output Drawer (⌃⌘Y)")
+
             // PSScriptAnalyzer Quick Pill
             if doc?.language == .powershell {
                 Button {
@@ -1106,6 +1216,180 @@ public struct GravityEditMainWindow: View {
         case .error: return .red
         case .warning: return .orange
         case .info: return .cyan
+        }
+    }
+
+    // MARK: - v1.4.0 External Disk Modification Conflict Banner & PowerShell Runner Drawer
+
+    private func externalDiskConflictBanner(for doc: EditorDocument) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90")
+                .foregroundStyle(.orange)
+            Text("“\(doc.title)” was modified on disk outside GravityEdit while you have unsaved edits.")
+                .font(.caption.weight(.medium))
+            Spacer()
+            Button("Reload from Disk") {
+                vm.reloadFocusedDocumentFromDisk()
+            }
+            .liquidGlassButton(prominent: true)
+            .controlSize(.small)
+            Button("Keep My Edits") {
+                vm.dismissExternalModificationWarning(id: doc.id)
+            }
+            .liquidGlassButton()
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.orange.opacity(0.12))
+    }
+
+    private var scriptRunnerBottomDrawer: some View {
+        let allLines = vm.lastExecutionResult?.lines ?? []
+        let filteredLines = vm.runnerStreamFilter == nil
+            ? allLines
+            : allLines.filter { $0.stream == vm.runnerStreamFilter }
+
+        return VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: vm.isScriptRunning ? "rays" : "terminal.fill")
+                    .foregroundStyle(vm.isScriptRunning ? .orange : Color.accentColor)
+                Text("PowerShell & Worksheet Output")
+                    .font(.system(size: 12, weight: .semibold))
+                if let res = vm.lastExecutionResult {
+                    Text("• \(res.engineDescription) • \(res.durationMs) ms • exit \(res.exitCode)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(res.succeeded ? Color.secondary : Color.red)
+                        .lineLimit(1)
+                }
+                Spacer()
+
+                Picker("", selection: $vm.runnerStreamFilter) {
+                    Text("All").tag(ScriptOutputStreamKind?.none)
+                    Text("Out").tag(ScriptOutputStreamKind?.some(.stdout))
+                    Text("Warn").tag(ScriptOutputStreamKind?.some(.warning))
+                    Text("Errors").tag(ScriptOutputStreamKind?.some(.stderr))
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .controlSize(.mini)
+                .frame(width: 210)
+
+                if vm.isScriptRunning {
+                    Button("Stop") {
+                        vm.cancelRunningScript()
+                    }
+                    .controlSize(.small)
+                    .liquidGlassButton()
+                } else {
+                    Button("Run Script (⌘R)") {
+                        vm.runActiveScript()
+                    }
+                    .controlSize(.small)
+                    .liquidGlassButton(prominent: true)
+
+                    Button("Run Selection (F8)") {
+                        vm.runSelectionOrCurrentLine()
+                    }
+                    .controlSize(.small)
+                    .liquidGlassButton()
+
+                    Button("Worksheet (⌃↩)") {
+                        vm.evaluateWorksheetInline()
+                    }
+                    .controlSize(.small)
+                    .liquidGlassButton()
+                }
+
+                Button {
+                    vm.clearRunnerOutput()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .help("Clear Output")
+
+                Button {
+                    vm.showRunnerDrawer = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.bold))
+                }
+                .buttonStyle(.plain)
+                .help("Hide Output Drawer")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.bar)
+
+            Divider().opacity(0.35)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 3) {
+                    if vm.isScriptRunning {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Executing script…")
+                                .font(.system(size: 11.5, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(8)
+                    } else if filteredLines.isEmpty {
+                        Text("Press ⌘R to run the active script, F8 to run the current selection/line, or ⌃Return to evaluate inline as a BBEdit Worksheet.")
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(10)
+                    } else {
+                        ForEach(filteredLines) { item in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(streamBadge(item.stream))
+                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(streamColor(item.stream))
+                                    .frame(width: 44, alignment: .leading)
+                                Text(item.text)
+                                    .font(.system(size: 11.5, design: .monospaced))
+                                    .foregroundStyle(item.stream == .stderr ? Color.red : Color.primary)
+                                    .textSelection(.enabled)
+                                Spacer()
+                                if let loc = item.location {
+                                    Button("Ln \(loc.lineNumber):\(loc.columnNumber) ↗") {
+                                        vm.jumpToExecutionOutputLine(item)
+                                    }
+                                    .font(.caption2.monospacedDigit().weight(.semibold))
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.mini)
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(height: 165)
+            .background(Color(nsColor: .textBackgroundColor))
+        }
+    }
+
+    private func streamBadge(_ stream: ScriptOutputStreamKind) -> String {
+        switch stream {
+        case .stdout: return "OUT"
+        case .warning: return "WARN"
+        case .verbose: return "VERB"
+        case .stderr: return "ERR"
+        case .info: return "INFO"
+        }
+    }
+
+    private func streamColor(_ stream: ScriptOutputStreamKind) -> Color {
+        switch stream {
+        case .stdout: return .secondary
+        case .warning: return .orange
+        case .verbose: return .cyan
+        case .stderr: return .red
+        case .info: return .blue
         }
     }
 }

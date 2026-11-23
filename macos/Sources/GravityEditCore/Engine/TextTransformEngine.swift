@@ -742,4 +742,164 @@ public enum TextTransformEngine {
     public static func urlDecode(_ text: String) -> String {
         text.removingPercentEncoding ?? text
     }
+
+    // MARK: - 15. BBEdit Column / Rectangular Block Selection & Editing
+
+    public static func extractColumnBlock(_ text: String, spec: ColumnBlockSpec) -> String {
+        let lines = LineEnding.normalizeToLf(text).components(separatedBy: "\n")
+        guard !lines.isEmpty else { return "" }
+        let startIdx = min(max(0, spec.startLine - 1), lines.count - 1)
+        let endIdx = min(max(startIdx, spec.endLine - 1), lines.count - 1)
+        let startColIdx = max(0, spec.startColumn - 1)
+        let endColIdx = max(startColIdx, spec.endColumn - 1)
+
+        var extracted: [String] = []
+        extracted.reserveCapacity(endIdx - startIdx + 1)
+        for i in startIdx...endIdx {
+            let chars = Array(lines[i])
+            if startColIdx >= chars.count {
+                extracted.append("")
+            } else {
+                let sliceEnd = min(chars.count, endColIdx + 1)
+                extracted.append(String(chars[startColIdx..<sliceEnd]))
+            }
+        }
+        return extracted.joined(separator: "\n")
+    }
+
+    public static func applyColumnEdit(
+        _ text: String,
+        spec: ColumnBlockSpec,
+        action: ColumnEditAction,
+        insertText: String = "",
+        startNumber: Int = 1,
+        stepNumber: Int = 1,
+        zeroPadWidth: Int = 0
+    ) -> String {
+        var lines = LineEnding.normalizeToLf(text).components(separatedBy: "\n")
+        guard !lines.isEmpty else { return text }
+        let startIdx = min(max(0, spec.startLine - 1), lines.count - 1)
+        let endIdx = min(max(startIdx, spec.endLine - 1), lines.count - 1)
+        let startColIdx = max(0, spec.startColumn - 1)
+        let endColIdx = max(startColIdx, spec.endColumn - 1)
+        let replacementRows = insertText.components(separatedBy: "\n")
+
+        var currentNum = startNumber
+        for (offset, i) in (startIdx...endIdx).enumerated() {
+            var chars = Array(lines[i])
+            let rowPayload: String = {
+                if replacementRows.count > 1 {
+                    return replacementRows[offset % replacementRows.count]
+                }
+                return insertText
+            }()
+
+            switch action {
+            case .insertAtColumn:
+                if chars.count < startColIdx {
+                    chars.append(contentsOf: repeatElement(Character(" "), count: startColIdx - chars.count))
+                }
+                chars.insert(contentsOf: Array(rowPayload), at: startColIdx)
+
+            case .replaceBlock:
+                if chars.count < startColIdx {
+                    chars.append(contentsOf: repeatElement(Character(" "), count: startColIdx - chars.count))
+                }
+                let removeEnd = min(chars.count, endColIdx + 1)
+                if startColIdx < removeEnd {
+                    chars.removeSubrange(startColIdx..<removeEnd)
+                }
+                chars.insert(contentsOf: Array(rowPayload), at: startColIdx)
+
+            case .deleteBlock:
+                if startColIdx < chars.count {
+                    let removeEnd = min(chars.count, endColIdx + 1)
+                    chars.removeSubrange(startColIdx..<removeEnd)
+                }
+
+            case .numberColumn:
+                if chars.count < startColIdx {
+                    chars.append(contentsOf: repeatElement(Character(" "), count: startColIdx - chars.count))
+                }
+                let numStr: String
+                if zeroPadWidth > 1 {
+                    numStr = String(format: "%0*d", zeroPadWidth, currentNum) + insertText
+                } else {
+                    numStr = "\(currentNum)\(insertText)"
+                }
+                chars.insert(contentsOf: Array(numStr), at: startColIdx)
+                currentNum += stepNumber
+            }
+            lines[i] = String(chars)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - 16. Multi-File Folder Batch Text Factory Pipeline
+
+    public static func executePipelineInDirectory(
+        rootURL: URL,
+        steps: [TextFactoryStep],
+        fileFilter: String = "*.ps1;*.psm1;*.psd1;*.txt;*.json;*.xml;*.md",
+        maxFiles: Int = 500
+    ) -> Result<(filesModified: Int, filesScanned: Int), Error> {
+        let enabledSteps = steps.filter(\.enabled)
+        guard !enabledSteps.isEmpty else {
+            return .success((0, 0))
+        }
+        let exts = parseAllowedExtensions(fileFilter)
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return .success((0, 0))
+        }
+
+        var scanned = 0
+        var modified = 0
+        for case let fileURL as URL in enumerator {
+            if scanned >= maxFiles { break }
+            guard let vals = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  vals.isRegularFile == true,
+                  (vals.fileSize ?? 0) <= 10_000_000 else {
+                continue
+            }
+            let ext = fileURL.pathExtension.lowercased()
+            if !exts.isEmpty && !exts.contains(ext) {
+                continue
+            }
+            scanned += 1
+            guard let data = try? Data(contentsOf: fileURL) else { continue }
+            let (rawText, encoding) = DocumentEncoding.decode(data)
+            let detectedLE = LineEnding.detect(rawText)
+            let normalized = LineEnding.normalizeToLf(rawText)
+            let lang = SyntaxLanguage.fromFileName(fileURL.lastPathComponent)
+
+            let res = executePipeline(inputText: normalized, steps: enabledSteps, documentLanguage: lang)
+            let targetLE = res.targetLineEnding ?? detectedLE
+            if res.transformedText != normalized || targetLE != detectedLE {
+                let serialized = LineEnding.applyLineEnding(res.transformedText, target: targetLE)
+                let outData = encoding.encode(serialized)
+                if (try? outData.write(to: fileURL, options: .atomic)) != nil {
+                    modified += 1
+                }
+            }
+        }
+        return .success((modified, scanned))
+    }
+
+    private static func parseAllowedExtensions(_ filter: String) -> Set<String> {
+        let parts = filter
+            .components(separatedBy: CharacterSet(charactersIn: ";, "))
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .filter { !$0.isEmpty && $0 != "*" && $0 != "*.*" }
+        var exts: Set<String> = []
+        for p in parts {
+            let cleaned = p.replacingOccurrences(of: "*.", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            if !cleaned.isEmpty { exts.insert(cleaned) }
+        }
+        return exts
+    }
 }

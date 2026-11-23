@@ -294,17 +294,82 @@ public enum FindReplaceEngine {
         return .success(fileResults.sorted { $0.relativePath < $1.relativePath })
     }
 
+    public static func previewReplaceInDirectory(
+        rootURL: URL,
+        options: SearchOptions,
+        maxFiles: Int = 500
+    ) -> Result<[MultiFileReplacePreviewItem], Error> {
+        switch searchInDirectory(rootURL: rootURL, options: options, maxFiles: maxFiles) {
+        case .failure(let err):
+            return .failure(err)
+        case .success(let fileMatches):
+            var previews: [MultiFileReplacePreviewItem] = []
+            previews.reserveCapacity(fileMatches.count)
+            for item in fileMatches {
+                guard let data = try? Data(contentsOf: item.fileURL) else { continue }
+                let (rawText, _) = DocumentEncoding.decode(data)
+                let normalized = LineEnding.normalizeToLf(rawText)
+                guard case .success(let rep) = replaceAllMatches(in: normalized, options: options),
+                      rep.replacedCount > 0 else {
+                    continue
+                }
+                let beforeLines = normalized.components(separatedBy: "\n")
+                let afterLines = rep.updatedText.components(separatedBy: "\n")
+                let maxLines = min(beforeLines.count, afterLines.count)
+                var changes: [MultiFileReplaceLineChange] = []
+                for lineIdx in 0..<maxLines where beforeLines[lineIdx] != afterLines[lineIdx] {
+                    changes.append(
+                        MultiFileReplaceLineChange(
+                            lineNumber: lineIdx + 1,
+                            beforeLine: beforeLines[lineIdx],
+                            afterLine: afterLines[lineIdx]
+                        )
+                    )
+                    if changes.count >= 40 { break }
+                }
+                if changes.isEmpty && beforeLines != afterLines {
+                    changes.append(
+                        MultiFileReplaceLineChange(
+                            lineNumber: item.matches.first?.lineNumber ?? 1,
+                            beforeLine: beforeLines.first ?? "",
+                            afterLine: afterLines.first ?? ""
+                        )
+                    )
+                }
+                previews.append(
+                    MultiFileReplacePreviewItem(
+                        fileURL: item.fileURL,
+                        fileName: item.fileName,
+                        relativePath: item.relativePath,
+                        replacementCount: rep.replacedCount,
+                        lineChanges: changes,
+                        isSelected: true
+                    )
+                )
+            }
+            return .success(previews)
+        }
+    }
+
     public static func replaceInDirectory(
         rootURL: URL,
-        options: SearchOptions
+        options: SearchOptions,
+        selectedFilePaths: Set<String>? = nil
     ) -> Result<(filesModified: Int, totalReplacements: Int), Error> {
         switch searchInDirectory(rootURL: rootURL, options: options) {
         case .failure(let err):
             return .failure(err)
         case .success(let fileMatches):
+            let resolvedAllowed: Set<String>? = selectedFilePaths.map { paths in
+                Set(paths.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path })
+            }
             var filesModified = 0
             var totalReplacements = 0
             for item in fileMatches {
+                if let allowed = resolvedAllowed,
+                   !allowed.contains(item.fileURL.resolvingSymlinksInPath().path) {
+                    continue
+                }
                 guard let data = try? Data(contentsOf: item.fileURL) else { continue }
                 let (rawText, encoding) = DocumentEncoding.decode(data)
                 let lineEnding = LineEnding.detect(rawText)
