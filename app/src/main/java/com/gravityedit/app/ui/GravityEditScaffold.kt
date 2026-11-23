@@ -1110,7 +1110,7 @@ private fun AndroidMobileCompactLayout(
                                 language = activeDoc.language,
                                 fileName = activeDoc.title,
                                 isDarkTheme = uiState.themeMode != GravityThemeMode.LIGHT,
-                                isOledBlack = uiState.themeMode == GravityThemeMode.OLED
+                                isOledBlack = uiState.themeMode == GravityThemeMode.AMOLED
                             ),
                             modifier = Modifier.weight(1f)
                         )
@@ -2968,7 +2968,7 @@ private fun AdaptiveEditorSplitWorkspace(
                             language = primaryDoc.language,
                             fileName = primaryDoc.title,
                             isDarkTheme = uiState.themeMode != GravityThemeMode.LIGHT,
-                            isOledBlack = uiState.themeMode == GravityThemeMode.OLED
+                            isOledBlack = uiState.themeMode == GravityThemeMode.AMOLED
                         ),
                         modifier = Modifier
                             .weight(1f)
