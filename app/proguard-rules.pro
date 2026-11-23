@@ -3,5 +3,11 @@
 -keepattributes *Annotation*,SourceFile,LineNumberTable,Signature,InnerClasses,EnclosingMethod
 -keep class com.gravityedit.app.** { *; }
 -keep enum com.gravityedit.app.** { *; }
+-keep class com.jcraft.jsch.** { *; }
+-dontwarn com.jcraft.jsch.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.newsclub.net.unix.**
+-dontwarn com.sun.jna.**
+-dontwarn java.lang.management.**
 -dontwarn java.lang.instrument.**
 -dontwarn sun.misc.**

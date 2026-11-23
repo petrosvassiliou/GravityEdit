@@ -859,6 +859,7 @@ class GravityEditEnginesTest {
 
         val uiFilesToAudit = listOf(
             "ui/components/DialogsAndTools.kt",
+            "ui/components/V150AndroidComponents.kt",
             "ui/GravityEditScaffold.kt",
             "ui/components/EditorCanvas.kt"
         )
@@ -1148,5 +1149,120 @@ class GravityEditEnginesTest {
             savedContent = ""
         )
         assertTrue(hugeDoc.isLargeFileMode)
+    }
+
+    // =========================================================================
+    // v1.5.0 TESTS: GIT GUTTER BARS, POWERSHELL TOOLING, DATA GRID, MARKDOWN & SFTP
+    // =========================================================================
+
+    @Test
+    fun gitGutterLineChangesAndHeadParser_computeExpectedBadgesAndMarkers() {
+        assertEquals("main", GitWorkbenchEngine.parseGitHeadContent("ref: refs/heads/main\n"))
+        assertEquals("feature/sftp", GitWorkbenchEngine.parseGitHeadContent("ref: refs/heads/feature/sftp"))
+        assertEquals("detached@a1b2c3d", GitWorkbenchEngine.parseGitHeadContent("a1b2c3d4e5f60718293a"))
+
+        val base = "Line 1\nLine 2\nLine 3\nLine 4"
+        val curr = "Line 1\nLine 2 Modified\nLine 4\nLine 5 Added"
+        val gutter = DiffEngine.computeGutterLineChanges(base, curr)
+        assertEquals(com.gravityedit.app.domain.model.GutterLineChangeKind.MODIFIED, gutter[2])
+        assertEquals(com.gravityedit.app.domain.model.GutterLineChangeKind.ADDED, gutter[4])
+    }
+
+    @Test
+    fun powerShellShowCommandQuickHelpAndPesterRunner_evaluateDeterministically() {
+        val psScript = """
+            <#
+            .SYNOPSIS
+                Syncs inventory nodes across regions.
+            #>
+            function Sync-InventoryNode {
+                param (
+                    [Parameter(Mandatory = ${'$'}true)]
+                    [ValidateSet('EU', 'US', 'APAC')]
+                    [string]${'$'}Region = 'EU',
+                    [int]${'$'}BatchSize = 25,
+                    [switch]${'$'}DryRun
+                )
+                Write-Output "${'$'}Region:${'$'}BatchSize"
+            }
+
+            Describe 'Inventory Suite' {
+                Context 'Validation' {
+                    It 'adds batch counts' {
+                        ${'$'}sum = 15 + 10
+                        ${'$'}sum | Should -Be 25
+                    }
+                    It 'flags unexpected value' {
+                        'Offline' | Should -Be 'Online'
+                    }
+                }
+            }
+        """.trimIndent()
+
+        val specs = PowerShellToolingEngine.extractParameterFormSpecs(psScript)
+        assertEquals(1, specs.size)
+        val spec = specs.first()
+        assertEquals("Sync-InventoryNode", spec.commandName)
+        assertEquals("Syncs inventory nodes across regions.", spec.synopsis)
+        assertEquals(3, spec.parameters.size)
+        assertTrue(spec.parameters[0].isMandatory)
+        assertEquals(listOf("EU", "US", "APAC"), spec.parameters[0].validateSetOptions)
+        assertTrue(spec.parameters[2].isSwitch)
+
+        val cmd = PowerShellToolingEngine.buildInvocationCommand(
+            spec = spec,
+            values = mapOf("Region" to "EU", "BatchSize" to "50"),
+            switchStates = mapOf("DryRun" to true)
+        )
+        assertEquals("Sync-InventoryNode -Region 'EU' -BatchSize 50 -DryRun", cmd)
+
+        val astTopic = PowerShellToolingEngine.lookupQuickHelp("Sync-InventoryNode", psScript)
+        assertEquals("Document AST", astTopic.sourceBadge)
+        assertEquals("Invoke-RestMethod", PowerShellToolingEngine.lookupQuickHelp("irm").name)
+
+        val pester = PowerShellToolingEngine.runPesterTests(psScript)
+        assertEquals(1, pester.passedCount)
+        assertEquals(1, pester.failedCount)
+        assertFalse(pester.allPassed)
+    }
+
+    @Test
+    fun structuredDataGridAndMarkdownPreview_roundTripCsvJsonAndCspHtml() {
+        val csv = "Host,Port,Comment\n\"srv-01\",22,\"Quoted \"\"SSH\"\", active\"\n\"srv-02\",2222,\"Line1\nLine2\""
+        val csvTable = StructuredDataGridEngine.parseTable(csv, SyntaxLanguage.PLAIN_TEXT, "servers.csv")
+        assertNotNull(csvTable)
+        assertEquals(listOf("Host", "Port", "Comment"), csvTable!!.headers)
+        assertEquals("Quoted \"SSH\", active", csvTable.rows[0][2])
+        assertEquals("Line1\nLine2", csvTable.rows[1][2])
+
+        val serializedCsv = StructuredDataGridEngine.serializeTable(csvTable)
+        val reparsed = StructuredDataGridEngine.parseTable(serializedCsv, SyntaxLanguage.PLAIN_TEXT, "servers.csv")
+        assertEquals(csvTable.rows, reparsed?.rows)
+
+        val json = """[{"service":"auth","ms":45},{"service":"cache","ms":8}]"""
+        val jsonTable = StructuredDataGridEngine.parseTable(json, SyntaxLanguage.JSON, "metrics.json")
+        assertNotNull(jsonTable)
+        assertTrue(jsonTable!!.isJsonArray)
+        val sorted = StructuredDataGridEngine.sortTable(jsonTable, columnIndex = 1, ascending = true)
+        assertEquals("cache", sorted.rows.first().first())
+
+        val html = MarkdownPreviewRenderer.renderHtml(
+            content = "# Title\n\n- [x] Task Done\n\n| A | B |\n| - | - |\n| 1 | 2 |",
+            language = SyntaxLanguage.MARKDOWN,
+            fileName = "Notes.md",
+            isDarkTheme = true
+        )
+        assertTrue(html.contains("Content-Security-Policy"))
+        assertTrue(html.contains("<h1>Title</h1>"))
+        assertTrue(html.contains("<table>"))
+
+        assertEquals("/var/www", RemoteSFTPEngine.parentRemotePath("/var/www/scripts/"))
+        val remoteLoc = com.gravityedit.app.domain.model.RemoteFileLocation(
+            host = "node.example.com",
+            port = 2222,
+            username = "ops",
+            remotePath = "/etc/nginx/nginx.conf"
+        )
+        assertEquals("sftp://ops@node.example.com:2222/etc/nginx/nginx.conf", remoteLoc.displayBadge)
     }
 }

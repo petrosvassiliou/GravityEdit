@@ -11,7 +11,7 @@
 [![Compose M3](https://img.shields.io/badge/Android-Material%203%20Expressive-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)](#android--googlebook-os-edition-material-3-expressive)
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download macOS DMG &amp; Android APK (v1.4.0)</strong></a>
+  <a href="https://github.com/petrosvassiliou/GravityEdit/releases/latest"><strong>⬇ Download macOS DMG &amp; Android APK (v1.5.0)</strong></a>
   &nbsp;•&nbsp;
   <a href="#macos-edition-apple-liquid-glass--sparkle-2-auto-updates">macOS Liquid Glass</a>
   &nbsp;•&nbsp;
@@ -47,7 +47,24 @@
 
 ---
 
-## What's New in v1.4.0
+## What's New in v1.5.0
+
+- **Git Workbench & Live Gutter Diff Bars:**
+  - Real-time green (`added`), orange (`modified`), and red (`deleted`) vertical bars rendered in the line-number gutter comparing against Git `HEAD` or the last-saved baseline.
+  - Interactive **Git Branch & Dirty Status Pill** in the bottom status bar supporting 1-click **Compare with `HEAD`**, **Stage Active File (`git add`)**, and **Revert to `HEAD`**.
+- **PowerShell `Show-Command` Builder (`⇧⌘I`), `F1` Quick Help & Pester Runner (`⌃⇧T`):**
+  - **Parameter Form Builder (`⇧⌘I` / `Ctrl+Shift+I`):** Parses script and function `param(...)` attributes (`[Parameter(Mandatory)]`, `[ValidateSet(...)]`, `[switch]`, types, defaults, and `.SYNOPSIS` help) into a visual form that synthesizes and runs or inserts clean PowerShell invocations.
+  - **`F1` Cmdlet & Comment-Based Quick Help:** Instant offline & AST help inspector for 40+ PowerShell cmdlets, aliases, and `<# .SYNOPSIS #>` script functions, plus live `pwsh Get-Help` lookup on macOS.
+  - **Pester Unit Test Runner (`⌃⇧T` / `Ctrl+Alt+T`):** Discovers `Describe` / `Context` / `It` test blocks and executes `Should` assertions with pass/fail badges and 1-click line jumps.
+- **Structured CSV / JSON Data Grid (`⌃⇧G`) & Live Markdown / HTML Split Preview (`⌃⌘P`):**
+  - **Two-Way Data Grid (`⌃⇧G` / `Ctrl+Shift+G`):** Inspect, sort, filter, edit cells, and add/delete rows in RFC-4180 `,` / `;` / `\t` / `|` tables and JSON object arrays (`[...]`) with live sync back to text.
+  - **Offline Split Preview (`⌃⌘P` / `Ctrl+Alt+P`):** Side-by-side GitHub-Flavored Markdown (headings, tables, fenced code, task lists, blockquotes) and HTML5 preview hardened with a strict zero-network Content-Security-Policy.
+- **BBEdit-Style Remote SFTP / SSH Open & Save (`⌥⌘K` / `Ctrl+Shift+K`):**
+  - Browse remote SSH servers using system SSH Agent / `~/.ssh/config` / identity keys on macOS and pure-JVM SSH2 (`mwiede/jsch`, zero extra Android permissions) on Googlebook OS & Android — and press `⌘S` / `Ctrl+S` to save directly back over SFTP.
+- **Homebrew Cask & Apple Notarization Pipeline:**
+  - Install `GravityEdit.app` + the `gravity` CLI in one step via `brew tap` + `brew install --cask gravityedit`, backed by `Casks/gravityedit.rb` and conditional Apple `notarytool` / `stapler` CI hooks (see [RELEASE_SIGNING_AND_HOMEBREW.md](docs/RELEASE_SIGNING_AND_HOMEBREW.md)).
+
+### Previous Highlights (`v1.4.0`)
 
 - **Integrated PowerShell Runner & BBEdit-Style Shell Worksheet (`⌘R` • `F8` • `⌃Return`):**
   - Execute active `.ps1` / `.sh` / `.py` scripts (`⌘R` / `Ctrl+R`) or selected lines (`F8`) directly into a collapsible **Output Drawer** with `Output`, `Warning`, `Verbose`, and `Error` stream filtering and **clickable `Ln:Col` stack-trace jumps** back into the editor (backed by local `pwsh` on macOS plus a built-in zero-dependency PowerShell Worksheet evaluator across macOS & Android/Googlebook OS).
@@ -183,10 +200,16 @@ Full desktop layout featuring the Expressive `NavigationRail`, drag-resizable **
 | Split View (Single / Vertical / Horizontal) | `⌥⌘1` • `⌥⌘2` • `⌥⌘3` | Connected Split Toolbar |
 | Run Script / Run Selection | `⌘R` / `F8` | `Ctrl + R` / `F8` |
 | Evaluate Inline (BBEdit Worksheet) | `⌃Return` | `Ctrl + Enter` |
+| PowerShell Show-Command Builder | `⇧⌘I` | `Ctrl + Shift + I` |
+| PowerShell Cmdlet Quick Help | `F1` | `F1` |
+| Run Pester Unit Tests | `⌃⇧T` | `Ctrl + Alt + T` |
+| Toggle CSV / JSON Data Grid | `⌃⇧G` | `Ctrl + Shift + G` |
+| Toggle Live Markdown / HTML Preview | `⌃⌘P` | `Ctrl + Alt + P` |
+| Open Remote via SFTP / SSH | `⌥⌘K` | `Ctrl + Shift + K` |
 | Column / Rectangular Block Edit | `⌃⇧B` (or `⌥`-drag) | `Ctrl + Shift + B` |
 | Toggle / Next / Prev Bookmark | `⌘F2` • `F2` • `⇧F2` | `Ctrl + F2` • `F2` • `Shift + F2` |
 | Live Log Tail Mode | `⌃⌘L` | Overflow → Live Log Tail |
-| Check for Software Updates | `⌥⌘U` (or `v1.4.0` pill) | Tap `v1.4.0` pill |
+| Check for Software Updates | `⌥⌘U` (or `v1.5.0` pill) | Tap `v1.5.0` pill |
 | Settings | `⌘,` | Sidebar / Overflow Settings |
 
 ---
@@ -213,13 +236,21 @@ GravityEdit/
 ## Installation
 
 ### macOS (macOS 26 Tahoe Liquid Glass & macOS 15 Sequoia+)
-1. Download **`GravityEdit-macOS-v1.4.0.dmg`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
+
+**Option A — Homebrew Cask (installs `GravityEdit.app` + `gravity` CLI automatically):**
+```bash
+brew tap petrosvassiliou/gravityedit https://github.com/petrosvassiliou/GravityEdit
+brew install --cask gravityedit
+```
+
+**Option B — Direct DMG Download:**
+1. Download **`GravityEdit-macOS-v1.5.0.dmg`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest).
 2. Open the disk image and drag **`GravityEdit.app`** to **`/Applications`**.
 3. *(Optional CLI Helper)* Symlink the bundled `gravity` tool (`sudo ln -sf "/Applications/GravityEdit.app/Contents/MacOS/gravity" /usr/local/bin/gravity`) to open `gravity script.ps1:42`, `--diff`, or pipe stdin (`pwsh -c ... | gravity`).
 4. *(First launch without Apple Notarization)* If macOS Gatekeeper prompts on an unsigned/ad-hoc GitHub build, Control-click **`GravityEdit.app`** → **Open** (or run `xattr -dr com.apple.quarantine /Applications/GravityEdit.app`). Subsequent updates can be installed directly inside the app via **GravityEdit → Check for Updates…** (`⌥⌘U`)!
 
 ### Android & Googlebook OS (Android 8.0+ / API 26+)
-1. Download **`GravityEdit-v1.4.0.apk`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest) and open to install or upgrade in-place.
+1. Download **`GravityEdit-v1.5.0.apk`** from [**GitHub Releases**](https://github.com/petrosvassiliou/GravityEdit/releases/latest) and open to install or upgrade in-place.
 
 ---
 

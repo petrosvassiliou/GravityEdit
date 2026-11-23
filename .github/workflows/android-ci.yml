@@ -81,10 +81,10 @@ jobs:
           echo "$APK_SHA256  $APK_FILE" > "${APK_FILE}.sha256"
           cat <<EOF > release-notes.md
           ### GravityEdit ${TAG_NAME} — macOS Liquid Glass Edition + Android / Googlebook OS Workbench
-          - **New Native macOS Edition (\`GravityEdit-macOS-${TAG_NAME}.dmg\` & \`.app.zip\`):** Built in SwiftUI + AppKit (\`NSTextView\`) with **Apple Liquid Glass** design (\`GlassEffectContainer\`, \`.glassEffect\`, \`.glassEffectID\`, floating \`NavigationSplitView\` sidebar, unified window toolbar, crisp high-contrast code canvas, and macOS Sequoia vibrancy fallback) and strict Apple HIG compliance.
-          - **In-App Automatic Updates on macOS (Sparkle 2 + CryptoKit SHA-256):** Integrated \`SPUStandardUpdaterController\` (\`appcast.xml\`) plus verified in-app \`.app.zip\` SHA-256 bundle updates & automatic relaunch.
-          - **1:1 Cross-Platform PowerShell & BBEdit Parity:** Shared feature set across macOS, Googlebook OS, and Android — PowerShell AST & Procedural Script Navigator (\`Funktionsnavigator\`), Code Folding, Inline Completions, live \`PSScriptAnalyzer\` Quick Fixes, all 14 BBEdit Text Factory operations, PCRE Find/Replace + Multi-File Search, Side-by-Side Myers Diff, Clippings, and 6-language localization (\`en\`, \`de\`, \`it\`, \`es\`, \`fr\`, \`el\`).
-          - **Google Play Protect Zero-Risk Hardening (\`0\` Sensitive Permissions):** Android APK (\`com.gravityedit.app\`, \`v1 + v2 + v3\` signed) requests only standard \`INTERNET\` with zero install/sensitive permissions.
+          - **Git Workbench & Live Gutter Diff Bars:** Real-time green/orange/red line-change bars in the editor gutter plus Git branch / baseline diff inspection across macOS and Android / Googlebook OS.
+          - **PowerShell \`Show-Command\` Builder, \`F1\` Quick Help & Pester Runner:** Interactive \`param(...)\` form generator (\`⇧⌘I\` / \`Ctrl+Shift+I\`), offline + AST \`F1\` Cmdlet Quick Help, and \`Describe\` / \`Context\` / \`It\` Pester unit test runner (\`⌃⇧T\` / \`Ctrl+Alt+T\`).
+          - **Structured CSV / JSON Data Grid & Live Markdown / HTML Split Preview:** Bidirectional RFC-4180 CSV/TSV & JSON object-array table inspector (\`⌃⇧G\` / \`Ctrl+Shift+G\`) and offline CSP-hardened Markdown/HTML split preview (\`⌃⌘P\` / \`Ctrl+Alt+P\`).
+          - **BBEdit-Style Remote SFTP / SSH Open & Save:** Native OpenSSH SFTP on macOS (\`⌥⌘K\`) and pure-JVM JSch SFTP on Android (\`Ctrl+Shift+K\`) with **0 new Android permissions** (Google Play Protect 100% clean).
 
           ### Android APK Integrity
           - **Package ID:** \`com.gravityedit.app\`

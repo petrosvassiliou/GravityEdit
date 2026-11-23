@@ -100,6 +100,7 @@ import com.gravityedit.app.domain.engine.PowerShellEngine
 import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.EditorDocument
 import com.gravityedit.app.domain.model.FoldRegion
+import com.gravityedit.app.domain.model.GutterLineChangeKind
 import com.gravityedit.app.domain.model.LineEnding
 import com.gravityedit.app.domain.model.SearchMatch
 import com.gravityedit.app.domain.model.SyntaxLanguage
@@ -149,6 +150,7 @@ fun EditorCanvas(
     scrollRequestId: Long = 0L,
     astSymbols: List<AstSymbol> = emptyList(),
     diagnostics: List<PowerShellDiagnostic> = emptyList(),
+    gutterChanges: Map<Int, GutterLineChangeKind> = emptyMap(),
     onOpenDiagnostics: (() -> Unit)? = null,
     onToggleBookmark: ((oneBasedLine: Int) -> Unit)? = null
 ) {
@@ -375,6 +377,7 @@ fun EditorCanvas(
                             lineNumber = entry.lineNumber,
                             isCurrentLine = isCurrentLine,
                             isBookmarked = entry.lineNumber in document.bookmarkedLines,
+                            lineChangeKind = gutterChanges[entry.lineNumber],
                             foldRegion = entry.foldRegionStartingHere,
                             isFolded = entry.isFolded,
                             enableCodeFolding = enableCodeFolding,
@@ -655,6 +658,7 @@ private fun EditorLineGutterCell(
     lineNumber: Int,
     isCurrentLine: Boolean,
     isBookmarked: Boolean,
+    lineChangeKind: GutterLineChangeKind?,
     foldRegion: FoldRegion?,
     isFolded: Boolean,
     enableCodeFolding: Boolean,
@@ -734,6 +738,21 @@ private fun EditorLineGutterCell(
                     )
                 }
             }
+        }
+
+        if (lineChangeKind != null) {
+            val barColor = when (lineChangeKind) {
+                GutterLineChangeKind.ADDED -> androidx.compose.ui.graphics.Color(0xFF2EA043)
+                GutterLineChangeKind.MODIFIED -> androidx.compose.ui.graphics.Color(0xFFD29922)
+                GutterLineChangeKind.DELETED_BELOW -> androidx.compose.ui.graphics.Color(0xFFF85149)
+            }
+            val barHeight = if (lineChangeKind == GutterLineChangeKind.DELETED_BELOW) 4.dp else (fontSizeSp * 1.15f).dp
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(barHeight)
+                    .background(barColor, RoundedCornerShape(1.5.dp))
+            )
         }
     }
 }

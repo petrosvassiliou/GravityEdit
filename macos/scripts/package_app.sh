@@ -5,10 +5,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MACOS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-VERSION="${1:-1.4.0}"
+VERSION="${1:-1.5.0}"
 VERSION_CLEAN="${VERSION#v}"
 TAG_NAME="v${VERSION_CLEAN}"
-BUILD_NUMBER="${BUILD_NUMBER:-14}"
+BUILD_NUMBER="${BUILD_NUMBER:-15}"
 APP_NAME="GravityEdit"
 BUNDLE_ID="com.gravityedit.mac"
 
@@ -146,6 +146,9 @@ ${PUBLIC_ED_PLIST_ENTRY}
                 <string>kt</string>
                 <string>sh</string>
                 <string>zsh</string>
+                <string>csv</string>
+                <string>tsv</string>
+                <string>html</string>
                 <string>txt</string>
                 <string>log</string>
             </array>
@@ -166,7 +169,7 @@ SIGN_IDENTITY="${MACOS_SIGN_IDENTITY:--}"
 if [ "${SIGN_IDENTITY}" = "-" ]; then
     CODESIGN_ARGS=(--force --timestamp=none --sign "-")
 else
-    CODESIGN_ARGS=(--force --options runtime --timestamp=none --sign "${SIGN_IDENTITY}")
+    CODESIGN_ARGS=(--force --options runtime --timestamp --sign "${SIGN_IDENTITY}")
 fi
 
 # Inside-out code signing of every Mach-O slice so zero upstream Sparkle Team IDs remain
@@ -215,6 +218,23 @@ hdiutil create -volname "${APP_NAME} ${TAG_NAME}" \
     "${DIST_DIR}/${DMG_NAME}"
 rm -rf "${DMG_STAGE}"
 
+# Optional Apple Notary Service submission & Gatekeeper ticket stapling when Developer ID credentials are present
+if [ "${SIGN_IDENTITY}" != "-" ] && \
+   [ -n "${APPLE_ID:-}" ] && \
+   [ -n "${APPLE_TEAM_ID:-}" ] && \
+   [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
+    echo "==> Submitting ${DMG_NAME} to Apple Notary Service (notarytool)..."
+    xcrun notarytool submit "${DIST_DIR}/${DMG_NAME}" \
+        --apple-id "${APPLE_ID}" \
+        --team-id "${APPLE_TEAM_ID}" \
+        --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
+        --wait
+    xcrun stapler staple "${DIST_DIR}/${DMG_NAME}"
+    xcrun stapler staple "${APP_BUNDLE}" || true
+    rm -f "${DIST_DIR}/${ZIP_NAME}"
+    ditto -c -k --sequesterRsrc --keepParent "${APP_BUNDLE}" "${DIST_DIR}/${ZIP_NAME}"
+fi
+
 (
     cd "${DIST_DIR}"
     shasum -a 256 "${ZIP_NAME}" > "${ZIP_NAME}.sha256"
@@ -223,6 +243,10 @@ rm -rf "${DMG_STAGE}"
 
 ZIP_SIZE="$(stat -f%z "${DIST_DIR}/${ZIP_NAME}")"
 ZIP_SHA256="$(awk '{print $1}' "${DIST_DIR}/${ZIP_NAME}.sha256")"
+DMG_SHA256="$(awk '{print $1}' "${DIST_DIR}/${DMG_NAME}.sha256")"
+
+chmod +x "${SCRIPT_DIR}/generate_homebrew_cask.sh"
+"${SCRIPT_DIR}/generate_homebrew_cask.sh" "${VERSION_CLEAN}" "${DMG_SHA256}" "${DIST_DIR}/gravityedit.rb"
 PUB_DATE="$(LC_ALL=C date -u +"%a, %d %b %Y %H:%M:%S +0000")"
 DOWNLOAD_URL="https://github.com/petrosvassiliou/GravityEdit/releases/download/${TAG_NAME}/${ZIP_NAME}"
 

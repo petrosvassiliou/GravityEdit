@@ -12,8 +12,8 @@ android {
         applicationId = "com.gravityedit.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "1.4.0"
+        versionCode = 15
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -75,6 +75,7 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/versions/**"
         }
     }
 }
@@ -118,6 +119,9 @@ dependencies {
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Pure-JVM SSH2 / SFTP Client (zero native binaries, Play Protect clean)
+    implementation("com.github.mwiede:jsch:0.2.21")
 
     // Debug & Testing
     debugImplementation("androidx.compose.ui:ui-tooling")

@@ -32,15 +32,38 @@ jobs:
           BIN_DIR="$(swift build --build-tests --show-bin-path)"
           xcrun xctest "${BIN_DIR}/GravityEditMacPackageTests.xctest"
 
-      - name: Build Universal GravityEdit.app, DMG, ZIP & Sparkle Appcast
+      - name: Import Optional Apple Developer ID Certificate into Ephemeral Keychain
         env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          if [ -n "${MACOS_CERT_P12_BASE64}" ] && [ -n "${MACOS_CERT_PASSWORD}" ]; then
+            KEYCHAIN_PATH="${RUNNER_TEMP}/gravityedit-signing.keychain-db"
+            KEYCHAIN_PASS="$(uuidgen)"
+            echo "${MACOS_CERT_P12_BASE64}" | base64 --decode > "${RUNNER_TEMP}/dev_id.p12"
+            security create-keychain -p "${KEYCHAIN_PASS}" "${KEYCHAIN_PATH}"
+            security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+            security unlock-keychain -p "${KEYCHAIN_PASS}" "${KEYCHAIN_PATH}"
+            security import "${RUNNER_TEMP}/dev_id.p12" -P "${MACOS_CERT_PASSWORD}" -A -t cert -f pkcs12 -k "${KEYCHAIN_PATH}"
+            security list-keychains -d user -s "${KEYCHAIN_PATH}" login.keychain-db
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${KEYCHAIN_PASS}" "${KEYCHAIN_PATH}"
+            rm -f "${RUNNER_TEMP}/dev_id.p12"
+            echo "GRAVITY_EPHEMERAL_KEYCHAIN=${KEYCHAIN_PATH}" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Build Universal GravityEdit.app, DMG, ZIP, Homebrew Cask & Sparkle Appcast
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
           SPARKLE_EDDSA_PRIVATE_KEY: ${{ secrets.SPARKLE_EDDSA_PRIVATE_KEY }}
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             REL_VER="${GITHUB_REF#refs/tags/v}"
           else
-            REL_VER="1.4.0"
+            REL_VER="1.5.0"
           fi
           ./macos/scripts/package_app.sh "${REL_VER}"
 
@@ -86,7 +109,7 @@ jobs:
           wait "${SMOKE_PID}" 2>/dev/null || true
           rm -rf "${SMOKE_DIR}"
 
-      - name: Upload macOS Release Bundle Artifacts (.dmg, .app.zip, appcast.xml)
+      - name: Upload macOS Release Bundle Artifacts (.dmg, .app.zip, appcast.xml, gravityedit.rb)
         uses: actions/upload-artifact@v4
         with:
           name: GravityEdit-macOS-LiquidGlass
@@ -96,8 +119,9 @@ jobs:
             macos/dist/*.app.zip
             macos/dist/*.app.zip.sha256
             macos/dist/appcast.xml
+            macos/dist/gravityedit.rb
 
-      - name: Publish macOS Assets & Sparkle Appcast to GitHub Release on Tag Push
+      - name: Publish macOS Assets, Homebrew Cask & Sparkle Appcast to GitHub Release on Tag Push
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -106,19 +130,22 @@ jobs:
           DMG_FILE="macos/dist/GravityEdit-macOS-${TAG_NAME}.dmg"
           ZIP_FILE="macos/dist/GravityEdit-macOS-${TAG_NAME}.app.zip"
           APPCAST_FILE="macos/dist/appcast.xml"
+          CASK_FILE="macos/dist/gravityedit.rb"
           DMG_SHA=$(awk '{print $1}' "${DMG_FILE}.sha256")
           ZIP_SHA=$(awk '{print $1}' "${ZIP_FILE}.sha256")
 
           cat <<EOF > macos-release-notes.md
           ### GravityEdit ${TAG_NAME} — macOS Liquid Glass Edition + Android / Googlebook OS Workbench
-          - **Native macOS Liquid Glass Application (\`com.gravityedit.mac\`):** Engineered natively in Swift, SwiftUI, and AppKit (\`NSTextView\` + \`NSRulerView\`) using Apple's **macOS 26 Tahoe Liquid Glass** design system (\`GlassEffectContainer\`, \`.glassEffect\`, \`.glassEffectID\`, \`.buttonStyle(.glass)\` / \`.buttonStyle(.glassProminent)\`, floating \`NavigationSplitView\` sidebar, unified toolbar, and graceful vibrancy fallback on macOS 15 Sequoia) while keeping the code canvas crisp and opaque per Apple Human Interface Guidelines.
-          - **In-App Automatic Updates (Sparkle 2 + CryptoKit SHA-256):** Supports background update checks via \`Sparkle.framework\` (\`appcast.xml\`) and verified in-app \`.app.zip\` SHA-256 bundle replacement with automatic relaunch.
-          - **1:1 BBEdit & PowerShell Feature Parity:** Full PowerShell tokenizer, multi-line \`param(...)\` & procedural script Function Navigator (\`DFS-Migration.ps1\` \`var\`/\`tbl\`/\`blk\` landmarks), Code Folding, Inline Completions (\`Tab\` / \`⌥Space\`), live \`PSScriptAnalyzer\` Quick Fixes, all 14 BBEdit Text Factory operations (also exposed directly in the macOS **Text** menu bar), PCRE Regex Find/Replace + Multi-File Search, Side-by-Side Myers Diff, Clippings, Persistent Scratchpad, and 6-language localization (\`en\`, \`de\`, \`it\`, \`es\`, \`fr\`, \`el\`).
+          - **Git Workbench & Live Gutter Diff Bars:** Real-time green/orange/red line-change bars in the editor gutter plus a 1-click Git branch status pill supporting Compare with \`HEAD\`, \`git add\` file staging, and baseline revert.
+          - **PowerShell \`Show-Command\` Builder (\`⇧⌘I\`), \`F1\` Quick Help & Pester Test Runner (\`⌃⇧T\`):** Auto-generates interactive forms from \`param(...)\` (\`[Mandatory]\`, \`[ValidateSet]\`, \`[switch]\`), displays instant offline/live \`Get-Help\` & \`<# .SYNOPSIS #>\` reference, and runs \`Describe\` / \`Context\` / \`It\` Pester test suites with line jumps.
+          - **Structured CSV / JSON Data Grid (\`⌃⇧G\`) & Live Markdown / HTML Split Preview (\`⌃⌘P\`):** Two-way RFC-4180 CSV/TSV & JSON object-array table inspector plus CSP-hardened offline GFM Markdown & HTML5 split preview.
+          - **BBEdit-Style Remote SFTP / SSH Open & Save (\`⌥⌘K\`):** Browse remote SSH servers, open remote tabs, and save directly back over SFTP via \`⌘S\` / \`Ctrl+S\`.
+          - **Homebrew Cask Support:** Install \`GravityEdit.app\` and the \`gravity\` CLI via \`brew tap petrosvassiliou/gravityedit https://github.com/petrosvassiliou/GravityEdit && brew install --cask gravityedit\`.
 
           ### macOS Cryptographic Digests
           - **DMG Installer:** \`GravityEdit-macOS-${TAG_NAME}.dmg\` (\`${DMG_SHA}\`)
           - **In-App Update Archive:** \`GravityEdit-macOS-${TAG_NAME}.app.zip\` (\`${ZIP_SHA}\`)
-          - **Sparkle Feed:** \`appcast.xml\`
+          - **Sparkle Feed & Homebrew Cask:** \`appcast.xml\` • \`gravityedit.rb\`
           EOF
 
           ASSETS=(
@@ -127,6 +154,7 @@ jobs:
             "${ZIP_FILE}"
             "${ZIP_FILE}.sha256"
             "${APPCAST_FILE}"
+            "${CASK_FILE}"
           )
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
@@ -136,4 +164,35 @@ jobs:
               --title "GravityEdit ${TAG_NAME} — macOS Liquid Glass & Android / Googlebook OS Release" \
               --notes-file macos-release-notes.md || \
             gh release upload "$TAG_NAME" "${ASSETS[@]}" --clobber
+          fi
+
+      - name: Sync SHA-256 Homebrew Cask to Optional petrosvassiliou/homebrew-tap
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "HOMEBREW_TAP_TOKEN not set; skipping external tap push (in-repo Casks/gravityedit.rb remains active)."
+            exit 0
+          fi
+          TAP_DIR="$(mktemp -d)"
+          if git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/petrosvassiliou/homebrew-tap.git" "${TAP_DIR}"; then
+            mkdir -p "${TAP_DIR}/Casks"
+            cp macos/dist/gravityedit.rb "${TAP_DIR}/Casks/gravityedit.rb"
+            cd "${TAP_DIR}"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Casks/gravityedit.rb
+            if ! git diff --cached --quiet; then
+              git commit -m "gravityedit ${GITHUB_REF#refs/tags/}"
+              git push origin HEAD
+            fi
+          fi
+          rm -rf "${TAP_DIR}"
+
+      - name: Clean Up Ephemeral Signing Keychain
+        if: always()
+        run: |
+          if [ -n "${GRAVITY_EPHEMERAL_KEYCHAIN:-}" ] && [ -f "${GRAVITY_EPHEMERAL_KEYCHAIN}" ]; then
+            security delete-keychain "${GRAVITY_EPHEMERAL_KEYCHAIN}" || true
           fi

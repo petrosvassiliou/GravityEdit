@@ -136,6 +136,31 @@ public final class WorkspaceViewModel: ObservableObject {
     @Published public var externallyModifiedDocumentIds: Set<String> = []
     @Published public var recentFilePaths: [String] = []
 
+    // v1.5.0 Git Workbench & Gutter Change Bars
+    @Published public var gitStatusSummary: GitRepoStatusSummary? = nil
+    @Published public var primaryGutterChanges: [Int: GutterLineChangeKind] = [:]
+    @Published public var secondaryGutterChanges: [Int: GutterLineChangeKind] = [:]
+
+    // v1.5.0 PowerShell Show-Command, F1 Quick Help & Pester Test Runner
+    @Published public var showParameterFormSheet: Bool = false
+    @Published public var parameterFormSpecs: [ParameterFormSpec] = []
+    @Published public var showQuickHelpSheet: Bool = false
+    @Published public var quickHelpQuery: String = "Get-ChildItem"
+    @Published public var activeHelpTopic: CmdletHelpTopic = PowerShellToolingEngine.lookupQuickHelp(queryOrCursorToken: "Get-ChildItem")
+    @Published public var showPesterRunnerSheet: Bool = false
+    @Published public var isRunningPester: Bool = false
+    @Published public var lastPesterSuiteResult: PesterSuiteResult? = nil
+
+    // v1.5.0 Structured CSV/JSON Data Grid & Live Markdown/HTML Split Preview
+    @Published public var activeGridDocumentIds: Set<String> = []
+    @Published public var showLiveMarkdownPreview: Bool = false
+
+    // v1.5.0 Remote SFTP / SSH Browser & Bookmarks
+    @Published public var showSftpBrowserSheet: Bool = false
+    @Published public var sftpProfiles: [SFTPConnectionProfile] = []
+    @Published public var isSftpBusy: Bool = false
+    @Published public var sftpErrorMessage: String? = nil
+
     // Sheets, Popovers & Floating Overlays
     @Published public var showNewDocumentSheet: Bool = false
     @Published public var showFindReplaceSheet: Bool = false
@@ -174,6 +199,9 @@ public final class WorkspaceViewModel: ObservableObject {
     private var fileWatchTimer: Timer? = nil
     private var cliNotificationObserver: NSObjectProtocol? = nil
     private var activeSecurityScopedFolderURL: URL? = nil
+    private var gitHeadBaselineCache: [String: String] = [:]
+    private var lastGitInspectedPath: String? = nil
+    private var sessionSftpPasswords: [String: String] = [:]
 
     // MARK: - Computed Helpers
 
@@ -217,6 +245,7 @@ public final class WorkspaceViewModel: ObservableObject {
     public init() {
         loadCustomClippings()
         loadCustomTextFactoryPresets()
+        loadSftpProfiles()
         let scratchpad = loadOrCreateScratchpadDocument()
 
         if restoreSessionOnLaunch, let restored = loadPersistedWorkspaceSession(scratchpad: scratchpad) {
@@ -276,6 +305,10 @@ public final class WorkspaceViewModel: ObservableObject {
 
     private var customPresetsFileURL: URL {
         appSupportDirectory.appendingPathComponent("text_factory_presets.json")
+    }
+
+    private var sftpProfilesFileURL: URL {
+        appSupportDirectory.appendingPathComponent("sftp_profiles.json")
     }
 
     private var sessionFileURL: URL {
@@ -555,7 +588,10 @@ public final class WorkspaceViewModel: ObservableObject {
             if !secondarySymbols.isEmpty { secondarySymbols = [] }
             if !secondaryFolds.isEmpty { secondaryFolds = [] }
             if !secondaryDiagnostics.isEmpty { secondaryDiagnostics = [] }
+            if !secondaryGutterChanges.isEmpty { secondaryGutterChanges = [:] }
         }
+        refreshGutterChangesForVisiblePanes()
+        refreshGitContextIfNeeded(force: false)
     }
 
     // MARK: - Document Mutations
@@ -799,6 +835,8 @@ public final class WorkspaceViewModel: ObservableObject {
         let doc = documents[idx]
         if let url = doc.fileURL, url.lastPathComponent == doc.title {
             return writeDocument(at: idx, to: url)
+        } else if let remote = doc.remoteLocation {
+            return writeRemoteDocument(at: idx, location: remote)
         } else {
             return saveDocumentAs(id: id)
         }
@@ -833,6 +871,7 @@ public final class WorkspaceViewModel: ObservableObject {
         do {
             try data.write(to: url, options: .atomic)
             documents[idx].fileURL = url
+            documents[idx].remoteLocation = nil
             documents[idx].title = url.lastPathComponent
             documents[idx].savedContent = doc.content
             documents[idx].savedEncoding = doc.encoding
@@ -843,6 +882,7 @@ public final class WorkspaceViewModel: ObservableObject {
             recordRecentFile(url)
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
             refreshActiveAnalysisImmediate()
+            refreshGitContextIfNeeded(force: true)
             scheduleSessionSave()
             postToast("Saved \(url.lastPathComponent)")
             return true
@@ -2340,6 +2380,396 @@ public final class WorkspaceViewModel: ObservableObject {
         postToast("Copied `gravity` CLI symlink command to Clipboard")
     }
 
+    // MARK: - v1.5.0 Git Workbench, PowerShell Tooling, Data Grid, Live Preview & Remote SFTP
+
+    public func refreshGutterChangesForVisiblePanes() {
+        func computeForDoc(_ doc: EditorDocument?) -> [Int: GutterLineChangeKind] {
+            guard let doc, !doc.isLargeFileMode else { return [:] }
+            let baseline: String
+            if let url = doc.fileURL {
+                let normPath = url.resolvingSymlinksInPath().path
+                baseline = gitHeadBaselineCache[normPath] ?? doc.savedContent
+            } else {
+                baseline = doc.savedContent
+            }
+            return DiffEngine.computeGutterLineChanges(baselineText: baseline, currentText: doc.content)
+        }
+
+        let newPrimary = computeForDoc(primaryDocument)
+        if primaryGutterChanges != newPrimary {
+            primaryGutterChanges = newPrimary
+        }
+        if splitMode != .none {
+            let newSecondary = computeForDoc(secondaryDocument)
+            if secondaryGutterChanges != newSecondary {
+                secondaryGutterChanges = newSecondary
+            }
+        }
+    }
+
+    public func refreshGitContextIfNeeded(force: Bool = true) {
+        let probeURL = focusedDocument?.fileURL ?? mountedFolderURL
+        guard let targetURL = probeURL else {
+            if gitStatusSummary != nil { gitStatusSummary = nil }
+            lastGitInspectedPath = nil
+            return
+        }
+        let normPath = targetURL.resolvingSymlinksInPath().path
+        if !force && lastGitInspectedPath == normPath {
+            return
+        }
+        lastGitInspectedPath = normPath
+        let docFileURL = focusedDocument?.fileURL
+
+        Task { [weak self] in
+            let payload = await Task.detached(priority: .utility) { () -> (GitRepoStatusSummary?, String?, String?) in
+                let summary = GitWorkbenchEngine.detectRepositoryStatus(for: targetURL)
+                if let fileURL = docFileURL, summary != nil {
+                    let resolvedPath = fileURL.resolvingSymlinksInPath().path
+                    let headText = GitWorkbenchEngine.fetchHeadBaselineContent(for: fileURL)
+                    return (summary, resolvedPath, headText)
+                }
+                return (summary, nil, nil)
+            }.value
+            guard let self else { return }
+            self.gitStatusSummary = payload.0
+            if let filePath = payload.1 {
+                if let headText = payload.2 {
+                    self.gitHeadBaselineCache[filePath] = headText
+                } else {
+                    self.gitHeadBaselineCache.removeValue(forKey: filePath)
+                }
+                self.refreshGutterChangesForVisiblePanes()
+            }
+        }
+    }
+
+    public func compareFocusedFileWithGitHead() {
+        guard let doc = focusedDocument, let fileURL = doc.fileURL else {
+            postToast("Save or open a local Git-tracked file first to compare with HEAD")
+            return
+        }
+        guard let headText = GitWorkbenchEngine.fetchHeadBaselineContent(for: fileURL) else {
+            postToast("File is not committed in Git HEAD yet")
+            return
+        }
+        currentDiffResult = DiffEngine.computeDiff(
+            leftText: headText,
+            rightText: doc.content,
+            leftDocumentId: nil,
+            rightDocumentId: doc.id,
+            leftTitle: "\(doc.title) (Git HEAD)",
+            rightTitle: "\(doc.title) (Working Copy)"
+        )
+        diffLeftDocumentId = ""
+        diffRightDocumentId = doc.id
+        showDiffSheet = true
+    }
+
+    public func stageFocusedFileInGit() {
+        guard let doc = focusedDocument, let fileURL = doc.fileURL else {
+            postToast("Active document is not saved in a local Git repository")
+            return
+        }
+        if doc.isDirty {
+            _ = saveDocument(id: doc.id)
+        }
+        do {
+            try GitWorkbenchEngine.stageFile(at: fileURL)
+            refreshGitContextIfNeeded(force: true)
+            postToast("Staged \(doc.title) in Git index")
+        } catch {
+            postToast("Git stage failed: \(error.localizedDescription)")
+        }
+    }
+
+    public func revertFocusedFileToBaseline() {
+        guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+        let doc = documents[idx]
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Revert “\(doc.title)” to Git HEAD / Saved Baseline?"
+        alert.informativeText = "All uncommitted or unsaved edits in this file will be discarded."
+        alert.addButton(withTitle: "Revert Changes")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        if let fileURL = doc.fileURL, gitStatusSummary?.isFileTracked == true {
+            do {
+                try GitWorkbenchEngine.discardWorkingTreeChanges(at: fileURL)
+                reloadFocusedDocumentFromDisk()
+                refreshGitContextIfNeeded(force: true)
+                postToast("Reverted \(doc.title) to Git HEAD")
+                return
+            } catch {
+                postToast("Git checkout failed: \(error.localizedDescription)")
+                return
+            }
+        }
+
+        documents[idx].content = doc.savedContent
+        refreshActiveAnalysisImmediate()
+        postToast("Reverted \(doc.title) to last saved state")
+    }
+
+    // PowerShell Show-Command, F1 Quick Help & Pester Suite Runner
+
+    public func openParameterFormBuilder() {
+        guard let doc = focusedDocument else { return }
+        parameterFormSpecs = PowerShellToolingEngine.extractParameterFormSpecs(
+            from: doc.content,
+            defaultScriptName: doc.title
+        )
+        showParameterFormSheet = true
+    }
+
+    public func applyGeneratedParameterCommand(_ command: String, executeImmediately: Bool) {
+        if executeImmediately {
+            showParameterFormSheet = false
+            let fullCode: String
+            if let doc = focusedDocument, doc.language == .powershell {
+                fullCode = doc.content + "\n\n" + command
+            } else {
+                fullCode = command
+            }
+            executeCodeInRunner(
+                code: fullCode,
+                language: .powershell,
+                workingDirectory: focusedDocument?.fileURL?.deletingLastPathComponent() ?? mountedFolderURL,
+                lineNumberBaseOffset: 0
+            )
+            return
+        }
+
+        guard let idx = documents.firstIndex(where: { $0.id == focusedDocumentId }) else { return }
+        let doc = documents[idx]
+        let suffix = doc.content.hasSuffix("\n") || doc.content.isEmpty ? "" : "\n"
+        documents[idx].content = doc.content + suffix + command + "\n"
+        let endLen = (documents[idx].content as NSString).length
+        documents[idx].selectionStart = endLen
+        documents[idx].selectionEnd = endLen
+        persistScratchpadIfNeeded(at: idx)
+        refreshActiveAnalysisImmediate()
+        showParameterFormSheet = false
+        postToast("Inserted PowerShell invocation into \(doc.title)")
+    }
+
+    public func openQuickHelpForCursorOrSelection() {
+        if let doc = focusedDocument {
+            let selected = doc.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let token = !selected.isEmpty
+                ? selected
+                : PowerShellToolingEngine.tokenUnderCursor(in: doc.content, cursorOffset: doc.safeSelectionStart)
+            let effective = token.isEmpty ? "Get-ChildItem" : token
+            quickHelpQuery = effective
+            activeHelpTopic = PowerShellToolingEngine.lookupQuickHelp(
+                queryOrCursorToken: effective,
+                documentContent: doc.content,
+                preferLivePwsh: false
+            )
+        }
+        showQuickHelpSheet = true
+    }
+
+    public func searchQuickHelp(query: String, preferLivePwsh: Bool = false) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        quickHelpQuery = trimmed
+        let docContent = focusedDocument?.content ?? ""
+        if preferLivePwsh {
+            Task { [weak self] in
+                let topic = await Task.detached(priority: .userInitiated) {
+                    PowerShellToolingEngine.lookupQuickHelp(
+                        queryOrCursorToken: trimmed,
+                        documentContent: docContent,
+                        preferLivePwsh: true
+                    )
+                }.value
+                guard let self else { return }
+                self.activeHelpTopic = topic
+            }
+        } else {
+            activeHelpTopic = PowerShellToolingEngine.lookupQuickHelp(
+                queryOrCursorToken: trimmed,
+                documentContent: docContent,
+                preferLivePwsh: false
+            )
+        }
+    }
+
+    public func openAndRunPesterSuite() {
+        showPesterRunnerSheet = true
+        runFocusedPesterSuite()
+    }
+
+    public func runFocusedPesterSuite() {
+        guard let doc = focusedDocument else { return }
+        let code = doc.content
+        let workDir = doc.fileURL?.deletingLastPathComponent() ?? mountedFolderURL
+        isRunningPester = true
+
+        Task { [weak self] in
+            let res = await Task.detached(priority: .userInitiated) {
+                PowerShellToolingEngine.runPesterTests(code: code, workingDirectory: workDir)
+            }.value
+            guard let self else { return }
+            self.isRunningPester = false
+            self.lastPesterSuiteResult = res
+        }
+    }
+
+    // Structured Data Grid & Live Markdown/HTML Split Preview
+
+    public func isGridModeActive(for docId: String) -> Bool {
+        activeGridDocumentIds.contains(docId)
+    }
+
+    public func toggleDataGridMode() {
+        guard let doc = focusedDocument else { return }
+        if activeGridDocumentIds.contains(doc.id) {
+            activeGridDocumentIds.remove(doc.id)
+            postToast("Switched \(doc.title) to Code View")
+        } else {
+            guard StructuredDataGridEngine.parseTable(from: doc.content, language: doc.language, fileName: doc.title) != nil else {
+                postToast("Active document is not a CSV/TSV table or JSON object array")
+                return
+            }
+            activeGridDocumentIds.insert(doc.id)
+            postToast("Opened \(doc.title) in Structured Data Grid")
+        }
+    }
+
+    public func toggleLiveMarkdownPreview() {
+        showLiveMarkdownPreview.toggle()
+        postToast(showLiveMarkdownPreview ? "Live Markdown / HTML Preview enabled" : "Live Preview hidden")
+    }
+
+    // Remote SFTP / SSH Open & Save
+
+    private func sftpPasswordKey(host: String, port: Int, username: String) -> String {
+        "\(username)@\(host):\(port)"
+    }
+
+    private func loadSftpProfiles() {
+        guard let data = try? Data(contentsOf: sftpProfilesFileURL),
+              let decoded = try? JSONDecoder().decode([SFTPConnectionProfile].self, from: data) else {
+            return
+        }
+        sftpProfiles = decoded
+    }
+
+    private func persistSftpProfiles() {
+        guard let data = try? JSONEncoder().encode(sftpProfiles) else { return }
+        try? data.write(to: sftpProfilesFileURL, options: .atomic)
+    }
+
+    public func saveSftpProfile(_ profile: SFTPConnectionProfile) {
+        if let idx = sftpProfiles.firstIndex(where: { $0.id == profile.id }) {
+            sftpProfiles[idx] = profile
+        } else {
+            sftpProfiles.append(profile)
+        }
+        persistSftpProfiles()
+        postToast("Saved SFTP bookmark '\(profile.name)'")
+    }
+
+    public func deleteSftpProfile(id: String) {
+        sftpProfiles.removeAll { $0.id == id }
+        persistSftpProfiles()
+    }
+
+    public func openSftpBrowser() {
+        sftpErrorMessage = nil
+        showSftpBrowserSheet = true
+    }
+
+    public func openRemoteSftpFile(
+        profile: SFTPConnectionProfile,
+        entry: SFTPRemoteEntry,
+        sessionPassword: String?
+    ) {
+        let loc = RemoteFileLocation(
+            host: profile.host.trimmingCharacters(in: .whitespacesAndNewlines),
+            port: profile.port,
+            username: profile.username.trimmingCharacters(in: .whitespacesAndNewlines),
+            remotePath: entry.fullPath,
+            keyFilePath: profile.keyFilePath
+        )
+        if let pwd = sessionPassword, !pwd.isEmpty {
+            sessionSftpPasswords[sftpPasswordKey(host: loc.host, port: loc.port, username: loc.username)] = pwd
+        }
+        if let existing = documents.first(where: { $0.remoteLocation == loc }) {
+            selectTab(existing.id)
+            showSftpBrowserSheet = false
+            return
+        }
+
+        isSftpBusy = true
+        sftpErrorMessage = nil
+        let effectivePassword = sessionPassword?.isEmpty == false
+            ? sessionPassword
+            : sessionSftpPasswords[sftpPasswordKey(host: loc.host, port: loc.port, username: loc.username)]
+
+        Task { [weak self] in
+            let outcome = await Task.detached(priority: .userInitiated) { () -> Result<(content: String, encoding: DocumentEncoding, lineEnding: LineEnding), Error> in
+                do {
+                    let dl = try RemoteSFTPEngine.downloadRemoteFile(location: loc, password: effectivePassword)
+                    return .success(dl)
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+            guard let self else { return }
+            self.isSftpBusy = false
+            switch outcome {
+            case .success(let dl):
+                let doc = EditorDocument(
+                    title: entry.name,
+                    fileURL: nil,
+                    remoteLocation: loc,
+                    content: dl.content,
+                    savedContent: dl.content,
+                    isScratchpad: false,
+                    language: SyntaxLanguage.fromFileName(entry.name),
+                    encoding: dl.encoding,
+                    lineEnding: dl.lineEnding
+                )
+                let insertAt = max(0, self.documents.firstIndex(where: \.isScratchpad) ?? self.documents.count)
+                self.documents.insert(doc, at: insertAt)
+                self.selectTab(doc.id)
+                self.scheduleSessionSave()
+                self.showSftpBrowserSheet = false
+                self.postToast("Opened \(loc.displayBadge)")
+            case .failure(let err):
+                self.sftpErrorMessage = err.localizedDescription
+            }
+        }
+    }
+
+    private func writeRemoteDocument(at idx: Int, location: RemoteFileLocation) -> Bool {
+        let doc = documents[idx]
+        let pwd = sessionSftpPasswords[sftpPasswordKey(host: location.host, port: location.port, username: location.username)]
+        do {
+            try RemoteSFTPEngine.uploadRemoteFile(
+                content: doc.content,
+                encoding: doc.encoding,
+                lineEnding: doc.lineEnding,
+                to: location,
+                password: pwd
+            )
+            documents[idx].savedContent = doc.content
+            documents[idx].savedEncoding = doc.encoding
+            documents[idx].savedLineEnding = doc.lineEnding
+            refreshActiveAnalysisImmediate()
+            scheduleSessionSave()
+            postToast("Saved to \(location.displayBadge)")
+            return true
+        } catch {
+            postToast("Remote SFTP save failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     // MARK: - Command Palette Catalog
 
     public func buildCommandPaletteItems(updateManager: SparkleUpdateManager) -> [CommandPaletteItem] {
@@ -2352,6 +2782,30 @@ public final class WorkspaceViewModel: ObservableObject {
             },
             CommandPaletteItem(id: "worksheet_eval", title: "Evaluate Inline (BBEdit Worksheet Mode)", subtitle: "Insert evaluated PowerShell output directly below selection", shortcutHint: "⌃↩", sfSymbol: "terminal") { [weak self] in
                 self?.evaluateWorksheetInline()
+            },
+            CommandPaletteItem(id: "ps_show_cmd", title: "PowerShell Show-Command Parameter Builder…", subtitle: "Inspect param() attributes & generate interactive invocation", shortcutHint: "⇧⌘I", sfSymbol: "slider.horizontal.below.rectangle") { [weak self] in
+                self?.openParameterFormBuilder()
+            },
+            CommandPaletteItem(id: "ps_quick_help", title: "PowerShell Cmdlet Quick Help", subtitle: "Inspect SYNOPSIS, parameters & examples for token under cursor", shortcutHint: "F1", sfSymbol: "questionmark.circle") { [weak self] in
+                self?.openQuickHelpForCursorOrSelection()
+            },
+            CommandPaletteItem(id: "ps_pester", title: "Run Pester Unit Tests…", subtitle: "Discover & execute Describe / Context / It blocks", shortcutHint: "⌃⇧T", sfSymbol: "checkmark.seal.fill") { [weak self] in
+                self?.openAndRunPesterSuite()
+            },
+            CommandPaletteItem(id: "sftp_open", title: "Open Remote File via SFTP / SSH…", subtitle: "Browse remote servers & save directly with ⌘S", shortcutHint: "⌥⌘K", sfSymbol: "network") { [weak self] in
+                self?.openSftpBrowser()
+            },
+            CommandPaletteItem(id: "data_grid", title: "Toggle Structured CSV / JSON Data Grid", subtitle: "Two-way sortable & filterable table inspector", shortcutHint: "⌃⇧G", sfSymbol: "tablecells") { [weak self] in
+                self?.toggleDataGridMode()
+            },
+            CommandPaletteItem(id: "live_preview", title: "Toggle Live Markdown / HTML Split Preview", subtitle: "Side-by-side offline GFM & HTML5 rendered pane", shortcutHint: "⌃⌘P", sfSymbol: "doc.richtext") { [weak self] in
+                self?.toggleLiveMarkdownPreview()
+            },
+            CommandPaletteItem(id: "git_diff_head", title: "Git: Compare Active File with HEAD", subtitle: "Open Myers Side-by-Side Diff against committed Git HEAD", shortcutHint: "", sfSymbol: "arrow.triangle.branch") { [weak self] in
+                self?.compareFocusedFileWithGitHead()
+            },
+            CommandPaletteItem(id: "git_stage", title: "Git: Stage Active File (git add)", subtitle: "Stage active file changes into the Git index", shortcutHint: "", sfSymbol: "plus.circle") { [weak self] in
+                self?.stageFocusedFileInGit()
             },
             CommandPaletteItem(id: "new_doc", title: "New Document…", subtitle: "Create PowerShell, Swift, JSON, Markdown, or Shell file", shortcutHint: "⌘N", sfSymbol: "doc.badge.plus") { [weak self] in
                 self?.showNewDocumentSheet = true

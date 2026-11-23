@@ -173,11 +173,27 @@ data class DiskBrowserNode(
 )
 
 @Immutable
+data class RemoteFileLocation(
+    val host: String,
+    val port: Int = 22,
+    val username: String,
+    val remotePath: String,
+    val privateKeyPem: String? = null
+) {
+    val displayBadge: String
+        get() {
+            val portPart = if (port == 22) "" else ":$port"
+            return "sftp://$username@$host$portPart$remotePath"
+        }
+}
+
+@Immutable
 data class EditorDocument(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     val savedTitle: String = title,
     val uriString: String? = null,
+    val remoteLocation: RemoteFileLocation? = null,
     val content: String = "",
     val savedContent: String = "",
     val isScratchpad: Boolean = false,

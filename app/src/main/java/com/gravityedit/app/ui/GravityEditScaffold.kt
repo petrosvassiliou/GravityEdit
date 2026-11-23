@@ -117,6 +117,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
@@ -139,8 +140,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gravityedit.app.R
 import com.gravityedit.app.domain.engine.AppUpdateCheckStatus
+import com.gravityedit.app.domain.engine.MarkdownPreviewRenderer
 import com.gravityedit.app.domain.engine.PowerShellEngine
 import com.gravityedit.app.domain.engine.ScriptOutputStreamKind
+import com.gravityedit.app.domain.engine.StructuredDataGridEngine
 import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.DiskBrowserNode
 import com.gravityedit.app.domain.model.DocumentEncoding
@@ -157,13 +160,20 @@ import com.gravityedit.app.ui.components.CommandPaletteModal
 import com.gravityedit.app.ui.components.EditorCanvas
 import com.gravityedit.app.ui.components.FindReplaceModal
 import com.gravityedit.app.ui.components.GoToLineDialog
+import com.gravityedit.app.ui.components.LiveMarkdownHtmlPreviewPane
 import com.gravityedit.app.ui.components.NewDocumentDialog
 import com.gravityedit.app.ui.components.OutlinedButton
+import com.gravityedit.app.ui.components.ParameterFormModal
+import com.gravityedit.app.ui.components.PesterRunnerModal
 import com.gravityedit.app.ui.components.PowerShellAuxiliarySymbolRow
 import com.gravityedit.app.ui.components.PowerShellDiagnosticsModal
+import com.gravityedit.app.ui.components.QuickHelpModal
 import com.gravityedit.app.ui.components.SettingsModal
+import com.gravityedit.app.ui.components.SftpBrowserModal
 import com.gravityedit.app.ui.components.SideBySideDiffModal
+import com.gravityedit.app.ui.components.StructuredDataGridCanvas
 import com.gravityedit.app.ui.components.TextFactoryModal
+import com.gravityedit.app.ui.theme.GravityThemeMode
 import com.gravityedit.app.ui.theme.GravityExpressiveMotion
 import com.gravityedit.app.ui.theme.JetBrainsMonoFontFamily
 import com.gravityedit.app.ui.viewmodel.GravityEditUiEvent
@@ -453,6 +463,48 @@ fun GravityEditScaffold(
                 onDismiss = { viewModel.setUpdateModalVisible(false) }
             )
         }
+
+        if (uiState.showParameterFormModal) {
+            ParameterFormModal(
+                specs = uiState.parameterFormSpecs,
+                onApplyCommand = viewModel::applyGeneratedParameterCommand,
+                onDismiss = { viewModel.setParameterFormModalVisible(false) }
+            )
+        }
+
+        if (uiState.showQuickHelpModal) {
+            QuickHelpModal(
+                initialQuery = uiState.quickHelpQuery,
+                activeTopic = uiState.activeHelpTopic,
+                onSearchQuery = viewModel::searchQuickHelp,
+                onDismiss = { viewModel.setQuickHelpModalVisible(false) }
+            )
+        }
+
+        if (uiState.showPesterModal) {
+            PesterRunnerModal(
+                isRunning = uiState.isRunningPester,
+                suiteResult = uiState.lastPesterResult,
+                onReRun = viewModel::runFocusedPesterSuite,
+                onJumpToLine = viewModel::jumpToLine,
+                onDismiss = { viewModel.setPesterModalVisible(false) }
+            )
+        }
+
+        if (uiState.showSftpModal) {
+            SftpBrowserModal(
+                profiles = uiState.sftpProfiles,
+                currentPath = uiState.sftpCurrentPath,
+                entries = uiState.sftpEntries,
+                isBusy = uiState.isSftpBusy,
+                errorMessage = uiState.sftpErrorMessage,
+                onSaveProfile = viewModel::saveSftpProfile,
+                onDeleteProfile = viewModel::deleteSftpProfile,
+                onBrowseDirectory = viewModel::browseRemoteSftpDirectory,
+                onOpenRemoteFile = viewModel::openRemoteSftpFile,
+                onDismiss = { viewModel.setSftpModalVisible(false) }
+            )
+        }
     }
 }
 
@@ -485,7 +537,12 @@ private fun handleGlobalHardwareShortcuts(
     if (event.type != KeyEventType.KeyDown) return false
     val ctrl = event.isCtrlPressed || event.isMetaPressed
     val shift = event.isShiftPressed
+    val alt = event.isAltPressed
 
+    if (!ctrl && event.key == Key.F1) {
+        viewModel.openQuickHelpForCursor()
+        return true
+    }
     if (!ctrl && event.key == Key.F8) {
         viewModel.runSelectionOrCurrentLine()
         return true
@@ -497,6 +554,24 @@ private fun handleGlobalHardwareShortcuts(
     if (!ctrl) return false
 
     return when (event.key) {
+        Key.I -> {
+            if (shift) {
+                viewModel.openParameterFormBuilder()
+                true
+            } else false
+        }
+        Key.T -> {
+            if (alt) {
+                viewModel.openAndRunPesterSuite()
+                true
+            } else false
+        }
+        Key.K -> {
+            if (shift) {
+                viewModel.openSftpModal()
+                true
+            } else false
+        }
         Key.R -> {
             viewModel.runActiveScript()
             true
@@ -516,7 +591,11 @@ private fun handleGlobalHardwareShortcuts(
             } else false
         }
         Key.P -> {
-            viewModel.setCommandPaletteModalVisible(true)
+            if (alt) {
+                viewModel.toggleLiveMarkdownPreview()
+            } else {
+                viewModel.setCommandPaletteModalVisible(true)
+            }
             true
         }
         Key.N -> {
@@ -551,7 +630,11 @@ private fun handleGlobalHardwareShortcuts(
             true
         }
         Key.G -> {
-            viewModel.setGoToLineDialogVisible(true)
+            if (shift) {
+                viewModel.toggleDataGridMode()
+            } else {
+                viewModel.setGoToLineDialogVisible(true)
+            }
             true
         }
         Key.J -> {
@@ -780,6 +863,23 @@ private fun GooglebookDesktopLayout(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
 
+                if (focusedDesktopDoc != null) {
+                    val canGrid = StructuredDataGridEngine.canInspectAsGrid(focusedDesktopDoc)
+                    val canPreview = MarkdownPreviewRenderer.canPreviewDocument(focusedDesktopDoc)
+                    if (canGrid || canPreview || focusedDesktopDoc.remoteLocation != null) {
+                        ContextualV150InspectorBar(
+                            document = focusedDesktopDoc,
+                            canGrid = canGrid,
+                            isGridActive = focusedDesktopDoc.id in uiState.activeGridDocumentIds,
+                            canPreview = canPreview,
+                            isPreviewActive = uiState.showLiveMarkdownPreview,
+                            onToggleGrid = viewModel::toggleDataGridMode,
+                            onTogglePreview = viewModel::toggleLiveMarkdownPreview
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+
                 // Center Single or Split-View Editor Workspace
                 Box(
                     modifier = Modifier
@@ -794,7 +894,8 @@ private fun GooglebookDesktopLayout(
                         onSelectionChange = viewModel::updateDocumentSelection,
                         onToggleFold = viewModel::toggleFoldAtLine,
                         onToggleBookmark = viewModel::toggleBookmarkAtLine,
-                        onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) }
+                        onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
+                        onExitGrid = viewModel::toggleDataGridMode
                     )
                 }
 
@@ -810,7 +911,7 @@ private fun GooglebookDesktopLayout(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        // Full-Width Expressive Bottom Status Bar with Bottom-Left Corner Version Badge
+            // Full-Width Expressive Bottom Status Bar with Bottom-Left Corner Version Badge
         ExpressiveBottomStatusBar(
             uiState = uiState,
             isCompactMobile = false,
@@ -821,6 +922,7 @@ private fun GooglebookDesktopLayout(
             onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
             onOpenCommandPalette = { viewModel.setCommandPaletteModalVisible(true) },
             onOpenUpdateModal = { viewModel.setUpdateModalVisible(true) },
+            onCompareBaseline = viewModel::compareActiveWithSavedBaseline,
             onAdjustZoom = viewModel::adjustZoom,
             onResetZoom = { viewModel.setZoomPercent(100) }
         )
@@ -942,38 +1044,111 @@ private fun AndroidMobileCompactLayout(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
             if (activeDoc != null) {
+                val canGrid = StructuredDataGridEngine.canInspectAsGrid(activeDoc)
+                val canPreview = MarkdownPreviewRenderer.canPreviewDocument(activeDoc)
+                if (canGrid || canPreview || activeDoc.remoteLocation != null) {
+                    ContextualV150InspectorBar(
+                        document = activeDoc,
+                        canGrid = canGrid,
+                        isGridActive = activeDoc.id in uiState.activeGridDocumentIds,
+                        canPreview = canPreview,
+                        isPreviewActive = uiState.showLiveMarkdownPreview,
+                        onToggleGrid = viewModel::toggleDataGridMode,
+                        onTogglePreview = viewModel::toggleLiveMarkdownPreview
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+
                 val mobileScroll = scrollEventTarget?.takeIf { it.documentId == activeDoc.id }
-                EditorCanvas(
-                    document = activeDoc,
-                    foldRegions = uiState.foldRegions,
-                    astSymbols = uiState.astSymbols,
-                    diagnostics = uiState.diagnostics,
-                    onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
-                    onToggleBookmark = { ln -> viewModel.toggleBookmarkAtLine(activeDoc.id, ln) },
-                    searchMatches = uiState.activeDocSearchMatches,
-                    activeSearchMatchIndex = uiState.currentMatchIndex,
-                    fontSizeSp = uiState.effectiveFontSizeSp,
-                    tabWidth = uiState.tabWidth,
-                    softWrap = uiState.softWrap,
-                    showInvisibles = uiState.showInvisibles,
-                    showPageGuide80 = uiState.showPageGuide80,
-                    showPageGuide120 = uiState.showPageGuide120,
-                    enableCodeFolding = uiState.enableCodeFolding,
-                    isFocusedPane = true,
-                    scrollTargetLine = mobileScroll?.lineIndex,
-                    scrollRequestId = mobileScroll?.requestId ?: 0L,
-                    onFocusPane = { viewModel.setFocusedPane(0) },
-                    onContentChange = { text, sStart, sEnd ->
-                        viewModel.updateDocumentContent(activeDoc.id, text, sStart, sEnd)
-                    },
-                    onSelectionChange = { sStart, sEnd ->
-                        viewModel.updateDocumentSelection(activeDoc.id, sStart, sEnd)
-                    },
-                    onToggleFold = { line ->
-                        viewModel.toggleFoldAtLine(activeDoc.id, line)
-                    },
-                    modifier = Modifier.weight(1f)
-                )
+                if (activeDoc.id in uiState.activeGridDocumentIds) {
+                    StructuredDataGridCanvas(
+                        document = activeDoc,
+                        onUpdateContent = { updated ->
+                            viewModel.updateDocumentContent(activeDoc.id, updated)
+                        },
+                        onExitGrid = viewModel::toggleDataGridMode,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else if (uiState.showLiveMarkdownPreview && canPreview) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        EditorCanvas(
+                            document = activeDoc,
+                            foldRegions = uiState.foldRegions,
+                            astSymbols = uiState.astSymbols,
+                            diagnostics = uiState.diagnostics,
+                            gutterChanges = uiState.activeGutterChanges,
+                            onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
+                            onToggleBookmark = { ln -> viewModel.toggleBookmarkAtLine(activeDoc.id, ln) },
+                            searchMatches = uiState.activeDocSearchMatches,
+                            activeSearchMatchIndex = uiState.currentMatchIndex,
+                            fontSizeSp = uiState.effectiveFontSizeSp,
+                            tabWidth = uiState.tabWidth,
+                            softWrap = uiState.softWrap,
+                            showInvisibles = uiState.showInvisibles,
+                            showPageGuide80 = uiState.showPageGuide80,
+                            showPageGuide120 = uiState.showPageGuide120,
+                            enableCodeFolding = uiState.enableCodeFolding,
+                            isFocusedPane = true,
+                            scrollTargetLine = mobileScroll?.lineIndex,
+                            scrollRequestId = mobileScroll?.requestId ?: 0L,
+                            onFocusPane = { viewModel.setFocusedPane(0) },
+                            onContentChange = { text, sStart, sEnd ->
+                                viewModel.updateDocumentContent(activeDoc.id, text, sStart, sEnd)
+                            },
+                            onSelectionChange = { sStart, sEnd ->
+                                viewModel.updateDocumentSelection(activeDoc.id, sStart, sEnd)
+                            },
+                            onToggleFold = { line ->
+                                viewModel.toggleFoldAtLine(activeDoc.id, line)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                        LiveMarkdownHtmlPreviewPane(
+                            html = MarkdownPreviewRenderer.renderHtml(
+                                content = activeDoc.content,
+                                language = activeDoc.language,
+                                fileName = activeDoc.title,
+                                isDarkTheme = uiState.themeMode != GravityThemeMode.LIGHT,
+                                isOledBlack = uiState.themeMode == GravityThemeMode.OLED
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                } else {
+                    EditorCanvas(
+                        document = activeDoc,
+                        foldRegions = uiState.foldRegions,
+                        astSymbols = uiState.astSymbols,
+                        diagnostics = uiState.diagnostics,
+                        gutterChanges = uiState.activeGutterChanges,
+                        onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
+                        onToggleBookmark = { ln -> viewModel.toggleBookmarkAtLine(activeDoc.id, ln) },
+                        searchMatches = uiState.activeDocSearchMatches,
+                        activeSearchMatchIndex = uiState.currentMatchIndex,
+                        fontSizeSp = uiState.effectiveFontSizeSp,
+                        tabWidth = uiState.tabWidth,
+                        softWrap = uiState.softWrap,
+                        showInvisibles = uiState.showInvisibles,
+                        showPageGuide80 = uiState.showPageGuide80,
+                        showPageGuide120 = uiState.showPageGuide120,
+                        enableCodeFolding = uiState.enableCodeFolding,
+                        isFocusedPane = true,
+                        scrollTargetLine = mobileScroll?.lineIndex,
+                        scrollRequestId = mobileScroll?.requestId ?: 0L,
+                        onFocusPane = { viewModel.setFocusedPane(0) },
+                        onContentChange = { text, sStart, sEnd ->
+                            viewModel.updateDocumentContent(activeDoc.id, text, sStart, sEnd)
+                        },
+                        onSelectionChange = { sStart, sEnd ->
+                            viewModel.updateDocumentSelection(activeDoc.id, sStart, sEnd)
+                        },
+                        onToggleFold = { line ->
+                            viewModel.toggleFoldAtLine(activeDoc.id, line)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
 
             if (uiState.showRunnerDrawer) {
@@ -1009,6 +1184,7 @@ private fun AndroidMobileCompactLayout(
                 onOpenDiagnostics = { viewModel.setDiagnosticsModalVisible(true) },
                 onOpenCommandPalette = { viewModel.setCommandPaletteModalVisible(true) },
                 onOpenUpdateModal = { viewModel.setUpdateModalVisible(true) },
+                onCompareBaseline = viewModel::compareActiveWithSavedBaseline,
                 onAdjustZoom = viewModel::adjustZoom,
                 onResetZoom = { viewModel.setZoomPercent(100) }
             )
@@ -1955,6 +2131,15 @@ private fun WorkspaceOverflowDropdownMenu(
                 viewModel.requestMountProjectFolder()
             }
         )
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("Open Remote SFTP / SSH…") },
+            trailingIcon = { ShortcutBadge("Ctrl+⇧+K") },
+            onClick = {
+                onDismiss()
+                viewModel.openSftpModal()
+            }
+        )
         val recents = viewModel.uiState.value.recentFileUris
         if (recents.isNotEmpty()) {
             HorizontalDivider()
@@ -2064,6 +2249,51 @@ private fun WorkspaceOverflowDropdownMenu(
             onClick = {
                 onDismiss()
                 viewModel.evaluateWorksheetInline()
+            }
+        )
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.Functions, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("PowerShell Show-Command…") },
+            trailingIcon = { ShortcutBadge("Ctrl+⇧+I") },
+            onClick = {
+                onDismiss()
+                viewModel.openParameterFormBuilder()
+            }
+        )
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("PowerShell Quick Help") },
+            trailingIcon = { ShortcutBadge("F1") },
+            onClick = {
+                onDismiss()
+                viewModel.openQuickHelpForCursor()
+            }
+        )
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("Run Pester Unit Tests…") },
+            trailingIcon = { ShortcutBadge("Ctrl+Alt+T") },
+            onClick = {
+                onDismiss()
+                viewModel.openAndRunPesterSuite()
+            }
+        )
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.ViewColumn, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("Toggle CSV / JSON Data Grid") },
+            trailingIcon = { ShortcutBadge("Ctrl+⇧+G") },
+            onClick = {
+                onDismiss()
+                viewModel.toggleDataGridMode()
+            }
+        )
+        DropdownMenuItem(
+            leadingIcon = { Icon(Icons.Default.Splitscreen, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            text = { Text("Toggle Live Markdown / HTML Preview") },
+            trailingIcon = { ShortcutBadge("Ctrl+Alt+P") },
+            onClick = {
+                onDismiss()
+                viewModel.toggleLiveMarkdownPreview()
             }
         )
         DropdownMenuItem(
@@ -2568,6 +2798,52 @@ private fun InlineEditableDocumentTitle(
 }
 
 @Composable
+private fun ContextualV150InspectorBar(
+    document: EditorDocument,
+    canGrid: Boolean,
+    isGridActive: Boolean,
+    canPreview: Boolean,
+    isPreviewActive: Boolean,
+    onToggleGrid: () -> Unit,
+    onTogglePreview: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (document.remoteLocation != null) {
+                Text(
+                    text = document.remoteLocation.displayBadge,
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            if (canGrid) {
+                AssistChip(
+                    onClick = onToggleGrid,
+                    label = { Text(if (isGridActive) "Code View (Ctrl+⇧+G)" else "Data Grid (Ctrl+⇧+G)", fontSize = 11.sp) }
+                )
+            }
+            if (canPreview) {
+                AssistChip(
+                    onClick = onTogglePreview,
+                    label = { Text(if (isPreviewActive) "Hide Preview" else "Live Preview (Ctrl+Alt+P)", fontSize = 11.sp) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun AdaptiveEditorSplitWorkspace(
     uiState: GravityEditUiState,
     scrollEventTarget: GravityEditUiEvent.ScrollToLine?,
@@ -2576,7 +2852,8 @@ private fun AdaptiveEditorSplitWorkspace(
     onSelectionChange: (docId: String, selStart: Int, selEnd: Int) -> Unit,
     onToggleFold: (docId: String, startLine: Int) -> Unit,
     onToggleBookmark: (docId: String, oneBasedLine: Int) -> Unit,
-    onOpenDiagnostics: () -> Unit
+    onOpenDiagnostics: () -> Unit,
+    onExitGrid: () -> Unit = {}
 ) {
     val primaryDoc = uiState.activeDocument ?: return
     val secondaryDoc = uiState.secondaryDocument ?: primaryDoc
@@ -2641,35 +2918,95 @@ private fun AdaptiveEditorSplitWorkspace(
 
     when (uiState.splitViewMode) {
         SplitViewMode.NONE -> {
-            EditorCanvas(
-                document = primaryDoc,
-                foldRegions = primaryFolds,
-                astSymbols = primarySymbols,
-                diagnostics = primaryDiags,
-                onOpenDiagnostics = onOpenDiagnostics,
-                searchMatches = uiState.activeDocSearchMatches,
-                activeSearchMatchIndex = uiState.currentMatchIndex,
-                fontSizeSp = uiState.effectiveFontSizeSp,
-                tabWidth = uiState.tabWidth,
-                softWrap = uiState.softWrap,
-                showInvisibles = uiState.showInvisibles,
-                showPageGuide80 = uiState.showPageGuide80,
-                showPageGuide120 = uiState.showPageGuide120,
-                enableCodeFolding = uiState.enableCodeFolding,
-                isFocusedPane = true,
-                scrollTargetLine = primaryScroll?.lineIndex,
-                scrollRequestId = primaryScroll?.requestId ?: 0L,
-                onFocusPane = { onFocusPane(0) },
-                onContentChange = { text, sStart, sEnd ->
-                    onContentChange(primaryDoc.id, text, sStart, sEnd)
-                },
-                onSelectionChange = { sStart, sEnd ->
-                    onSelectionChange(primaryDoc.id, sStart, sEnd)
-                },
-                onToggleFold = { line -> onToggleFold(primaryDoc.id, line) },
-                onToggleBookmark = { ln -> onToggleBookmark(primaryDoc.id, ln) },
-                modifier = Modifier.fillMaxSize()
-            )
+            if (primaryDoc.id in uiState.activeGridDocumentIds) {
+                StructuredDataGridCanvas(
+                    document = primaryDoc,
+                    onUpdateContent = { updated ->
+                        onContentChange(primaryDoc.id, updated, 0, 0)
+                    },
+                    onExitGrid = onExitGrid,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else if (uiState.showLiveMarkdownPreview && MarkdownPreviewRenderer.canPreviewDocument(primaryDoc)) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    EditorCanvas(
+                        document = primaryDoc,
+                        foldRegions = primaryFolds,
+                        astSymbols = primarySymbols,
+                        diagnostics = primaryDiags,
+                        gutterChanges = if (primaryIsFocusedDoc) uiState.activeGutterChanges else emptyMap(),
+                        onOpenDiagnostics = onOpenDiagnostics,
+                        searchMatches = uiState.activeDocSearchMatches,
+                        activeSearchMatchIndex = uiState.currentMatchIndex,
+                        fontSizeSp = uiState.effectiveFontSizeSp,
+                        tabWidth = uiState.tabWidth,
+                        softWrap = uiState.softWrap,
+                        showInvisibles = uiState.showInvisibles,
+                        showPageGuide80 = uiState.showPageGuide80,
+                        showPageGuide120 = uiState.showPageGuide120,
+                        enableCodeFolding = uiState.enableCodeFolding,
+                        isFocusedPane = true,
+                        scrollTargetLine = primaryScroll?.lineIndex,
+                        scrollRequestId = primaryScroll?.requestId ?: 0L,
+                        onFocusPane = { onFocusPane(0) },
+                        onContentChange = { text, sStart, sEnd ->
+                            onContentChange(primaryDoc.id, text, sStart, sEnd)
+                        },
+                        onSelectionChange = { sStart, sEnd ->
+                            onSelectionChange(primaryDoc.id, sStart, sEnd)
+                        },
+                        onToggleFold = { line -> onToggleFold(primaryDoc.id, line) },
+                        onToggleBookmark = { ln -> onToggleBookmark(primaryDoc.id, ln) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    )
+                    VerticalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                    LiveMarkdownHtmlPreviewPane(
+                        html = MarkdownPreviewRenderer.renderHtml(
+                            content = primaryDoc.content,
+                            language = primaryDoc.language,
+                            fileName = primaryDoc.title,
+                            isDarkTheme = uiState.themeMode != GravityThemeMode.LIGHT,
+                            isOledBlack = uiState.themeMode == GravityThemeMode.OLED
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    )
+                }
+            } else {
+                EditorCanvas(
+                    document = primaryDoc,
+                    foldRegions = primaryFolds,
+                    astSymbols = primarySymbols,
+                    diagnostics = primaryDiags,
+                    gutterChanges = if (primaryIsFocusedDoc) uiState.activeGutterChanges else emptyMap(),
+                    onOpenDiagnostics = onOpenDiagnostics,
+                    searchMatches = uiState.activeDocSearchMatches,
+                    activeSearchMatchIndex = uiState.currentMatchIndex,
+                    fontSizeSp = uiState.effectiveFontSizeSp,
+                    tabWidth = uiState.tabWidth,
+                    softWrap = uiState.softWrap,
+                    showInvisibles = uiState.showInvisibles,
+                    showPageGuide80 = uiState.showPageGuide80,
+                    showPageGuide120 = uiState.showPageGuide120,
+                    enableCodeFolding = uiState.enableCodeFolding,
+                    isFocusedPane = true,
+                    scrollTargetLine = primaryScroll?.lineIndex,
+                    scrollRequestId = primaryScroll?.requestId ?: 0L,
+                    onFocusPane = { onFocusPane(0) },
+                    onContentChange = { text, sStart, sEnd ->
+                        onContentChange(primaryDoc.id, text, sStart, sEnd)
+                    },
+                    onSelectionChange = { sStart, sEnd ->
+                        onSelectionChange(primaryDoc.id, sStart, sEnd)
+                    },
+                    onToggleFold = { line -> onToggleFold(primaryDoc.id, line) },
+                    onToggleBookmark = { ln -> onToggleBookmark(primaryDoc.id, ln) },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
 
         SplitViewMode.VERTICAL -> {
@@ -2829,6 +3166,7 @@ private fun ExpressiveBottomStatusBar(
     onOpenDiagnostics: () -> Unit,
     onOpenCommandPalette: () -> Unit,
     onOpenUpdateModal: () -> Unit,
+    onCompareBaseline: () -> Unit = {},
     onAdjustZoom: (Int) -> Unit,
     onResetZoom: () -> Unit,
     isCompactMobile: Boolean = false
@@ -2930,6 +3268,20 @@ private fun ExpressiveBottomStatusBar(
                         emphasized = true,
                         onClick = onOpenGoToLine
                     )
+
+                    if (uiState.gitStatusSummary != null) {
+                        StatusInteractivePill(
+                            text = "⎇ ${uiState.gitStatusSummary.branchName}",
+                            emphasized = false,
+                            onClick = onCompareBaseline
+                        )
+                    } else if (uiState.activeGutterChanges.isNotEmpty()) {
+                        StatusInteractivePill(
+                            text = "± ${uiState.activeGutterChanges.size} ln",
+                            emphasized = false,
+                            onClick = onCompareBaseline
+                        )
+                    }
 
                     // PSScriptAnalyzer Live Diagnostics Status Pill
                     if (doc.language == SyntaxLanguage.POWERSHELL) {

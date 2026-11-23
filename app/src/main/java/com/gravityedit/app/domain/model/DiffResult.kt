@@ -9,6 +9,12 @@ enum class DiffChangeType {
     MODIFY
 }
 
+enum class GutterLineChangeKind {
+    ADDED,
+    MODIFIED,
+    DELETED_BELOW
+}
+
 @Immutable
 data class CharDiffSpan(
     val start: Int,

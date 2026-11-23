@@ -24,18 +24,24 @@ import com.gravityedit.app.domain.engine.AppUpdateManagerEngine
 import com.gravityedit.app.domain.engine.ClippingsManager
 import com.gravityedit.app.domain.engine.DiffEngine
 import com.gravityedit.app.domain.engine.FindReplaceEngine
+import com.gravityedit.app.domain.engine.GitWorkbenchEngine
+import com.gravityedit.app.domain.engine.MarkdownPreviewRenderer
 import com.gravityedit.app.domain.engine.PowerShellDiagnostic
 import com.gravityedit.app.domain.engine.PowerShellEngine
 import com.gravityedit.app.domain.engine.PowerShellRunnerEngine
+import com.gravityedit.app.domain.engine.PowerShellToolingEngine
+import com.gravityedit.app.domain.engine.RemoteSFTPEngine
 import com.gravityedit.app.domain.engine.ScriptExecutionResult
 import com.gravityedit.app.domain.engine.ScriptOutputLine
 import com.gravityedit.app.domain.engine.ScriptOutputStreamKind
 import com.gravityedit.app.domain.engine.SearchableFileSource
+import com.gravityedit.app.domain.engine.StructuredDataGridEngine
 import com.gravityedit.app.domain.engine.TextTransformEngine
 import com.gravityedit.app.domain.engine.UpdateDistributionChannel
 import com.gravityedit.app.domain.model.AstSymbol
 import com.gravityedit.app.domain.model.Clipping
 import com.gravityedit.app.domain.model.ClippingCategory
+import com.gravityedit.app.domain.model.CmdletHelpTopic
 import com.gravityedit.app.domain.model.ColumnBlockSpec
 import com.gravityedit.app.domain.model.ColumnEditAction
 import com.gravityedit.app.domain.model.DiffResult
@@ -44,13 +50,20 @@ import com.gravityedit.app.domain.model.DocumentEncoding
 import com.gravityedit.app.domain.model.EditorDocument
 import com.gravityedit.app.domain.model.EditorSnapshot
 import com.gravityedit.app.domain.model.FoldRegion
+import com.gravityedit.app.domain.model.GitRepoStatusSummary
+import com.gravityedit.app.domain.model.GutterLineChangeKind
 import com.gravityedit.app.domain.model.LineEnding
 import com.gravityedit.app.domain.model.MultiFileReplacePreviewItem
 import com.gravityedit.app.domain.model.MultiFileSearchMatch
+import com.gravityedit.app.domain.model.ParameterFormSpec
 import com.gravityedit.app.domain.model.PatternPlaygroundEvaluation
+import com.gravityedit.app.domain.model.PesterSuiteResult
+import com.gravityedit.app.domain.model.RemoteFileLocation
 import com.gravityedit.app.domain.model.SavedTextFactoryPreset
 import com.gravityedit.app.domain.model.SearchMatch
 import com.gravityedit.app.domain.model.SearchOptions
+import com.gravityedit.app.domain.model.SftpConnectionProfile
+import com.gravityedit.app.domain.model.SftpRemoteEntry
 import com.gravityedit.app.domain.model.SplitViewMode
 import com.gravityedit.app.domain.model.SyntaxLanguage
 import com.gravityedit.app.domain.model.TextFactoryScopeMode
@@ -137,6 +150,26 @@ data class GravityEditUiState(
     val columnBlockSpec: ColumnBlockSpec = ColumnBlockSpec(),
     val externallyModifiedDocIds: Set<String> = emptySet(),
     val recentFileUris: List<Pair<String, String>> = emptyList(),
+
+    // v1.5.0 Git Workbench, PowerShell Tooling, CSV/JSON Data Grid, Live Preview & Remote SFTP
+    val gitStatusSummary: GitRepoStatusSummary? = null,
+    val activeGutterChanges: Map<Int, GutterLineChangeKind> = emptyMap(),
+    val showParameterFormModal: Boolean = false,
+    val parameterFormSpecs: List<ParameterFormSpec> = emptyList(),
+    val showQuickHelpModal: Boolean = false,
+    val quickHelpQuery: String = "Get-ChildItem",
+    val activeHelpTopic: CmdletHelpTopic = PowerShellToolingEngine.lookupQuickHelp("Get-ChildItem"),
+    val showPesterModal: Boolean = false,
+    val isRunningPester: Boolean = false,
+    val lastPesterResult: PesterSuiteResult? = null,
+    val activeGridDocumentIds: Set<String> = emptySet(),
+    val showLiveMarkdownPreview: Boolean = false,
+    val showSftpModal: Boolean = false,
+    val sftpProfiles: List<SftpConnectionProfile> = emptyList(),
+    val sftpCurrentPath: String = "/",
+    val sftpEntries: List<SftpRemoteEntry> = emptyList(),
+    val isSftpBusy: Boolean = false,
+    val sftpErrorMessage: String? = null,
 
     // Clippings & Snippets
     val clippings: List<Clipping> = ClippingsManager.BUILT_IN_CLIPPINGS,
@@ -349,6 +382,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         val MOUNTED_FOLDER_URI = stringPreferencesKey("mounted_folder_uri")
         val RECENT_FILES_RAW = stringPreferencesKey("recent_files_raw")
         val WORKSPACE_SESSION_JSON = stringPreferencesKey("workspace_session_json")
+        val SFTP_PROFILES_JSON = stringPreferencesKey("sftp_profiles_json")
         val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
         val UPDATE_INCLUDE_PRERELEASES = booleanPreferencesKey("update_include_prereleases")
     }
@@ -373,6 +407,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
     private var sessionSaveJob: Job? = null
     private var externalWatchJob: Job? = null
     private val analysisCache = java.util.concurrent.ConcurrentHashMap<String, CachedDocAnalysis>()
+    private val sessionSftpPasswords = java.util.concurrent.ConcurrentHashMap<String, String>()
     private var untitledCounter = 2
 
     init {
@@ -436,6 +471,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             val savedFolderUri = prefs[PrefKeys.MOUNTED_FOLDER_URI]
             val savedRecentRaw = prefs[PrefKeys.RECENT_FILES_RAW] ?: ""
             val savedSessionJson = prefs[PrefKeys.WORKSPACE_SESSION_JSON]
+            val savedSftpJson = prefs[PrefKeys.SFTP_PROFILES_JSON]
             val savedAutoCheckUpdates = prefs[PrefKeys.AUTO_CHECK_UPDATES] ?: true
             val savedIncludePreReleases = prefs[PrefKeys.UPDATE_INCLUDE_PRERELEASES] ?: false
 
@@ -446,6 +482,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                 }
 
             val restoredSession = savedSessionJson?.let { deserializeWorkspaceSession(it, savedScratchpad) }
+            val restoredSftpProfiles = savedSftpJson?.let { deserializeSftpProfiles(it) } ?: emptyList()
 
             _uiState.update { state ->
                 val updatedDocs = restoredSession?.first ?: if (!savedScratchpad.isNullOrEmpty()) {
@@ -464,6 +501,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                     activeDocumentId = restoredSession?.second ?: state.activeDocumentId,
                     splitViewMode = restoredSession?.third ?: state.splitViewMode,
                     recentFileUris = parsedRecents,
+                    sftpProfiles = restoredSftpProfiles,
                     themeMode = savedTheme,
                     appLocaleTag = savedLocale,
                     fontSizeSp = savedFontSize,
@@ -1144,6 +1182,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         val doc = _uiState.value.focusedDocument ?: return
         val docId = doc.id
         val contentSnapshot = doc.content
+        val baselineSnapshot = doc.savedContent
+        val isLargeSnapshot = doc.isLargeFileMode
         val contentLen = contentSnapshot.length
         val contentHash = contentSnapshot.hashCode()
         val languageSnapshot = doc.language
@@ -1154,11 +1194,15 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             cached.contentHash == contentHash &&
             cached.language == languageSnapshot
         ) {
+            val gutterMap = if (!isLargeSnapshot) {
+                DiffEngine.computeGutterLineChanges(baselineSnapshot, contentSnapshot)
+            } else emptyMap()
             _uiState.update { state ->
                 state.copy(
                     astSymbols = cached.symbols,
                     foldRegions = cached.folds,
-                    diagnostics = cached.diagnostics
+                    diagnostics = cached.diagnostics,
+                    activeGutterChanges = gutterMap
                 )
             }
             return
@@ -1174,11 +1218,15 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                 diagnostics = emptyList()
             )
             analysisCache[docId] = emptyEntry
+            val gutterMap = if (!isLargeSnapshot) {
+                DiffEngine.computeGutterLineChanges(baselineSnapshot, contentSnapshot)
+            } else emptyMap()
             _uiState.update { state ->
                 state.copy(
                     astSymbols = emptyList(),
                     foldRegions = emptyList(),
-                    diagnostics = emptyList()
+                    diagnostics = emptyList(),
+                    activeGutterChanges = gutterMap
                 )
             }
             return
@@ -1192,6 +1240,9 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             } else {
                 emptyList()
             }
+            val gutterMap = if (!isLargeSnapshot) {
+                DiffEngine.computeGutterLineChanges(baselineSnapshot, contentSnapshot)
+            } else emptyMap()
             analysisCache[docId] = CachedDocAnalysis(
                 contentLength = contentLen,
                 contentHash = contentHash,
@@ -1205,7 +1256,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                 state.copy(
                     astSymbols = symbols,
                     foldRegions = folds,
-                    diagnostics = diags
+                    diagnostics = diags,
+                    activeGutterChanges = gutterMap
                 )
             }
         }
@@ -1368,6 +1420,8 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
         val doc = _uiState.value.documents.firstOrNull { it.id == documentId } ?: return
         if (doc.uriString != null && doc.title == doc.savedTitle) {
             saveDocumentToUri(doc.id, Uri.parse(doc.uriString))
+        } else if (doc.remoteLocation != null) {
+            saveRemoteSftpDocument(doc)
         } else {
             _events.tryEmit(GravityEditUiEvent.RequestSaveAsFilePicker(doc.id, doc.title))
         }
@@ -1511,6 +1565,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                                 title = updatedTitle,
                                 savedTitle = updatedTitle,
                                 uriString = targetUri.toString(),
+                                remoteLocation = null,
                                 savedContent = d.content,
                                 language = updatedLang
                             )
@@ -1518,6 +1573,7 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
                         statusBannerMessage = "Saved $updatedTitle (${doc.encoding.displayName}, ${doc.lineEnding.badge})"
                     )
                 }
+                refreshAstAndFoldsForActiveDocument()
                 _events.tryEmit(GravityEditUiEvent.ShowStatusToast("Saved $updatedTitle"))
             }
         }
@@ -1540,12 +1596,15 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             val rootDoc = DocumentFile.fromTreeUri(app, treeUri) ?: return@launch
             val rootName = rootDoc.name ?: "Project"
             val children = buildDiskBrowserNodes(rootDoc, depth = 0)
+            val dirtyCount = _uiState.value.documents.count { it.isDirty }
+            val gitSummary = GitWorkbenchEngine.detectSafFolderGitStatus(app, treeUri, dirtyCount)
             withContext(Dispatchers.Main) {
                 _uiState.update { state ->
                     state.copy(
                         diskBrowserRootUri = treeUri.toString(),
                         diskBrowserRootName = rootName,
                         diskBrowserNodes = children,
+                        gitStatusSummary = gitSummary,
                         isLeftSidebarVisible = true,
                         activeToolPanel = WorkspaceToolPanel.DISK_BROWSER
                     )
@@ -2946,6 +3005,398 @@ class GravityEditViewModel(application: Application) : AndroidViewModel(applicat
             val validActive = if (fullList.any { it.id == activeId }) activeId else fullList.first().id
             Triple(fullList, validActive, split)
         }.getOrNull()
+    }
+
+    // =========================================================================
+    // v1.5.0 GIT WORKBENCH, POWERSHELL SHOW-COMMAND / F1 / PESTER, DATA GRID, PREVIEW & SFTP
+    // =========================================================================
+
+    fun compareActiveWithSavedBaseline() {
+        val doc = _uiState.value.focusedDocument ?: return
+        val diff = DiffEngine.computeDiffSync(
+            leftDocumentId = null,
+            rightDocumentId = doc.id,
+            leftTitle = "${doc.title} (Saved / HEAD Baseline)",
+            rightTitle = "${doc.title} (Working Copy)",
+            leftText = doc.savedContent,
+            rightText = doc.content
+        )
+        _uiState.update {
+            it.copy(
+                diffLeftDocId = null,
+                diffRightDocId = doc.id,
+                diffResult = diff,
+                showDiffModal = true
+            )
+        }
+    }
+
+    fun revertActiveDocumentToBaseline() {
+        val doc = _uiState.value.focusedDocument ?: return
+        updateDocumentContent(doc.id, doc.savedContent)
+        _uiState.update { it.copy(statusBannerMessage = "Reverted ${doc.title} to baseline") }
+    }
+
+    fun openParameterFormBuilder() {
+        val doc = _uiState.value.focusedDocument ?: return
+        val specs = PowerShellToolingEngine.extractParameterFormSpecs(doc.content, doc.title)
+        _uiState.update {
+            it.copy(
+                parameterFormSpecs = specs,
+                showParameterFormModal = true
+            )
+        }
+    }
+
+    fun setParameterFormModalVisible(visible: Boolean) {
+        _uiState.update { it.copy(showParameterFormModal = visible) }
+    }
+
+    fun applyGeneratedParameterCommand(command: String, executeImmediately: Boolean) {
+        if (executeImmediately) {
+            val doc = _uiState.value.focusedDocument
+            val codeToRun = if (doc != null && doc.language == SyntaxLanguage.POWERSHELL) {
+                doc.content + "\n\n" + command
+            } else {
+                command
+            }
+            _uiState.update {
+                it.copy(
+                    showParameterFormModal = false,
+                    isScriptRunning = true,
+                    showRunnerDrawer = true
+                )
+            }
+            viewModelScope.launch(Dispatchers.Default) {
+                val res = PowerShellRunnerEngine.executeScript(codeToRun, lineNumberBaseOffset = 0)
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(isScriptRunning = false, lastExecutionResult = res) }
+                }
+            }
+            return
+        }
+
+        val doc = _uiState.value.focusedDocument ?: return
+        val suffix = if (doc.content.isEmpty() || doc.content.endsWith("\n")) "" else "\n"
+        val updated = doc.content + suffix + command + "\n"
+        updateDocumentContent(doc.id, updated, updated.length, updated.length)
+        _uiState.update {
+            it.copy(
+                showParameterFormModal = false,
+                statusBannerMessage = "Inserted PowerShell command into ${doc.title}"
+            )
+        }
+    }
+
+    fun openQuickHelpForCursor() {
+        val doc = _uiState.value.focusedDocument
+        val token = if (doc != null) {
+            doc.selectedText.trim().ifEmpty {
+                PowerShellToolingEngine.tokenUnderCursor(doc.content, doc.safeSelectionStart)
+            }.ifEmpty { "Get-ChildItem" }
+        } else {
+            "Get-ChildItem"
+        }
+        val topic = PowerShellToolingEngine.lookupQuickHelp(token, doc?.content.orEmpty())
+        _uiState.update {
+            it.copy(
+                quickHelpQuery = token,
+                activeHelpTopic = topic,
+                showQuickHelpModal = true
+            )
+        }
+    }
+
+    fun setQuickHelpModalVisible(visible: Boolean) {
+        _uiState.update { it.copy(showQuickHelpModal = visible) }
+    }
+
+    fun searchQuickHelp(query: String) {
+        val docContent = _uiState.value.focusedDocument?.content.orEmpty()
+        val topic = PowerShellToolingEngine.lookupQuickHelp(query, docContent)
+        _uiState.update {
+            it.copy(
+                quickHelpQuery = query,
+                activeHelpTopic = topic
+            )
+        }
+    }
+
+    fun openAndRunPesterSuite() {
+        _uiState.update { it.copy(showPesterModal = true) }
+        runFocusedPesterSuite()
+    }
+
+    fun setPesterModalVisible(visible: Boolean) {
+        _uiState.update { it.copy(showPesterModal = visible) }
+    }
+
+    fun runFocusedPesterSuite() {
+        val doc = _uiState.value.focusedDocument ?: return
+        val codeSnapshot = doc.content
+        _uiState.update { it.copy(isRunningPester = true) }
+        viewModelScope.launch(Dispatchers.Default) {
+            val suite = PowerShellToolingEngine.runPesterTests(codeSnapshot)
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        isRunningPester = false,
+                        lastPesterResult = suite
+                    )
+                }
+            }
+        }
+    }
+
+    fun toggleDataGridMode() {
+        val doc = _uiState.value.focusedDocument ?: return
+        val activeIds = _uiState.value.activeGridDocumentIds
+        if (doc.id in activeIds) {
+            _uiState.update {
+                it.copy(
+                    activeGridDocumentIds = activeIds - doc.id,
+                    statusBannerMessage = "Switched ${doc.title} to Code View"
+                )
+            }
+        } else {
+            val parsed = StructuredDataGridEngine.parseTable(doc.content, doc.language, doc.title)
+            if (parsed == null) {
+                _uiState.update { it.copy(statusBannerMessage = "Active document is not a CSV/TSV table or JSON object array") }
+                return
+            }
+            _uiState.update {
+                it.copy(
+                    activeGridDocumentIds = activeIds + doc.id,
+                    statusBannerMessage = "Opened ${doc.title} in Structured Data Grid"
+                )
+            }
+        }
+    }
+
+    fun toggleLiveMarkdownPreview() {
+        val next = !_uiState.value.showLiveMarkdownPreview
+        _uiState.update {
+            it.copy(
+                showLiveMarkdownPreview = next,
+                statusBannerMessage = if (next) "Live Markdown / HTML Preview enabled" else "Live Preview hidden"
+            )
+        }
+    }
+
+    fun openSftpModal() {
+        _uiState.update { it.copy(showSftpModal = true, sftpErrorMessage = null) }
+    }
+
+    fun setSftpModalVisible(visible: Boolean) {
+        _uiState.update { it.copy(showSftpModal = visible) }
+    }
+
+    fun saveSftpProfile(profile: SftpConnectionProfile) {
+        val updated = _uiState.value.sftpProfiles.filterNot { it.id == profile.id } + profile
+        _uiState.update {
+            it.copy(
+                sftpProfiles = updated,
+                statusBannerMessage = "Saved SFTP bookmark '${profile.name}'"
+            )
+        }
+        persistSftpProfiles(updated)
+    }
+
+    fun deleteSftpProfile(profileId: String) {
+        val updated = _uiState.value.sftpProfiles.filterNot { it.id == profileId }
+        _uiState.update { it.copy(sftpProfiles = updated) }
+        persistSftpProfiles(updated)
+    }
+
+    fun browseRemoteSftpDirectory(
+        profile: SftpConnectionProfile,
+        directoryPath: String,
+        password: String?,
+        privateKeyPem: String?
+    ) {
+        val normDir = RemoteSFTPEngine.normalizeRemotePath(directoryPath.ifBlank { profile.initialPath })
+        _uiState.update { it.copy(isSftpBusy = true, sftpErrorMessage = null, sftpCurrentPath = normDir) }
+        if (!password.isNullOrEmpty()) {
+            sessionSftpPasswords[sftpKey(profile.host, profile.port, profile.username)] = password
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val res = runCatching {
+                RemoteSFTPEngine.listRemoteDirectory(
+                    profile = profile,
+                    directoryPath = normDir,
+                    password = password?.takeIf { it.isNotEmpty() }
+                        ?: sessionSftpPasswords[sftpKey(profile.host, profile.port, profile.username)],
+                    privateKeyPem = privateKeyPem
+                )
+            }
+            withContext(Dispatchers.Main) {
+                res.fold(
+                    onSuccess = { entries ->
+                        _uiState.update {
+                            it.copy(
+                                isSftpBusy = false,
+                                sftpEntries = entries,
+                                sftpCurrentPath = normDir,
+                                sftpErrorMessage = null
+                            )
+                        }
+                    },
+                    onFailure = { err ->
+                        _uiState.update {
+                            it.copy(
+                                isSftpBusy = false,
+                                sftpErrorMessage = err.message ?: "SFTP connection failed"
+                            )
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    fun openRemoteSftpFile(
+        profile: SftpConnectionProfile,
+        entry: SftpRemoteEntry,
+        password: String?,
+        privateKeyPem: String?
+    ) {
+        val loc = RemoteFileLocation(
+            host = profile.host.trim(),
+            port = profile.port,
+            username = profile.username.trim(),
+            remotePath = entry.fullPath,
+            privateKeyPem = privateKeyPem?.takeIf { it.isNotBlank() }
+        )
+        if (!password.isNullOrEmpty()) {
+            sessionSftpPasswords[sftpKey(loc.host, loc.port, loc.username)] = password
+        }
+        val existing = _uiState.value.documents.firstOrNull { it.remoteLocation == loc }
+        if (existing != null) {
+            selectDocument(existing.id)
+            _uiState.update { it.copy(showSftpModal = false) }
+            return
+        }
+
+        _uiState.update { it.copy(isSftpBusy = true, sftpErrorMessage = null) }
+        val effectivePassword = password?.takeIf { it.isNotEmpty() }
+            ?: sessionSftpPasswords[sftpKey(loc.host, loc.port, loc.username)]
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val res = runCatching {
+                RemoteSFTPEngine.downloadRemoteFile(loc, effectivePassword)
+            }
+            withContext(Dispatchers.Main) {
+                res.fold(
+                    onSuccess = { dl ->
+                        val remoteDoc = EditorDocument(
+                            title = entry.name,
+                            savedTitle = entry.name,
+                            uriString = null,
+                            remoteLocation = loc,
+                            content = dl.content,
+                            savedContent = dl.content,
+                            language = SyntaxLanguage.fromFileName(entry.name),
+                            encoding = dl.encoding,
+                            lineEnding = dl.lineEnding
+                        )
+                        _uiState.update { st ->
+                            st.copy(
+                                isSftpBusy = false,
+                                showSftpModal = false,
+                                documents = st.documents + remoteDoc,
+                                activeDocumentId = remoteDoc.id,
+                                statusBannerMessage = "Opened ${loc.displayBadge}"
+                            )
+                        }
+                        refreshAstAndFoldsForActiveDocument()
+                    },
+                    onFailure = { err ->
+                        _uiState.update {
+                            it.copy(
+                                isSftpBusy = false,
+                                sftpErrorMessage = err.message ?: "Failed to download remote file"
+                            )
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    private fun saveRemoteSftpDocument(doc: EditorDocument) {
+        val loc = doc.remoteLocation ?: return
+        val pwd = sessionSftpPasswords[sftpKey(loc.host, loc.port, loc.username)]
+        viewModelScope.launch(Dispatchers.IO) {
+            val res = runCatching {
+                RemoteSFTPEngine.uploadRemoteFile(
+                    content = doc.content,
+                    encoding = doc.encoding,
+                    lineEnding = doc.lineEnding,
+                    to = loc,
+                    password = pwd
+                )
+            }
+            withContext(Dispatchers.Main) {
+                res.fold(
+                    onSuccess = {
+                        _uiState.update { st ->
+                            st.copy(
+                                documents = st.documents.map { d ->
+                                    if (d.id == doc.id) d.copy(savedContent = doc.content, savedTitle = doc.title) else d
+                                },
+                                statusBannerMessage = "Saved to ${loc.displayBadge}"
+                            )
+                        }
+                        refreshAstAndFoldsForActiveDocument()
+                    },
+                    onFailure = { err ->
+                        _uiState.update {
+                            it.copy(statusBannerMessage = "SFTP save failed: ${err.message ?: "Upload error"}")
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    private fun sftpKey(host: String, port: Int, username: String): String = "$username@$host:$port"
+
+    private fun persistSftpProfiles(profiles: List<SftpConnectionProfile>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val arr = org.json.JSONArray()
+            for (p in profiles) {
+                val obj = org.json.JSONObject()
+                obj.put("id", p.id)
+                obj.put("name", p.name)
+                obj.put("host", p.host)
+                obj.put("port", p.port)
+                obj.put("username", p.username)
+                obj.put("initialPath", p.initialPath)
+                arr.put(obj)
+            }
+            dataStore.edit { it[PrefKeys.SFTP_PROFILES_JSON] = arr.toString() }
+        }
+    }
+
+    private fun deserializeSftpProfiles(rawJson: String): List<SftpConnectionProfile> {
+        return runCatching {
+            val arr = org.json.JSONArray(rawJson)
+            val list = ArrayList<SftpConnectionProfile>(arr.length())
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    SftpConnectionProfile(
+                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                        name = obj.optString("name", "Server"),
+                        host = obj.getString("host"),
+                        port = obj.optInt("port", 22),
+                        username = obj.getString("username"),
+                        initialPath = obj.optString("initialPath", "/")
+                    )
+                )
+            }
+            list
+        }.getOrDefault(emptyList())
     }
 
     companion object {

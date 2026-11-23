@@ -44,6 +44,11 @@ public struct GravityEditMenuCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
 
+            Button("Open Remote from SFTP / SSH…") {
+                vm.openSftpBrowser()
+            }
+            .keyboardShortcut("k", modifiers: [.command, .option])
+
             Menu("Open Recent") {
                 if vm.recentFilePaths.isEmpty {
                     Text("No Recent Documents")
@@ -368,6 +373,18 @@ public struct GravityEditMenuCommands: Commands {
 
             Divider()
 
+            Button("Toggle Structured CSV / JSON Data Grid") {
+                vm.toggleDataGridMode()
+            }
+            .keyboardShortcut("g", modifiers: [.control, .shift])
+
+            Button("Toggle Live Markdown / HTML Preview") {
+                vm.toggleLiveMarkdownPreview()
+            }
+            .keyboardShortcut("p", modifiers: [.command, .control])
+
+            Divider()
+
             Menu("Syntax & File Type") {
                 let currentLang = vm.focusedDocument?.language
                 ForEach(SyntaxLanguage.allCases) { lang in
@@ -413,6 +430,39 @@ public struct GravityEditMenuCommands: Commands {
                 vm.showRunnerDrawer.toggle()
             }
             .keyboardShortcut("y", modifiers: [.command, .control])
+
+            Divider()
+
+            Button("PowerShell Show-Command Builder…") {
+                vm.openParameterFormBuilder()
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+
+            Button("Run Pester Unit Tests…") {
+                vm.openAndRunPesterSuite()
+            }
+            .keyboardShortcut("t", modifiers: [.control, .shift])
+
+            Button("PowerShell Cmdlet Quick Help…") {
+                vm.openQuickHelpForCursorOrSelection()
+            }
+            .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF1FunctionKey)!)), modifiers: [])
+
+            Menu("Git Workbench") {
+                Button("Compare Active File with Git HEAD") {
+                    vm.compareFocusedFileWithGitHead()
+                }
+                Button("Stage Active File (git add)") {
+                    vm.stageFocusedFileInGit()
+                }
+                Divider()
+                Button("Revert Active File to HEAD…") {
+                    vm.revertFocusedFileToBaseline()
+                }
+                Button("Refresh Git Status") {
+                    vm.refreshGitContextIfNeeded(force: true)
+                }
+            }
 
             Divider()
 

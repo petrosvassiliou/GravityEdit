@@ -574,5 +574,201 @@ final class GravityEditCoreTests: XCTestCase {
             XCTFail("Expected diff openHandoff")
         }
     }
+
+    // MARK: - v1.5.0 Git Workbench, PowerShell Tooling, CSV/JSON Grid, Markdown Preview & SFTP Tests
+
+    func testGutterLineChangesAndGitWorkbenchLifecycle() throws {
+        let baseline = "Line 1\nLine 2\nLine 3\nLine 4"
+        let modified = "Line 1\nLine 2 Updated\nLine 4\nLine 5 Added"
+        let gutter = DiffEngine.computeGutterLineChanges(baselineText: baseline, currentText: modified)
+        XCTAssertEqual(gutter[2], .modified)
+        XCTAssertEqual(gutter[4], .added)
+
+        guard let gitPath = GitWorkbenchEngine.detectGitExecutablePath() else { return }
+        let fm = FileManager.default
+        let repoDir = fm.temporaryDirectory.appendingPathComponent("gravity_git_test_\(UUID().uuidString)").resolvingSymlinksInPath()
+        try fm.createDirectory(at: repoDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: repoDir) }
+
+        func runCmd(_ args: [String]) throws {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: gitPath)
+            p.arguments = args
+            p.currentDirectoryURL = repoDir
+            p.standardOutput = Pipe()
+            p.standardError = Pipe()
+            try p.run()
+            p.waitUntilExit()
+        }
+
+        try runCmd(["init", "-b", "main"])
+        try runCmd(["config", "user.email", "test@gravityedit.dev"])
+        try runCmd(["config", "user.name", "GravityEdit Tester"])
+
+        let scriptURL = repoDir.appendingPathComponent("Deploy.ps1")
+        try "Write-Output 'v1'\n".write(to: scriptURL, atomically: true, encoding: .utf8)
+        try GitWorkbenchEngine.stageFile(at: scriptURL)
+        try runCmd(["commit", "-m", "Initial commit"])
+
+        let cleanStatus = GitWorkbenchEngine.detectRepositoryStatus(for: scriptURL)
+        XCTAssertEqual(cleanStatus?.branchName, "main")
+        XCTAssertEqual(cleanStatus?.modifiedFileCount, 0)
+        XCTAssertEqual(cleanStatus?.isFileTracked, true)
+        XCTAssertEqual(GitWorkbenchEngine.fetchHeadBaselineContent(for: scriptURL), "Write-Output 'v1'\n")
+
+        try "Write-Output 'v2-dirty'\n".write(to: scriptURL, atomically: true, encoding: .utf8)
+        let dirtyStatus = GitWorkbenchEngine.detectRepositoryStatus(for: scriptURL)
+        XCTAssertEqual(dirtyStatus?.modifiedFileCount, 1)
+        XCTAssertEqual(dirtyStatus?.hasUnstagedChanges, true)
+
+        try GitWorkbenchEngine.discardWorkingTreeChanges(at: scriptURL)
+        let revertedText = try String(contentsOf: scriptURL, encoding: .utf8)
+        XCTAssertEqual(revertedText, "Write-Output 'v1'\n")
+    }
+
+    func testPowerShellShowCommandQuickHelpAndPesterRunner() {
+        let script = """
+        <#
+        .SYNOPSIS
+            Deploys cluster services across environments.
+        #>
+        function Invoke-ClusterDeploy {
+            [CmdletBinding()]
+            param (
+                [Parameter(Mandatory = $true, HelpMessage = "Target stage")]
+                [ValidateSet('Dev', 'Staging', 'Prod')]
+                [string]$Environment = 'Staging',
+
+                [int]$ReplicaCount = 3,
+
+                [switch]$ForceRestart
+            )
+            Write-Output "$Environment:$ReplicaCount"
+        }
+
+        Describe 'Cluster Math & String Suite' {
+            Context 'Arithmetic' {
+                It 'computes 20 + 22' {
+                    $total = 20 + 22
+                    $total | Should -Be 42
+                }
+                It 'detects mismatch' {
+                    $status = 'Degraded'
+                    $status | Should -Be 'Healthy'
+                }
+            }
+        }
+        """
+
+        let specs = PowerShellToolingEngine.extractParameterFormSpecs(from: script)
+        XCTAssertEqual(specs.count, 1)
+        let fnSpec = specs[0]
+        XCTAssertEqual(fnSpec.commandName, "Invoke-ClusterDeploy")
+        XCTAssertEqual(fnSpec.synopsis, "Deploys cluster services across environments.")
+        XCTAssertEqual(fnSpec.parameters.count, 3)
+        XCTAssertTrue(fnSpec.parameters[0].isMandatory)
+        XCTAssertEqual(fnSpec.parameters[0].validateSetOptions, ["Dev", "Staging", "Prod"])
+        XCTAssertTrue(fnSpec.parameters[2].isSwitch)
+
+        let builtCmd = PowerShellToolingEngine.buildInvocationCommand(
+            spec: fnSpec,
+            values: ["Environment": "Prod", "ReplicaCount": "5"],
+            switchStates: ["ForceRestart": true]
+        )
+        XCTAssertEqual(builtCmd, "Invoke-ClusterDeploy -Environment 'Prod' -ReplicaCount 5 -ForceRestart")
+
+        let docHelp = PowerShellToolingEngine.lookupQuickHelp(
+            queryOrCursorToken: "Invoke-ClusterDeploy",
+            documentContent: script,
+            preferLivePwsh: false
+        )
+        XCTAssertEqual(docHelp.sourceBadge, "Document AST")
+        XCTAssertTrue(docHelp.synopsis.contains("Deploys cluster services"))
+
+        let aliasHelp = PowerShellToolingEngine.lookupQuickHelp(queryOrCursorToken: "irm", preferLivePwsh: false)
+        XCTAssertEqual(aliasHelp.name, "Invoke-RestMethod")
+
+        let discovered = PowerShellToolingEngine.discoverPesterTests(in: script)
+        XCTAssertEqual(discovered.count, 2)
+        XCTAssertEqual(discovered[0].contextBlock, "Arithmetic")
+
+        let pesterBuiltIn = PowerShellToolingEngine.runPesterTests(code: script, forceBuiltIn: true)
+        XCTAssertEqual(pesterBuiltIn.passedCount, 1)
+        XCTAssertEqual(pesterBuiltIn.failedCount, 1)
+        XCTAssertFalse(pesterBuiltIn.allPassed)
+    }
+
+    func testStructuredDataGridAndMarkdownPreviewRenderer() {
+        let csvRaw = "Server,Role,Notes\n\"node-01\",\"Gateway\",\"Quotes \"\"OK\"\", comma\"\n\"node-02\",\"Worker\",\"Multi\nLine\""
+        guard let csvTable = StructuredDataGridEngine.parseTable(from: csvRaw, language: .plainText, fileName: "nodes.csv") else {
+            XCTFail("Expected CSV table")
+            return
+        }
+        XCTAssertEqual(csvTable.headers, ["Server", "Role", "Notes"])
+        XCTAssertEqual(csvTable.rows.count, 2)
+        XCTAssertEqual(csvTable.rows[0][2], "Quotes \"OK\", comma")
+        XCTAssertEqual(csvTable.rows[1][2], "Multi\nLine")
+
+        let roundTripCsv = StructuredDataGridEngine.serializeTable(csvTable)
+        let reparsedCsv = StructuredDataGridEngine.parseTable(from: roundTripCsv, language: .plainText, fileName: "nodes.csv")
+        XCTAssertEqual(reparsedCsv?.rows, csvTable.rows)
+
+        let jsonRaw = """
+        [
+          {"host": "db-02", "latency": 42, "active": true},
+          {"host": "db-01", "latency": 9, "active": false}
+        ]
+        """
+        guard let jsonTable = StructuredDataGridEngine.parseTable(from: jsonRaw, language: .json, fileName: "hosts.json") else {
+            XCTFail("Expected JSON object array table")
+            return
+        }
+        XCTAssertTrue(jsonTable.isJsonArray)
+        XCTAssertEqual(jsonTable.headers, ["host", "latency", "active"])
+        let sortedByLatency = StructuredDataGridEngine.sortTable(jsonTable, columnIndex: 1, ascending: true)
+        XCTAssertEqual(sortedByLatency.rows.first?.first, "db-01")
+
+        let filtered = StructuredDataGridEngine.filterRows(sortedByLatency, query: "db-02")
+        XCTAssertEqual(filtered.count, 1)
+        XCTAssertEqual(filtered[0].originalRowIndex, 1)
+
+        let md = "# Release v1.5.0\n\n- [x] Ship Data Grid\n\n| Col A | Col B |\n| --- | --- |\n| 1 | 2 |\n\n```powershell\nGet-Date\n```"
+        let html = MarkdownPreviewRenderer.renderHTML(from: md, language: .markdown, fileName: "CHANGELOG.md", isDarkTheme: true)
+        XCTAssertTrue(html.contains("Content-Security-Policy"))
+        XCTAssertTrue(html.contains("<h1>Release v1.5.0</h1>"))
+        XCTAssertTrue(html.contains("<table>"))
+        XCTAssertTrue(html.contains("type=\"checkbox\" checked"))
+    }
+
+    func testRemoteSFTPLsParserAndRemoteDocumentSerialization() throws {
+        let lsOutput = """
+        sftp> ls -la "/var/www"
+        drwxr-xr-x    4 deploy   www-data      128 Nov 23 19:00 .
+        drwxr-xr-x   12 root     root          384 Nov 20 09:00 ..
+        drwxr-xr-x    3 deploy   www-data       96 Nov 23 19:01 scripts
+        -rw-r--r--    1 deploy   www-data     2048 Nov 23 19:05 Invoke-Sync.ps1
+        """
+        let entries = RemoteSFTPEngine.parseSftpLsOutput(lsOutput, directoryPath: "/var/www/")
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertTrue(entries[0].isDirectory)
+        XCTAssertEqual(entries[0].fullPath, "/var/www/scripts")
+        XCTAssertFalse(entries[1].isDirectory)
+        XCTAssertEqual(entries[1].name, "Invoke-Sync.ps1")
+        XCTAssertEqual(entries[1].sizeBytes, 2048)
+        XCTAssertEqual(RemoteSFTPEngine.parentRemotePath(of: "/var/www/scripts"), "/var/www")
+
+        let loc = RemoteFileLocation(host: "prod.example.com", port: 2222, username: "deploy", remotePath: "/var/www/Invoke-Sync.ps1")
+        XCTAssertEqual(loc.displayBadge, "sftp://deploy@prod.example.com:2222/var/www/Invoke-Sync.ps1")
+
+        var remoteDoc = EditorDocument(title: "Invoke-Sync.ps1", remoteLocation: loc, content: "Get-Date", savedContent: "Get-Date")
+        XCTAssertFalse(remoteDoc.isDirty)
+        remoteDoc.encoding = .utf8Bom
+        XCTAssertTrue(remoteDoc.isDirty)
+
+        let encoded = try JSONEncoder().encode(remoteDoc)
+        let decoded = try JSONDecoder().decode(EditorDocument.self, from: encoded)
+        XCTAssertEqual(decoded.remoteLocation, loc)
+    }
 }
+
 

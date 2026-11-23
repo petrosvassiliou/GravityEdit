@@ -120,6 +120,47 @@ public enum DiffEngine {
         )
     }
 
+    // MARK: - Live Gutter Change Bars
+
+    /// Computes 1-based line change markers (`added`, `modified`, `deletedBelow`) for `currentText`
+    /// relative to `baselineText` (either Git `HEAD` or `savedContent`).
+    public static func computeGutterLineChanges(
+        baselineText: String,
+        currentText: String
+    ) -> [Int: GutterLineChangeKind] {
+        let normBase = LineEnding.normalizeToLf(baselineText)
+        let normCurr = LineEnding.normalizeToLf(currentText)
+        guard normBase != normCurr else { return [:] }
+
+        let diff = computeDiff(leftText: normBase, rightText: normCurr)
+        var changes: [Int: GutterLineChangeKind] = [:]
+        var lastRightLine = 1
+
+        for row in diff.rows {
+            if let rLine = row.rightLineNumber {
+                lastRightLine = rLine
+            }
+            switch row.changeType {
+            case .equal:
+                break
+            case .insert:
+                if let rLine = row.rightLineNumber {
+                    changes[rLine] = .added
+                }
+            case .modify:
+                if let rLine = row.rightLineNumber {
+                    changes[rLine] = .modified
+                }
+            case .delete:
+                let anchor = max(1, lastRightLine)
+                if changes[anchor] == nil {
+                    changes[anchor] = .deletedBelow
+                }
+            }
+        }
+        return changes
+    }
+
     // MARK: - Directional Row / Hunk Merge
 
     public static func mergeRowRightToLeft(diff: DiffResult, rowIndex: Int) -> String {

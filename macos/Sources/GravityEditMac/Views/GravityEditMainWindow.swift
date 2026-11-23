@@ -117,6 +117,18 @@ public struct GravityEditMainWindow: View {
         .sheet(isPresented: $vm.showColumnEditSheet) {
             ColumnBlockEditSheetView(vm: vm)
         }
+        .sheet(isPresented: $vm.showParameterFormSheet) {
+            ParameterFormSheetView(vm: vm)
+        }
+        .sheet(isPresented: $vm.showQuickHelpSheet) {
+            QuickHelpSheetView(vm: vm)
+        }
+        .sheet(isPresented: $vm.showPesterRunnerSheet) {
+            PesterRunnerSheetView(vm: vm)
+        }
+        .sheet(isPresented: $vm.showSftpBrowserSheet) {
+            SFTPBrowserSheetView(vm: vm)
+        }
         .sheet(isPresented: $updateManager.isUpdateSheetPresented) {
             SoftwareUpdateSheetView(updateManager: updateManager)
         }
@@ -124,6 +136,9 @@ public struct GravityEditMainWindow: View {
 
     private var navigationSubtitleText: String {
         guard let doc = vm.focusedDocument else { return "" }
+        if let remote = doc.remoteLocation {
+            return remote.displayBadge
+        }
         if let url = doc.fileURL {
             return url.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
         }
@@ -691,7 +706,7 @@ public struct GravityEditMainWindow: View {
         let isRenaming = (vm.renamingDocumentId == doc.id)
 
         return HStack(spacing: 6) {
-            Image(systemName: doc.isScratchpad ? "note.text" : doc.language.sfSymbolName)
+            Image(systemName: doc.remoteLocation != nil ? "network" : (doc.isScratchpad ? "note.text" : doc.language.sfSymbolName))
                 .font(.system(size: 11, weight: isFocused ? .semibold : .regular))
                 .foregroundStyle(isFocused ? Color.accentColor : Color.secondary)
 
@@ -811,47 +826,134 @@ public struct GravityEditMainWindow: View {
     }
 
     private func primaryEditorPane(doc: EditorDocument, openIds: Set<String>) -> some View {
-        VStack(spacing: 0) {
+        let canGrid = StructuredDataGridEngine.canInspectAsGrid(document: doc)
+        let isGridActive = vm.isGridModeActive(for: doc.id)
+        let canPreview = MarkdownPreviewRenderer.canPreviewDocument(doc)
+
+        return VStack(spacing: 0) {
             if vm.splitMode != .none {
                 splitPaneHeaderBar(doc: doc, isSecondary: false, isFocused: !vm.isSecondaryPaneFocused)
             }
-            MacCodeEditorView(
-                document: doc,
-                openDocumentIds: openIds,
-                astSymbols: vm.primarySymbols,
-                foldRegions: vm.primaryFolds,
-                diagnostics: vm.primaryDiagnostics,
-                themeMode: vm.themeMode,
-                fontSize: vm.fontSize,
-                tabWidth: vm.tabWidth,
-                softWrap: vm.softWrap,
-                showLineNumbers: vm.showLineNumbers,
-                showInvisibles: vm.showInvisibles,
-                showPageGuides: vm.showPageGuides,
-                highlightCurrentLine: vm.highlightCurrentLine,
-                scrollJumpRequest: vm.scrollJumpRequest,
-                onContentChange: { text, range in
-                    vm.updateDocumentContent(id: doc.id, newContent: text, selectionRange: range)
-                },
-                onSelectionChange: { range in
-                    vm.updateDocumentSelection(id: doc.id, selectionRange: range)
-                },
-                onToggleFold: { line in
-                    vm.toggleFold(documentId: doc.id, startLine: line)
-                },
-                onToggleBookmark: { oneBasedLine in
-                    vm.toggleBookmark(documentId: doc.id, oneBasedLine: oneBasedLine)
-                },
-                onMultiRangesChange: { ranges in
-                    vm.updateColumnSpecFromMultiRanges(documentId: doc.id, ranges: ranges)
-                },
-                onFocusGained: {
-                    if vm.isSecondaryPaneFocused {
-                        vm.isSecondaryPaneFocused = false
+            if canGrid || canPreview || doc.remoteLocation != nil {
+                contextualDocumentInspectorBar(doc: doc, canGrid: canGrid, isGridActive: isGridActive, canPreview: canPreview)
+            }
+
+            if isGridActive {
+                StructuredDataGridView(
+                    document: doc,
+                    onUpdateContent: { updatedText in
+                        vm.updateDocumentContent(
+                            id: doc.id,
+                            newContent: updatedText,
+                            selectionRange: NSRange(location: 0, length: 0)
+                        )
+                    },
+                    onExitGrid: {
+                        vm.toggleDataGridMode()
                     }
+                )
+            } else if vm.showLiveMarkdownPreview && canPreview {
+                HSplitView {
+                    primaryCodeCanvas(doc: doc, openIds: openIds)
+                        .frame(minWidth: 260)
+                    LiveWebPreviewPane(
+                        html: MarkdownPreviewRenderer.renderHTML(
+                            from: doc.content,
+                            language: doc.language,
+                            fileName: doc.title,
+                            isDarkTheme: vm.themeMode != .light,
+                            isOledBlack: vm.themeMode == .oledPitchBlack
+                        )
+                    )
+                    .frame(minWidth: 260)
                 }
-            )
+            } else {
+                primaryCodeCanvas(doc: doc, openIds: openIds)
+            }
         }
+    }
+
+    private func primaryCodeCanvas(doc: EditorDocument, openIds: Set<String>) -> some View {
+        MacCodeEditorView(
+            document: doc,
+            openDocumentIds: openIds,
+            astSymbols: vm.primarySymbols,
+            foldRegions: vm.primaryFolds,
+            diagnostics: vm.primaryDiagnostics,
+            gutterChangesByLine: vm.primaryGutterChanges,
+            themeMode: vm.themeMode,
+            fontSize: vm.fontSize,
+            tabWidth: vm.tabWidth,
+            softWrap: vm.softWrap,
+            showLineNumbers: vm.showLineNumbers,
+            showInvisibles: vm.showInvisibles,
+            showPageGuides: vm.showPageGuides,
+            highlightCurrentLine: vm.highlightCurrentLine,
+            scrollJumpRequest: vm.scrollJumpRequest,
+            onContentChange: { text, range in
+                vm.updateDocumentContent(id: doc.id, newContent: text, selectionRange: range)
+            },
+            onSelectionChange: { range in
+                vm.updateDocumentSelection(id: doc.id, selectionRange: range)
+            },
+            onToggleFold: { line in
+                vm.toggleFold(documentId: doc.id, startLine: line)
+            },
+            onToggleBookmark: { oneBasedLine in
+                vm.toggleBookmark(documentId: doc.id, oneBasedLine: oneBasedLine)
+            },
+            onMultiRangesChange: { ranges in
+                vm.updateColumnSpecFromMultiRanges(documentId: doc.id, ranges: ranges)
+            },
+            onFocusGained: {
+                if vm.isSecondaryPaneFocused {
+                    vm.isSecondaryPaneFocused = false
+                }
+            }
+        )
+    }
+
+    private func contextualDocumentInspectorBar(
+        doc: EditorDocument,
+        canGrid: Bool,
+        isGridActive: Bool,
+        canPreview: Bool
+    ) -> some View {
+        HStack(spacing: 8) {
+            if let remote = doc.remoteLocation {
+                Image(systemName: "network")
+                    .font(.caption)
+                    .foregroundStyle(Color.accentColor)
+                Text(remote.displayBadge)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if canGrid {
+                Button {
+                    vm.toggleDataGridMode()
+                } label: {
+                    Label(isGridActive ? "Switch to Code (⌃⇧G)" : "Open Data Grid (⌃⇧G)", systemImage: isGridActive ? "chevron.left.forwardslash.chevron.right" : "tablecells")
+                        .font(.caption.weight(.semibold))
+                }
+                .controlSize(.small)
+                .liquidGlassButton(prominent: isGridActive)
+            }
+            if canPreview {
+                Button {
+                    vm.toggleLiveMarkdownPreview()
+                } label: {
+                    Label(vm.showLiveMarkdownPreview ? "Hide Preview (⌃⌘P)" : "Live Preview (⌃⌘P)", systemImage: "doc.richtext")
+                        .font(.caption.weight(.semibold))
+                }
+                .controlSize(.small)
+                .liquidGlassButton(prominent: vm.showLiveMarkdownPreview)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(.bar)
     }
 
     private func secondaryEditorPane(doc: EditorDocument, openIds: Set<String>) -> some View {
@@ -863,6 +965,7 @@ public struct GravityEditMainWindow: View {
                 astSymbols: vm.secondarySymbols,
                 foldRegions: vm.secondaryFolds,
                 diagnostics: vm.secondaryDiagnostics,
+                gutterChangesByLine: vm.secondaryGutterChanges,
                 themeMode: vm.themeMode,
                 fontSize: vm.fontSize,
                 tabWidth: vm.tabWidth,
@@ -958,6 +1061,45 @@ public struct GravityEditMainWindow: View {
             }
             .buttonStyle(.plain)
             .help("GravityEdit v\(MacAutoUpdateEngine.currentAppVersion) — Click to open Software Update")
+
+            // v1.5.0 Git Repository Branch & Quick Workbench Pill
+            if let git = vm.gitStatusSummary {
+                Menu {
+                    Button("Compare Active File with Git HEAD") {
+                        vm.compareFocusedFileWithGitHead()
+                    }
+                    Button("Stage Active File (git add)") {
+                        vm.stageFocusedFileInGit()
+                    }
+                    Divider()
+                    Button("Revert Active File to HEAD…", role: .destructive) {
+                        vm.revertFocusedFileToBaseline()
+                    }
+                    Divider()
+                    Button("Refresh Git Status") {
+                        vm.refreshGitContextIfNeeded(force: true)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(git.modifiedFileCount > 0 ? Color.orange : Color.green)
+                        Text(git.branchName)
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        if git.modifiedFileCount > 0 {
+                            Text("• \(git.modifiedFileCount)")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .liquidGlassCapsule()
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Git Repository: \(git.branchName) (\(git.modifiedFileCount) modified)")
+            }
 
             // Cursor Ln:Col & Go to Line Popover
             Button {

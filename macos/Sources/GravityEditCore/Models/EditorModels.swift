@@ -470,10 +470,38 @@ public struct SelectionStats: Equatable, Sendable {
     }
 }
 
+public struct RemoteFileLocation: Equatable, Codable, Sendable {
+    public var host: String
+    public var port: Int
+    public var username: String
+    public var remotePath: String
+    public var keyFilePath: String?
+
+    public init(
+        host: String,
+        port: Int = 22,
+        username: String,
+        remotePath: String,
+        keyFilePath: String? = nil
+    ) {
+        self.host = host
+        self.port = port
+        self.username = username
+        self.remotePath = remotePath
+        self.keyFilePath = keyFilePath
+    }
+
+    public var displayBadge: String {
+        let portPart = (port == 22) ? "" : ":\(port)"
+        return "sftp://\(username)@\(host)\(portPart)\(remotePath)"
+    }
+}
+
 public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     public let id: String
     public var title: String
     public var fileURL: URL?
+    public var remoteLocation: RemoteFileLocation?
     public var content: String {
         didSet {
             if content != oldValue {
@@ -504,7 +532,7 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     private var cachedWordCount: Int
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, fileURL, content, savedContent, isScratchpad
+        case id, title, fileURL, remoteLocation, content, savedContent, isScratchpad
         case language, encoding, savedEncoding, lineEnding, savedLineEnding
         case selectionStart, selectionEnd, foldedStartLines, bookmarkedLines, isLiveTailing, lastKnownDiskModDate
     }
@@ -513,6 +541,7 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
         id: String = UUID().uuidString,
         title: String,
         fileURL: URL? = nil,
+        remoteLocation: RemoteFileLocation? = nil,
         content: String = "",
         savedContent: String = "",
         isScratchpad: Bool = false,
@@ -530,6 +559,7 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
         self.id = id
         self.title = title
         self.fileURL = fileURL
+        self.remoteLocation = remoteLocation
         self.content = content
         self.savedContent = savedContent
         self.isScratchpad = isScratchpad
@@ -558,6 +588,7 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
         self.id = try c.decode(String.self, forKey: .id)
         self.title = try c.decode(String.self, forKey: .title)
         self.fileURL = try c.decodeIfPresent(URL.self, forKey: .fileURL)
+        self.remoteLocation = try c.decodeIfPresent(RemoteFileLocation.self, forKey: .remoteLocation)
         self.content = decodedContent
         self.savedContent = try c.decode(String.self, forKey: .savedContent)
         self.isScratchpad = try c.decode(Bool.self, forKey: .isScratchpad)
@@ -633,7 +664,7 @@ public struct EditorDocument: Identifiable, Equatable, Codable, Sendable {
     public var isDirty: Bool {
         guard !isScratchpad else { return false }
         if content != savedContent { return true }
-        if fileURL != nil && (encoding != savedEncoding || lineEnding != savedLineEnding) { return true }
+        if (fileURL != nil || remoteLocation != nil) && (encoding != savedEncoding || lineEnding != savedLineEnding) { return true }
         if let url = fileURL, url.lastPathComponent != title { return true }
         return false
     }
@@ -1693,5 +1724,290 @@ public struct GravityCLICommandPayload: Codable, Equatable, Sendable {
         self.diffRightPath = diffRightPath
         self.stdinTempFilePath = stdinTempFilePath
         self.stdinTitle = stdinTitle
+    }
+}
+
+// MARK: - v1.5.0 Git Workbench, PowerShell Tooling, Structured Grid & SFTP Models
+
+public enum GutterLineChangeKind: String, Codable, Equatable, Sendable {
+    case added
+    case modified
+    case deletedBelow
+}
+
+public struct GitRepoStatusSummary: Equatable, Codable, Sendable {
+    public let repoRootPath: String
+    public let branchName: String
+    public let modifiedFileCount: Int
+    public let isFileTracked: Bool
+    public let isStaged: Bool
+    public let hasUnstagedChanges: Bool
+
+    public init(
+        repoRootPath: String,
+        branchName: String,
+        modifiedFileCount: Int,
+        isFileTracked: Bool,
+        isStaged: Bool = false,
+        hasUnstagedChanges: Bool = false
+    ) {
+        self.repoRootPath = repoRootPath
+        self.branchName = branchName
+        self.modifiedFileCount = modifiedFileCount
+        self.isFileTracked = isFileTracked
+        self.isStaged = isStaged
+        self.hasUnstagedChanges = hasUnstagedChanges
+    }
+}
+
+public struct ParameterFieldSpec: Identifiable, Equatable, Codable, Sendable {
+    public var id: String { name }
+    public let name: String
+    public let typeName: String
+    public let isMandatory: Bool
+    public let isSwitch: Bool
+    public let validateSetOptions: [String]
+    public let defaultValue: String?
+    public let helpMessage: String?
+
+    public init(
+        name: String,
+        typeName: String = "Object",
+        isMandatory: Bool = false,
+        isSwitch: Bool = false,
+        validateSetOptions: [String] = [],
+        defaultValue: String? = nil,
+        helpMessage: String? = nil
+    ) {
+        self.name = name
+        self.typeName = typeName
+        self.isMandatory = isMandatory
+        self.isSwitch = isSwitch
+        self.validateSetOptions = validateSetOptions
+        self.defaultValue = defaultValue
+        self.helpMessage = helpMessage
+    }
+}
+
+public struct ParameterFormSpec: Identifiable, Equatable, Codable, Sendable {
+    public var id: String { commandName }
+    public let commandName: String
+    public let isFunction: Bool
+    public let synopsis: String?
+    public let parameters: [ParameterFieldSpec]
+
+    public init(
+        commandName: String,
+        isFunction: Bool,
+        synopsis: String? = nil,
+        parameters: [ParameterFieldSpec]
+    ) {
+        self.commandName = commandName
+        self.isFunction = isFunction
+        self.synopsis = synopsis
+        self.parameters = parameters
+    }
+}
+
+public struct CmdletHelpParameter: Identifiable, Equatable, Codable, Sendable {
+    public var id: String { name }
+    public let name: String
+    public let typeName: String
+    public let isMandatory: Bool
+    public let description: String
+
+    public init(name: String, typeName: String, isMandatory: Bool = false, description: String) {
+        self.name = name
+        self.typeName = typeName
+        self.isMandatory = isMandatory
+        self.description = description
+    }
+}
+
+public struct CmdletHelpTopic: Identifiable, Equatable, Codable, Sendable {
+    public var id: String { name }
+    public let name: String
+    public let moduleName: String
+    public let synopsis: String
+    public let syntax: [String]
+    public let parameters: [CmdletHelpParameter]
+    public let examples: [String]
+    public let sourceBadge: String
+
+    public init(
+        name: String,
+        moduleName: String,
+        synopsis: String,
+        syntax: [String],
+        parameters: [CmdletHelpParameter] = [],
+        examples: [String] = [],
+        sourceBadge: String = "Built-in Reference"
+    ) {
+        self.name = name
+        self.moduleName = moduleName
+        self.synopsis = synopsis
+        self.syntax = syntax
+        self.parameters = parameters
+        self.examples = examples
+        self.sourceBadge = sourceBadge
+    }
+}
+
+public struct PesterTestCaseSpec: Identifiable, Equatable, Codable, Sendable {
+    public let id: String
+    public let describeBlock: String
+    public let contextBlock: String?
+    public let itName: String
+    public let lineNumber: Int
+    public let bodyCode: String
+
+    public init(
+        id: String,
+        describeBlock: String,
+        contextBlock: String? = nil,
+        itName: String,
+        lineNumber: Int,
+        bodyCode: String
+    ) {
+        self.id = id
+        self.describeBlock = describeBlock
+        self.contextBlock = contextBlock
+        self.itName = itName
+        self.lineNumber = lineNumber
+        self.bodyCode = bodyCode
+    }
+}
+
+public struct PesterTestCaseResult: Identifiable, Equatable, Codable, Sendable {
+    public let id: String
+    public let describeBlock: String
+    public let contextBlock: String?
+    public let itName: String
+    public let lineNumber: Int
+    public let passed: Bool
+    public let durationMs: Int64
+    public let failureMessage: String?
+
+    public init(
+        id: String,
+        describeBlock: String,
+        contextBlock: String? = nil,
+        itName: String,
+        lineNumber: Int,
+        passed: Bool,
+        durationMs: Int64,
+        failureMessage: String? = nil
+    ) {
+        self.id = id
+        self.describeBlock = describeBlock
+        self.contextBlock = contextBlock
+        self.itName = itName
+        self.lineNumber = lineNumber
+        self.passed = passed
+        self.durationMs = durationMs
+        self.failureMessage = failureMessage
+    }
+}
+
+public struct PesterSuiteResult: Equatable, Codable, Sendable {
+    public let engineDescription: String
+    public let usedNativePwsh: Bool
+    public let passedCount: Int
+    public let failedCount: Int
+    public let totalDurationMs: Int64
+    public let results: [PesterTestCaseResult]
+    public let rawOutput: String
+
+    public var allPassed: Bool { failedCount == 0 && !results.isEmpty }
+
+    public init(
+        engineDescription: String,
+        usedNativePwsh: Bool,
+        passedCount: Int,
+        failedCount: Int,
+        totalDurationMs: Int64,
+        results: [PesterTestCaseResult],
+        rawOutput: String
+    ) {
+        self.engineDescription = engineDescription
+        self.usedNativePwsh = usedNativePwsh
+        self.passedCount = passedCount
+        self.failedCount = failedCount
+        self.totalDurationMs = totalDurationMs
+        self.results = results
+        self.rawOutput = rawOutput
+    }
+}
+
+public struct DataGridTable: Equatable, Sendable {
+    public var headers: [String]
+    public var rows: [[String]]
+    public var delimiter: Character
+    public var isJsonArray: Bool
+
+    public init(
+        headers: [String],
+        rows: [[String]],
+        delimiter: Character = ",",
+        isJsonArray: Bool = false
+    ) {
+        self.headers = headers
+        self.rows = rows
+        self.delimiter = delimiter
+        self.isJsonArray = isJsonArray
+    }
+}
+
+public struct SFTPConnectionProfile: Identifiable, Equatable, Codable, Sendable {
+    public var id: String
+    public var name: String
+    public var host: String
+    public var port: Int
+    public var username: String
+    public var initialPath: String
+    public var keyFilePath: String?
+
+    public init(
+        id: String = UUID().uuidString,
+        name: String,
+        host: String,
+        port: Int = 22,
+        username: String,
+        initialPath: String = "/",
+        keyFilePath: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.host = host
+        self.port = port
+        self.username = username
+        self.initialPath = initialPath.isEmpty ? "/" : initialPath
+        self.keyFilePath = keyFilePath
+    }
+}
+
+public struct SFTPRemoteEntry: Identifiable, Equatable, Codable, Sendable {
+    public var id: String { fullPath }
+    public let name: String
+    public let fullPath: String
+    public let isDirectory: Bool
+    public let sizeBytes: Int64
+    public let permissions: String
+    public let modifiedDisplay: String
+
+    public init(
+        name: String,
+        fullPath: String,
+        isDirectory: Bool,
+        sizeBytes: Int64 = 0,
+        permissions: String = "",
+        modifiedDisplay: String = ""
+    ) {
+        self.name = name
+        self.fullPath = fullPath
+        self.isDirectory = isDirectory
+        self.sizeBytes = sizeBytes
+        self.permissions = permissions
+        self.modifiedDisplay = modifiedDisplay
     }
 }

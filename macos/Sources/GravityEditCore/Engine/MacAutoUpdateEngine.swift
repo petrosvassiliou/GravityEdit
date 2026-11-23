@@ -57,7 +57,7 @@ public enum MacAutoUpdateEngine {
            !ver.isEmpty {
             return ver
         }
-        return "1.4.0"
+        return "1.5.0"
     }
 
     public static var currentBuildNumber: String {
@@ -65,7 +65,7 @@ public enum MacAutoUpdateEngine {
            !bld.isEmpty {
             return bld
         }
-        return "13"
+        return "15"
     }
     public static let bundleIdentifier = "com.gravityedit.mac"
     public static let githubRepoSlug = "petrosvassiliou/GravityEdit"

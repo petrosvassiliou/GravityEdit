@@ -4,6 +4,7 @@ import com.gravityedit.app.domain.model.CharDiffSpan
 import com.gravityedit.app.domain.model.DiffChangeType
 import com.gravityedit.app.domain.model.DiffResult
 import com.gravityedit.app.domain.model.DiffRow
+import com.gravityedit.app.domain.model.GutterLineChangeKind
 import com.gravityedit.app.domain.model.LineEnding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -165,6 +166,54 @@ object DiffEngine {
             removedCount = removedCount,
             modifiedCount = modifiedCount
         )
+    }
+
+    /**
+     * Computes 1-based live gutter line change markers (`ADDED`, `MODIFIED`, `DELETED_BELOW`)
+     * comparing [baselineText] against [currentText].
+     */
+    fun computeGutterLineChanges(
+        baselineText: String,
+        currentText: String
+    ): Map<Int, GutterLineChangeKind> {
+        val normBase = LineEnding.normalizeToLf(baselineText)
+        val normCurr = LineEnding.normalizeToLf(currentText)
+        if (normBase == normCurr) return emptyMap()
+
+        val diff = computeDiffSync(
+            leftDocumentId = null,
+            rightDocumentId = null,
+            leftTitle = "Baseline",
+            rightTitle = "Current",
+            leftText = normBase,
+            rightText = normCurr
+        )
+
+        val changes = LinkedHashMap<Int, GutterLineChangeKind>()
+        var lastRightLine = 1
+        for (row in diff.rows) {
+            if (row.rightLineNumber != null) {
+                lastRightLine = row.rightLineNumber
+            }
+            when (row.changeType) {
+                DiffChangeType.EQUAL -> Unit
+                DiffChangeType.INSERT -> {
+                    val rLine = row.rightLineNumber
+                    if (rLine != null) changes[rLine] = GutterLineChangeKind.ADDED
+                }
+                DiffChangeType.MODIFY -> {
+                    val rLine = row.rightLineNumber
+                    if (rLine != null) changes[rLine] = GutterLineChangeKind.MODIFIED
+                }
+                DiffChangeType.DELETE -> {
+                    val anchor = lastRightLine.coerceAtLeast(1)
+                    if (!changes.containsKey(anchor)) {
+                        changes[anchor] = GutterLineChangeKind.DELETED_BELOW
+                    }
+                }
+            }
+        }
+        return changes
     }
 
     /**

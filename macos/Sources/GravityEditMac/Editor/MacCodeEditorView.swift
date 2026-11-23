@@ -256,6 +256,7 @@ public final class GravityLineNumberRulerView: NSRulerView {
     public var foldedStartLines: Set<Int> = []
     public var bookmarkedLines: Set<Int> = []
     public var diagnosticsByLine: [Int: DiagnosticSeverity] = [:]
+    public var gutterChangesByLine: [Int: GutterLineChangeKind] = [:]
     public var onToggleFoldAtLine: ((Int) -> Void)?
     public var onToggleBookmarkAtLine: ((Int) -> Void)?
 
@@ -448,6 +449,24 @@ public final class GravityLineNumberRulerView: NSRulerView {
                             withAttributes: chevAttrs
                         )
                     }
+
+                    // v1.5.0 Live Git / Baseline Gutter Change Bar (right edge of gutter)
+                    if let changeKind = gutterChangesByLine[lineNumber] {
+                        switch changeKind {
+                        case .added:
+                            NSColor.systemGreen.setFill()
+                            let barRect = NSRect(x: bounds.maxX - 3.2, y: yInRuler + 1.0, width: 2.5, height: max(2.0, lineRect.height - 2.0))
+                            NSBezierPath(roundedRect: barRect, xRadius: 1.0, yRadius: 1.0).fill()
+                        case .modified:
+                            NSColor.systemOrange.setFill()
+                            let barRect = NSRect(x: bounds.maxX - 3.2, y: yInRuler + 1.0, width: 2.5, height: max(2.0, lineRect.height - 2.0))
+                            NSBezierPath(roundedRect: barRect, xRadius: 1.0, yRadius: 1.0).fill()
+                        case .deletedBelow:
+                            NSColor.systemRed.setFill()
+                            let delRect = NSRect(x: bounds.maxX - 5.5, y: yInRuler + max(0.0, lineRect.height - 3.0), width: 5.0, height: 3.0)
+                            NSBezierPath(roundedRect: delRect, xRadius: 1.0, yRadius: 1.0).fill()
+                        }
+                    }
                 }
                 lineNumber += 1
             }
@@ -482,6 +501,7 @@ public struct MacCodeEditorView: View {
     public let astSymbols: [AstSymbol]
     public let foldRegions: [FoldRegion]
     public let diagnostics: [PowerShellDiagnostic]
+    public let gutterChangesByLine: [Int: GutterLineChangeKind]
     public let themeMode: AppearanceThemeMode
     public let fontSize: Double
     public let tabWidth: Int
@@ -509,6 +529,7 @@ public struct MacCodeEditorView: View {
         astSymbols: [AstSymbol],
         foldRegions: [FoldRegion],
         diagnostics: [PowerShellDiagnostic],
+        gutterChangesByLine: [Int: GutterLineChangeKind] = [:],
         themeMode: AppearanceThemeMode,
         fontSize: Double,
         tabWidth: Int,
@@ -530,6 +551,7 @@ public struct MacCodeEditorView: View {
         self.astSymbols = astSymbols
         self.foldRegions = foldRegions
         self.diagnostics = diagnostics
+        self.gutterChangesByLine = gutterChangesByLine
         self.themeMode = themeMode
         self.fontSize = fontSize
         self.tabWidth = tabWidth
@@ -555,6 +577,7 @@ public struct MacCodeEditorView: View {
                 astSymbols: astSymbols,
                 foldRegions: foldRegions,
                 diagnostics: diagnostics,
+                gutterChangesByLine: gutterChangesByLine,
                 syntaxColors: EditorSyntaxColors.resolve(mode: themeMode, systemDark: colorScheme == .dark),
                 fontSize: CGFloat(fontSize),
                 tabWidth: tabWidth,
@@ -749,6 +772,7 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
     let astSymbols: [AstSymbol]
     let foldRegions: [FoldRegion]
     let diagnostics: [PowerShellDiagnostic]
+    let gutterChangesByLine: [Int: GutterLineChangeKind]
     let syntaxColors: EditorSyntaxColors
     let fontSize: CGFloat
     let tabWidth: Int
@@ -1077,6 +1101,7 @@ private struct MacCodeEditorRepresentable: NSViewRepresentable {
                 }
             }
             ruler.diagnosticsByLine = diagMap
+            ruler.gutterChangesByLine = state.gutterChangesByLine
 
             if textDiffers {
                 isProgrammaticUpdate = true
